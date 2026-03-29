@@ -7,8 +7,24 @@ on:
     branches: [main, develop]
 
 jobs:
+  security:
+    name: Security scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: detect-secrets
+        run: |
+          pip install detect-secrets
+          detect-secrets scan --baseline .secrets.baseline
+          detect-secrets audit .secrets.baseline --report --fail-on-unaudited
+
   backend:
-    name: Backend — test + lint
+    name: Backend — test + lint + audit
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -23,7 +39,10 @@ jobs:
           cache: "pip"
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r requirements.txt pip-audit
+
+      - name: Dependency audit
+        run: pip-audit
 
       - name: Lint (black + flake8)
         run: |
@@ -40,7 +59,7 @@ jobs:
           IOL_ENCRYPTION_KEY: ${{ secrets.TEST_IOL_ENCRYPTION_KEY }}
 
   frontend:
-    name: Frontend — type-check + lint + test
+    name: Frontend — type-check + lint + test + audit
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -56,6 +75,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Dependency audit
+        run: npm audit --audit-level=high
 
       - name: Type check
         run: npm run type-check

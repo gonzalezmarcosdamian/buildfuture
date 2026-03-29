@@ -1,0 +1,40 @@
+name: Weekly Learning Agent
+
+on:
+  schedule:
+    - cron: "0 20 * * 0"  # Domingos 17:00 ART (UTC-3)
+  workflow_dispatch:       # También ejecutable a mano
+
+permissions:
+  contents: write
+
+jobs:
+  generate-learnings:
+    name: Generar resumen semanal
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install anthropic
+
+      - name: Generate weekly learnings
+        run: python scripts/weekly_learning.py
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      - name: Commit learnings if updated
+        run: |
+          git config user.name "BuildFuture Bot"
+          git config user.email "bot@buildfuture.app"
+          git diff --quiet docs/LEARNINGS.md || (
+            git add docs/LEARNINGS.md &&
+            git commit -m "docs: weekly learning summary $(date +%Y-%m-%d)" &&
+            git push
+          )
