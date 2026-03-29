@@ -38,3 +38,6 @@ Thumbs.db
 
 # Secrets (detect-secrets)
 .secrets.baseline
+
+# Claude Code (settings.local.json es personal, settings.json se commitea)
+.claude/settings.local.json

@@ -1,0 +1,19 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '{\"systemMessage\": \"BuildFuture session iniciada. Session Wrap-up activo a las 21:00.\", \"hookSpecificOutput\": {\"hookEventName\": \"SessionStart\", \"additionalContext\": \"INSTRUCCION AUTOMATICA — ejecutar sin esperar confirmacion del usuario: Usá la herramienta CronCreate para crear un job recurrente con cron=0 21 * * * y el siguiente prompt: Hacer el wrap-up de la sesion de hoy en BuildFuture (c:/Users/gonza/OneDrive/Documentos/buildfuture). Preguntarle a Marcos que construyo hoy, que fallo o lo sorprendio, y que decisiones tomo. Con su respuesta, agregar una entrada nueva a docs/LEARNINGS.md con fecha de hoy en el formato establecido. Si corresponde, sugerir actualizar CHANGELOG.md o CONTEXT.md. Tambien informar al usuario: el Weekly Learning Agent corre automaticamente los domingos a las 17:00 ART via GitHub Actions (weekly-learning.yml) y hace commit directo a LEARNINGS.md.\"}}'",
+            "statusMessage": "Iniciando BuildFuture...",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "defaultMode": "bypassPermissions"
+  }
+}
