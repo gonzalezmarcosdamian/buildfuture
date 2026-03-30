@@ -8,12 +8,37 @@ Commits: [Conventional Commits](https://www.conventionalcommits.org/)
 ## [Unreleased]
 
 ### Pendiente
-- Nexo Platform: no tiene API pública — agregar entrada manual de cripto
-- ANTHROPIC_API_KEY: recomendaciones vía Claude API (preparado, falta key)
-- IOL histórico: importar operaciones pasadas para base de costo
+- FCI manual entry: Nexo Platform y FCI sin API → entrada manual de posiciones
 - FreedomGoal: hacer editable desde la UI
-- Racha: tabla dedicada `investment_months` (actualmente proxy por snapshot_date)
-- Port management: startup script para evitar acumulación de procesos
+- Port management: startup script para evitar acumulación de procesos uvicorn
+- ANTHROPIC_API_KEY: recomendaciones vía Claude API (preparado, falta key)
+- PPI integration: `ppi-client` PyPI disponible, siguiente ALYC
+
+---
+
+## [0.5.0] — 2026-03-30
+
+### Added
+- **Comité de expertos**: `expert_committee.py` conectado como recomendador default — 4 agentes (Carry ARS, Dolarización, Renta Fija, Diversificación) con señales en tiempo real
+- **Frontend recomendaciones**: panel "Comité de expertos" con convicción por agente, badges `agents_agreed` en hero card
+- **`InvestmentMonth`**: tabla con meses de inversión real desde operaciones IOL — reemplaza proxy `snapshot_date`
+- **`PortfolioSnapshot`**: snapshot diario de valor total del portafolio al cierre de mercado
+- **Scheduler**: APScheduler L-V 17:30 ART — sync IOL + snapshot automático
+- **Backup automático**: `backups/buildfuture_YYYY-MM-DD.db` antes de cada job (30 días retención)
+- **`POST /admin/snapshot`**: trigger manual de snapshot + sync
+- **`get_operations()`**: historial de compras/ventas desde IOL API
+- **CCL implícito CEDEARs**: Yahoo Finance + ratio derivado → CCL real al momento de compra
+- **`Position.ppc_ars`**: precio de compra en ARS crudo (sin conversión)
+- **`Position.purchase_fx_rate`**: MEP/CCL al momento de compra por ticker
+- **`Position.cost_basis_usd`**: costo base real en USD con MEP histórico
+- **`Position.performance_pct`**: rendimiento real en USD (no ARS convertido hoy)
+- **BudgetEditor**: modo bruto como default
+
+### Fixed
+- **Valuaciones ARS→USD**: IOL devuelve precios en ARS — fix `valorizado/cantidad/MEP` en `get_portfolio()`
+- **LECAP ppc convention**: `ppc` de IOL es per 100 nominales → `ppc/100` para costo por nominal
+- **Tickers IOL reales**: S31O5 (vencida Oct-2025) → S15Y6; S15G6 → S31G6; YCA6O (no en IOL) → AL30
+- **Nomenclatura LECAP**: G = Agosto (no Junio), Y = Mayo
 
 ---
 

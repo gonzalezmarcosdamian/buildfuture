@@ -19,13 +19,39 @@ class Position(Base):
     annual_yield_pct: Mapped[Decimal] = mapped_column(Numeric(8, 4), default=Decimal("0.08"))
     snapshot_date: Mapped[date] = mapped_column(Date)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Precio promedio de compra en ARS (directo de IOL, sin conversión)
+    ppc_ars: Mapped[Decimal] = mapped_column(Numeric(18, 6), default=Decimal("0"))
+    # MEP/CCL al momento de la compra — para calcular costo base real en USD
+    purchase_fx_rate: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0"))
 
     @property
     def current_value_usd(self) -> Decimal:
         return self.quantity * self.current_price_usd
 
     @property
+    def cost_basis_usd(self) -> Decimal:
+        """Costo base real en USD usando el MEP al momento de compra."""
+        if self.purchase_fx_rate and self.purchase_fx_rate > 0 and self.ppc_ars > 0:
+            # LECAPs: IOL cotiza ppc per 100 nominales → dividir por 100 para obtener precio por nominal
+            ppc_per_unit = self.ppc_ars / Decimal("100") if self.asset_type == "LETRA" else self.ppc_ars
+            return self.quantity * ppc_per_unit / self.purchase_fx_rate
+        return self.quantity * self.avg_purchase_price_usd
+
+    @property
     def performance_pct(self) -> Decimal:
+        """Rendimiento en USD usando costo base real."""
+        cost = self.cost_basis_usd
+        if cost == 0:
+            return Decimal("0")
+        return (self.current_value_usd - cost) / cost
+
+    @property
+    def performance_ars_pct(self) -> Decimal:
+        """Rendimiento puramente en ARS (precio ARS actual vs PPC ARS)."""
+        if self.ppc_ars == 0:
+            return Decimal("0")
+        # Para LECAPs: precio actual = current_price_usd × purchase_fx_rate aproximado
+        # Usamos avg_purchase_price_usd como proxy si no hay ppc_ars
         if self.avg_purchase_price_usd == 0:
             return Decimal("0")
         return (self.current_price_usd - self.avg_purchase_price_usd) / self.avg_purchase_price_usd
@@ -107,6 +133,36 @@ class FreedomGoal(Base):
     monthly_savings_usd: Mapped[Decimal] = mapped_column(Numeric(10, 2))
     target_annual_return_pct: Mapped[Decimal] = mapped_column(Numeric(5, 4), default=Decimal("0.08"))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class PortfolioSnapshot(Base):
+    """
+    Snapshot diario del portafolio al cierre de mercado.
+    Fuente de verdad para el historial de valor — no recuperable de IOL.
+    """
+    __tablename__ = "portfolio_snapshots"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    snapshot_date: Mapped[date] = mapped_column(Date, unique=True)
+    total_usd: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    monthly_return_usd: Mapped[Decimal] = mapped_column(Numeric(10, 2))
+    positions_count: Mapped[int] = mapped_column(default=0)
+    fx_mep: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0"))
+
+
+class InvestmentMonth(Base):
+    """
+    Registro de meses en que el usuario realizó al menos una inversión.
+    Fuente primaria: operaciones IOL. También se puede marcar manualmente.
+    """
+    __tablename__ = "investment_months"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    month: Mapped[date] = mapped_column(Date, unique=True)   # siempre el día 1 del mes
+    amount_ars: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=Decimal("0"))
+    amount_usd: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0"))
+    source: Mapped[str] = mapped_column(String(20), default="IOL")  # IOL | MANUAL
+    note: Mapped[str] = mapped_column(Text, default="")
 
 
 class Integration(Base):

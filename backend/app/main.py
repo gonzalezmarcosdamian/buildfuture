@@ -5,6 +5,7 @@ from app.database import engine, SessionLocal
 from app.models import Base
 from app.routers import portfolio, budget, integrations
 from app.seed import seed
+from app.scheduler import start_scheduler, stop_scheduler
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -14,7 +15,7 @@ logging.basicConfig(
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 
-app = FastAPI(title="BuildFuture API", version="0.4.0")
+app = FastAPI(title="BuildFuture API", version="0.5.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -34,8 +35,21 @@ def startup():
     db = SessionLocal()
     seed(db)
     db.close()
+    start_scheduler()
+
+
+@app.on_event("shutdown")
+def shutdown():
+    stop_scheduler()
 
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "version": "0.4.0"}
+    return {"status": "ok", "version": "0.5.0"}
+
+
+@app.post("/admin/snapshot")
+def manual_snapshot():
+    """Dispara el snapshot manualmente — útil para testing o sync forzado."""
+    from app.scheduler import trigger_snapshot_now
+    return trigger_snapshot_now()

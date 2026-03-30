@@ -3,11 +3,12 @@ from datetime import date
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.models import Position, BudgetConfig, BudgetCategory, FreedomGoal
+from app.models import Position, BudgetConfig, BudgetCategory, FreedomGoal, InvestmentMonth
 from app.services.freedom_calculator import calculate_freedom_score, calculate_milestone_projections
 from app.services.ai_recommendations import get_ai_recommendations
 from app.services.market_data import fetch_market_snapshot
 from app.services.smart_recommendations import get_smart_recommendations
+from app.services.expert_committee import get_committee_recommendations
 
 router = APIRouter(prefix="/portfolio", tags=["portfolio"])
 
@@ -32,7 +33,10 @@ def get_portfolio(db: Session = Depends(get_db)):
                 "avg_purchase_price_usd": float(p.avg_purchase_price_usd),
                 "current_price_usd": float(p.current_price_usd),
                 "current_value_usd": float(p.current_value_usd),
+                "cost_basis_usd": float(p.cost_basis_usd),
                 "performance_pct": float(p.performance_pct),
+                "purchase_fx_rate": float(p.purchase_fx_rate),
+                "ppc_ars": float(p.ppc_ars),
                 "annual_yield_pct": float(p.annual_yield_pct),
             }
             for p in positions
@@ -74,12 +78,12 @@ def get_portfolio_recommendations(
             force_refresh=force_refresh,
         )
 
-    return get_smart_recommendations(
+    return get_committee_recommendations(
         capital_ars=capital_ars,
+        risk_profile=risk_profile,
         freedom_pct=freedom_pct,
         monthly_savings_usd=monthly_savings_usd,
         current_tickers=current_tickers,
-        risk_profile=risk_profile,
     )
 
 
@@ -121,10 +125,13 @@ def get_gamification(db: Session = Depends(get_db)):
             })
 
     # ── 2. Racha mensual ─────────────────────────────────────────────────────
-    # Proxy: mes con al menos una posición activa cuyo snapshot_date caiga en ese mes
-    snapshot_months = set()
-    for p in positions:
-        snapshot_months.add(p.snapshot_date.replace(day=1))
+    # Fuente primaria: tabla investment_months (operaciones reales de IOL).
+    # Fallback: proxy por snapshot_date si no hay datos reales aún.
+    real_months = db.query(InvestmentMonth.month).all()
+    if real_months:
+        invested_months = {row.month.replace(day=1) for row in real_months}
+    else:
+        invested_months = {p.snapshot_date.replace(day=1) for p in positions}
 
     today = date.today()
     calendar = []
@@ -137,7 +144,7 @@ def get_gamification(db: Session = Depends(get_db)):
         month_date = date(y, m, 1)
         calendar.append({
             "month": month_date.isoformat(),
-            "invested": month_date in snapshot_months,
+            "invested": month_date in invested_months,
         })
 
     current_streak = 0
