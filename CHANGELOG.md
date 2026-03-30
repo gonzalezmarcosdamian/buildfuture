@@ -16,6 +16,22 @@ Commits: [Conventional Commits](https://www.conventionalcommits.org/)
 
 ---
 
+## [0.6.1] — 2026-03-30
+
+### Fixed (code review)
+- **Slot system recomendaciones**: 3 perfiles ahora garantizan instrumentos distintos — conservador (LETRA + CEDEAR defensivo + sin riesgo alto), moderado (mejor global + USD obligatorio + tipo diferente), agresivo (riesgo alto + CEDEAR + restante)
+- **`RISK_PROFILE_FILTERS` extremos**: agresivo 1.6× para riesgo alto, conservador 0.0× para riesgo alto
+- **`formatUSD`/`formatARS`/`formatPct` duplicados** en `PortfolioTabs`, `NextGoalCard`, `portfolio/page.tsx` → eliminados, importados de `@/lib/formatters`
+- **`formatPct` con signo**: parámetro `signed = false` agregado a lib para el prefijo `+` en rendimientos
+- **`_date()` doble llamada** en loop de history: `date_iso` guardado en `grouped` dict, eliminada segunda conversión
+- **Math redundante** en `next-goal`: `max(remaining + (monthly_return - remaining), 0)` → `max(monthly_return, 0)`
+- **Imports dentro de funciones** (`PortfolioSnapshot`, `UNIVERSE`) → movidos al tope del módulo
+- **Sets de UNIVERSE** recalculados en cada `vote()` → `frozenset` precalculados a nivel módulo (`_LECAP_TICKERS`, `_USD_TICKERS`, `_CEDEAR_TICKERS`)
+- **`res.ok` check** faltante en `changePeriod` de `PerformanceChart` → error ya no queda silencioso
+- **Tickers stale** en `AgenteDiversificacion` (`S31O5`, `S15G6`, `YCA6O`) → detección dinámica desde `UNIVERSE`
+
+---
+
 ## [0.6.0] — 2026-03-30
 
 ### Added

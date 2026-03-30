@@ -48,6 +48,7 @@ Usuario target: Marcos González — PM Ualá, Córdoba, ahorro USD 1000-1500/me
 
 ### Recomendaciones
 - ✅ Comité de 4 agentes expertos: Carry ARS, Dolarización, Renta Fija, Diversificación
+- ✅ Slot system: conservador/moderado/agresivo siempre con instrumentos distintos garantizados
 - ✅ Señales de mercado en tiempo real (dolarapi + BCRA): MEP, spread, inflación, tasa real
 - ✅ Selector perfil de riesgo: conservador / moderado / agresivo
 - ✅ Hero card + panel de señales por agente con convicción y badges `agents_agreed`

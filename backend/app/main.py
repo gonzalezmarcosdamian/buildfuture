@@ -15,7 +15,7 @@ logging.basicConfig(
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 
-app = FastAPI(title="BuildFuture API", version="0.6.0")
+app = FastAPI(title="BuildFuture API", version="0.6.1")
 
 app.add_middleware(
     CORSMiddleware,
@@ -45,7 +45,7 @@ def shutdown():
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "version": "0.6.0"}
+    return {"status": "ok", "version": "0.6.1"}
 
 
 @app.post("/admin/snapshot")

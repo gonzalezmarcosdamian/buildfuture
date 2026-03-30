@@ -2,6 +2,39 @@
 
 ---
 
+## Sesión v0.6.1 — 2026-03-30 (code review)
+
+### Objetivo
+Revisión por expertos (3 agentes en paralelo: reuse, quality, efficiency). Consolidación de issues encontrados y aplicación de fixes.
+
+### Cambios realizados
+
+**Recomendaciones — slot system completo**
+- Perfil `conservador`: slot 1 = LETRA, slot 2 = CEDEAR bajo/medio (no GGAL), slot 3 = mejor sin riesgo alto
+- Perfil `moderado`: slot 1 = mejor global, slot 2 = USD obligatorio, slot 3 = tipo diferente a slot 1 (evita 2 BONDs correlacionados)
+- Perfil `agresivo`: slot 1 = riesgo alto, slot 2 = CEDEAR, slot 3 = cualquier restante
+- `RISK_PROFILE_FILTERS` más extremos: conservador 0.0× en alto, agresivo 1.6× en alto y 0.3× en bajo
+- `AgenteDiversificacion`: tickers stale reemplazados por detección dinámica desde `UNIVERSE`
+- `_LECAP_TICKERS`, `_USD_TICKERS`, `_CEDEAR_TICKERS`: `frozenset` precalculados a nivel módulo
+
+**Backend — portfolio.py**
+- Imports `PortfolioSnapshot` y `UNIVERSE` movidos al tope del módulo (eliminados deferred imports dentro de funciones)
+- `_normalize_date()` y `_MONTH_NAMES` extraídos como helpers de módulo (reutilizables)
+- Doble llamada a `_date()` eliminada: `date_iso` guardado en `grouped` dict y reutilizado
+- Math redundante en `next-goal`: `max(remaining + (monthly_return - remaining), 0)` → `max(monthly_return, 0)`
+
+**Frontend — formatters**
+- `formatPct(value, decimals, signed)`: nuevo parámetro `signed = false` para prefijo `+` en rendimientos
+- `PortfolioTabs`: eliminados `formatUSD` y `formatPct` locales → `import { formatUSD, formatPct } from "@/lib/formatters"`, uso `formatPct(v, 1, true)` para signed
+- `NextGoalCard`: eliminados `formatUSD` y `formatARS` locales → importados de lib
+- `portfolio/page.tsx`: ARS inline reemplazado con `formatARS()`
+- `PerformanceChart`: `res.ok` check agregado en `changePeriod` — error HTTP ya no queda silencioso
+
+### Resultado validación
+`npx next build` ✅ sin errores. Backend v0.6.1 endpoints `/history` y `/next-goal` respondiendo correctamente.
+
+---
+
 ## Sesión v0.6.0 — 2026-03-30
 
 ### Objetivo

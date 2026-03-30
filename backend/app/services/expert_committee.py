@@ -388,9 +388,9 @@ class AgenteDiversificacion:
 
             scores[inst.ticker] = max(s, 0)
 
-        has_ars = any(t in portfolio_set for t in ["LECAP", "S31O5", "S15G6"])
-        has_usd = any(t in portfolio_set for t in ["QQQ", "SPY", "AL30", "GD30", "YCA6O"])
-        has_cedear = any(t in portfolio_set for t in ["QQQ", "SPY", "GGAL", "XLE"])
+        has_ars    = bool(portfolio_set & _LECAP_TICKERS)
+        has_usd    = bool(portfolio_set & _USD_TICKERS)
+        has_cedear = bool(portfolio_set & _CEDEAR_TICKERS)
 
         missing = []
         if not has_ars:
@@ -416,13 +416,75 @@ class AgenteDiversificacion:
         )
 
 
+# ── Sets derivados de UNIVERSE — precalculados para no recalcular en cada vote() ──
+_LECAP_TICKERS  = frozenset(i.ticker for i in UNIVERSE if i.asset_type == "LETRA")
+_USD_TICKERS    = frozenset(i.ticker for i in UNIVERSE if i.currency == "USD")
+_CEDEAR_TICKERS = frozenset(i.ticker for i in UNIVERSE if i.asset_type == "CEDEAR")
+
 # ── Orquestador ───────────────────────────────────────────────────────────
 
 RISK_PROFILE_FILTERS = {
-    "conservador": {"bajo": 1.4, "medio": 0.5, "alto": 0.0},
-    "moderado":    {"bajo": 1.1, "medio": 1.0, "alto": 0.6},
-    "agresivo":    {"bajo": 0.7, "medio": 1.0, "alto": 1.4},
+    "conservador": {"bajo": 1.5, "medio": 0.4, "alto": 0.0},
+    "moderado":    {"bajo": 1.0, "medio": 1.1, "alto": 0.7},
+    "agresivo":    {"bajo": 0.3, "medio": 0.9, "alto": 1.6},
 }
+
+# ── Slot system — garantiza variedad por perfil ────────────────────────────
+# Cada slot es una función que devuelve True si el instrumento califica.
+# El orquestador elige el mejor instrumento que pasa el filtro sin repetir.
+
+
+def _pick_by_slots(ranked: list, profile: str) -> list:
+    """
+    Selecciona hasta 3 instrumentos usando el slot system.
+    ranked: [(score, Instrument), ...] ordenado descendente.
+    """
+    selected: list = []
+    used: set = set()
+
+    def best(condition=None):
+        """Mejor instrumento no usado que cumple condition (None = cualquiera)."""
+        for score, inst in ranked:
+            if inst.ticker not in used and (condition is None or condition(inst)):
+                return (score, inst)
+        return None
+
+    def pick(condition=None):
+        result = best(condition)
+        if result:
+            selected.append(result)
+            used.add(result[1].ticker)
+        return result
+
+    if profile == "conservador":
+        # Slot 1: capital garantizado → LETRA
+        pick(lambda i: i.asset_type == "LETRA")
+        # Slot 2: dolarización defensiva → CEDEAR bajo/medio (no GGAL)
+        pick(lambda i: i.asset_type == "CEDEAR" and i.risk_level in ("bajo", "medio"))
+        # Slot 3: mejor restante sin riesgo alto
+        if not pick(lambda i: i.risk_level != "alto"):
+            pick()
+
+    elif profile == "agresivo":
+        # Slot 1: mayor retorno → riesgo alto
+        pick(lambda i: i.risk_level == "alto")
+        # Slot 2: CEDEAR (USD líquido)
+        pick(lambda i: i.asset_type == "CEDEAR")
+        # Slot 3: cualquier restante
+        if not pick(lambda i: True):
+            pick()
+
+    else:  # moderado
+        # Slot 1: mejor score global
+        pick()
+        # Slot 2: instrumento USD obligatorio (dolarización)
+        pick(lambda i: i.currency == "USD")
+        # Slot 3: tipo diferente a los ya seleccionados (diversificación real)
+        used_types = {inst.asset_type for _, inst in selected}
+        if not pick(lambda i: i.asset_type not in used_types):
+            pick()  # fallback sin restricción
+
+    return selected
 
 
 def _build_rationale(inst: Instrument, winning_agents: list[AgentVote], market: dict) -> tuple[str, str]:
@@ -560,16 +622,21 @@ def get_committee_recommendations(
 
         final_scores[inst.ticker] = round(score, 2)
 
-    # Top 3
+    # Ordenar todos los instrumentos por score
     ticker_map = {inst.ticker: inst for inst in universe}
-    ranked = sorted(
+    ranked_all = sorted(
         [(s, ticker_map[t]) for t, s in final_scores.items() if s > 0],
         key=lambda x: x[0],
         reverse=True,
-    )[:3]
+    )
 
+    if not ranked_all:
+        ranked_all = [(50.0, universe[0])]
+
+    # Selección por slots — garantiza variedad por perfil
+    ranked = _pick_by_slots(ranked_all, risk_profile)
     if not ranked:
-        ranked = [(50.0, universe[0])]
+        ranked = ranked_all[:3]
 
     total_score = sum(s for s, _ in ranked) or 1
     recommendations = []

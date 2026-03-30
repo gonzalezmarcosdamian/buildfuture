@@ -3,12 +3,12 @@ from datetime import date
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.models import Position, BudgetConfig, BudgetCategory, FreedomGoal, InvestmentMonth
+from app.models import Position, BudgetConfig, BudgetCategory, FreedomGoal, InvestmentMonth, PortfolioSnapshot
 from app.services.freedom_calculator import calculate_freedom_score, calculate_milestone_projections
 from app.services.ai_recommendations import get_ai_recommendations
 from app.services.market_data import fetch_market_snapshot
 from app.services.smart_recommendations import get_smart_recommendations
-from app.services.expert_committee import get_committee_recommendations
+from app.services.expert_committee import get_committee_recommendations, UNIVERSE
 
 router = APIRouter(prefix="/portfolio", tags=["portfolio"])
 
@@ -173,20 +173,21 @@ def get_gamification(db: Session = Depends(get_db)):
     }
 
 
+_MONTH_NAMES = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"]
+
+
+def _normalize_date(s_date) -> date:
+    """Normaliza a datetime.date aunque SQLite devuelva str."""
+    if hasattr(s_date, "year"):
+        return s_date
+    return date.fromisoformat(str(s_date))
+
+
 @router.get("/history")
 def get_portfolio_history(
     period: str = Query(default="daily"),  # daily | monthly | annual
     db: Session = Depends(get_db),
 ):
-    """
-    Retorna historial de snapshots del portafolio agrupados por período.
-    - daily: un punto por día
-    - monthly: último snapshot de cada mes
-    - annual: último snapshot de cada año
-    Cada punto incluye total_usd y el delta vs el punto anterior (para barras de rendimiento).
-    """
-    from app.models import PortfolioSnapshot
-
     snapshots = (
         db.query(PortfolioSnapshot)
         .order_by(PortfolioSnapshot.snapshot_date.asc())
@@ -196,48 +197,34 @@ def get_portfolio_history(
     if not snapshots:
         return {"period": period, "points": [], "has_data": False}
 
-    MONTH_NAMES = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"]
-
-    def _date(s_date):
-        """Normaliza a datetime.date aunque SQLite devuelva str."""
-        if hasattr(s_date, "year"):
-            return s_date
-        from datetime import date as _date_cls
-        return _date_cls.fromisoformat(str(s_date))
-
-    # Agrupar según período
     grouped: dict = {}
     for s in snapshots:
-        d = _date(s.snapshot_date)
+        d = _normalize_date(s.snapshot_date)
         if period == "daily":
             key = d.isoformat()
-            label = f"{d.day} {MONTH_NAMES[d.month - 1]}"
+            label = f"{d.day} {_MONTH_NAMES[d.month - 1]}"
         elif period == "monthly":
             key = f"{d.year}-{d.month:02d}"
-            label = f"{MONTH_NAMES[d.month - 1]} {str(d.year)[2:]}"
+            label = f"{_MONTH_NAMES[d.month - 1]} {str(d.year)[2:]}"
         else:  # annual
             key = str(d.year)
             label = key
 
-        # Quedarse con el último snapshot del período
-        grouped[key] = {"label": label, "snapshot": s}
+        grouped[key] = {"label": label, "date_iso": d.isoformat(), "snapshot": s}
 
     points_raw = list(grouped.values())
-
-    # Calcular delta vs punto anterior
     points = []
     for i, item in enumerate(points_raw):
         s = item["snapshot"]
         total = float(s.total_usd)
         prev_total = float(points_raw[i - 1]["snapshot"].total_usd) if i > 0 else total
-        delta = round(total - prev_total, 2)
         points.append({
             "label": item["label"],
-            "date": _date(s.snapshot_date).isoformat(),
+            "date": item["date_iso"],
             "total_usd": round(total, 2),
             "monthly_return_usd": round(float(s.monthly_return_usd), 2),
             "fx_mep": round(float(s.fx_mep), 2) if s.fx_mep else 0,
-            "delta_usd": delta,          # ganancia/pérdida vs período anterior
+            "delta_usd": round(total - prev_total, 2),
         })
 
     return {"period": period, "points": points, "has_data": len(points) >= 2}
@@ -245,12 +232,6 @@ def get_portfolio_history(
 
 @router.get("/next-goal")
 def get_next_goal(db: Session = Depends(get_db)):
-    """
-    Calcula cuántos meses faltan para desbloquear la próxima categoría del presupuesto,
-    basándose en el ahorro mensual disponible del presupuesto actual.
-    """
-    from app.services.expert_committee import UNIVERSE
-
     positions = db.query(Position).filter(Position.is_active == True).all()
     budget = db.query(BudgetConfig).order_by(BudgetConfig.effective_month.desc()).first()
     if not budget:
@@ -278,7 +259,7 @@ def get_next_goal(db: Session = Depends(get_db)):
                 "name": c.name,
                 "icon": c.icon,
                 "target_monthly_usd": round(cat_usd, 2),
-                "current_monthly_usd": round(max(remaining + (monthly_return - remaining), 0), 2),
+                "current_monthly_usd": round(max(monthly_return, 0), 2),
                 "missing_monthly_usd": missing_return_usd,
             }
             remaining = 0
