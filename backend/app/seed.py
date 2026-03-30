@@ -61,28 +61,6 @@ def seed(db: Session) -> None:
             snapshot_date=date(2026, 2, 15),
         ),
         Position(
-            ticker="BTC",
-            description="Bitcoin",
-            asset_type="CRYPTO",
-            source="NEXO",
-            quantity=Decimal("0.08"),
-            avg_purchase_price_usd=Decimal("42000.00"),
-            current_price_usd=Decimal("67000.00"),
-            annual_yield_pct=Decimal("0.04"),  # yield de Nexo ~4%
-            snapshot_date=date(2025, 9, 15),
-        ),
-        Position(
-            ticker="USDT",
-            description="Tether USD (Nexo)",
-            asset_type="CRYPTO",
-            source="NEXO",
-            quantity=Decimal("2000"),
-            avg_purchase_price_usd=Decimal("1.00"),
-            current_price_usd=Decimal("1.00"),
-            annual_yield_pct=Decimal("0.10"),  # yield stablecoin Nexo ~10%
-            snapshot_date=date(2025, 12, 15),
-        ),
-        Position(
             ticker="CASH_ARS",
             description="Efectivo ARS",
             asset_type="CASH",
@@ -128,11 +106,10 @@ def seed(db: Session) -> None:
     )
     db.add(goal)
 
-    # ── Integraciones (vacías — el usuario conecta sus cuentas desde la UI) ─
+    # ── Integraciones (solo ALYCs con API pública confirmada) ────────────────
     integrations = [
-        Integration(provider="IOL",   provider_type="ALYC",   is_active=True,  is_connected=False),
-        Integration(provider="NEXO",  provider_type="CRYPTO", is_active=True,  is_connected=False),
-        Integration(provider="BITSO", provider_type="CRYPTO", is_active=True,  is_connected=False),
+        Integration(provider="IOL", provider_type="ALYC", is_active=True, is_connected=False),
+        Integration(provider="PPI", provider_type="ALYC", is_active=True, is_connected=False),
     ]
     db.add_all(integrations)
 
