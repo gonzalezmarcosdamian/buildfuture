@@ -24,7 +24,10 @@ Usuario target: Marcos González — PM Ualá, Córdoba, ahorro USD 1000-1500/me
 - ✅ CCL implícito para CEDEARs: Yahoo Finance + ratio derivado automáticamente
 - ✅ `PortfolioSnapshot`: snapshot diario automático al cierre de mercado (17:30 ART)
 - ✅ Backup automático DB (30 días retención en `backups/`)
-- ✅ Milestone projections (25/50/75/100%)
+- ✅ Gráfico de barras: Tenencia (valor total por período) / Rendimiento (delta diario verde-rojo)
+- ✅ Chips de período: Diario / Mensual / Anual con fetch dinámico
+- ✅ Tabs: Composición (barra apilada por tipo + %) y Rendimientos (P&L por posición)
+- ✅ Header portafolio: total USD + equivalente ARS + renta mensual + renta anual
 
 ### Presupuesto
 - ✅ Ingreso bruto → neto con descuentos AFIP (slider 10-35%), default bruto
@@ -40,6 +43,8 @@ Usuario target: Marcos González — PM Ualá, Córdoba, ahorro USD 1000-1500/me
 - ✅ Racha mensual: tabla `investment_months` desde operaciones reales IOL
 - ✅ Calendario 12 meses estilo GitHub + badges: 🌱 3m · 🌿 6m · 🌳 12m
 - ✅ Roadmap de desbloqueo: cuánto rendimiento y capital necesita cada categoría
+- ✅ `NextGoalCard` en dashboard: próxima categoría, capital ARS/USD, meses de ahorro, ticker recomendado
+- ✅ Freedom % abstracto eliminado del hero — reemplazado por portafolio total USD
 
 ### Recomendaciones
 - ✅ Comité de 4 agentes expertos: Carry ARS, Dolarización, Renta Fija, Diversificación
@@ -67,6 +72,7 @@ Usuario target: Marcos González — PM Ualá, Córdoba, ahorro USD 1000-1500/me
 ### Alta prioridad
 - 🔲 **Entrada manual de posiciones**: FCI + cripto sin API → form manual en UI
 - 🔲 **FreedomGoal editable**: target_annual_return_pct y monthly_savings_usd desde UI
+- 🔲 **Historial real**: snapshot table tiene datos mock del seed — necesita reset al sincronizar IOL real
 
 ### Media prioridad
 - 🔲 **Claude API recommendations**: preparado en ai_recommendations.py, falta ANTHROPIC_API_KEY

@@ -2,6 +2,46 @@
 
 ---
 
+## Sesión v0.6.0 — 2026-03-30
+
+### Objetivo
+Portafolio page v2: ver historial de tenencia y rendimiento en gráfico de barras, tabs de composición/rendimientos por posición. En dashboard: reemplazar "próximo hito" abstracto por card concreta basada en presupuesto real. Eliminar freedom % suelto del hero.
+
+### Cambios realizados
+
+**Backend — 2 endpoints nuevos**
+- `GET /portfolio/history?period=daily|monthly|annual`: agrupa `PortfolioSnapshot` por período, calcula `delta_usd` vs punto anterior. Fix de `strftime` para Windows (sin `%-d` ni `%b`, usa array de meses en español hardcodeado).
+- `GET /portfolio/next-goal`: encuentra la próxima categoría del presupuesto no cubierta, calcula capital necesario (`missing_return × 12 / annual_yield`), meses de ahorro (`capital / savings_usd`), ticker top del universo como recomendación.
+
+**Frontend — nuevos componentes**
+- `PerformanceChart` (client): chip Tenencia (barras azules, valor total del portafolio por período) / Rendimiento (barras verdes/rojas, `delta_usd` contra período anterior). Chips de período con fetch dinámico al backend. Estado vacío explícito cuando `has_data=false`.
+- `PortfolioTabs` (client): tab Composición (barra apilada por `asset_type` coloreada + leyenda + lista de posiciones con %) / tab Rendimientos (posiciones ordenadas por `performance_pct` descendente, barra horizontal P&L, costo vs valor actual).
+- `NextGoalCard` (server): card en dashboard — categoría objetivo, barra de progreso, capital en USD/ARS, ahorro disponible del mes, ticker + yield TNA recomendado. Link a `/goals`.
+- Portfolio page refactor: header con total USD + equivalente ARS con MEP del presupuesto + renta mensual/anual. Integra `PerformanceChart` + `PortfolioTabs`.
+
+**Dashboard — limpieza**
+- Freedom % eliminado del hero (era abstracto, desconectado del presupuesto). Reemplazado por total USD del portafolio en la esquina derecha.
+- Bloque "Próximo hito" abstracto (milestones 25/50/75/100%) reemplazado por `NextGoalCard` basada en el presupuesto real del usuario.
+
+### Bugs encontrados y resueltos
+
+| Bug | Causa | Fix |
+|-----|-------|-----|
+| `ValueError: Invalid format string` en `/portfolio/history` | `strftime("%-d %b")` no existe en Windows | Array `MONTH_NAMES` hardcodeado en español + acceso a `.month` y `.day` directamente |
+| `snapshot_date` string vs date en SQLite | SQLAlchemy+SQLite puede devolver el campo Date como str | Helper `_date()` con `date.fromisoformat()` como fallback |
+
+### Decisiones técnicas
+
+- **Sin toggle ARS/USD**: se muestra total ARS como texto secundario (calculado con MEP del presupuesto) en lugar de un toggle interactivo. Reduce complejidad sin perder la información clave.
+- **`has_data: false` con 1 snapshot**: el gráfico muestra estado vacío hasta acumular 2+ snapshots. Es correcto — el delta no tiene sentido con un solo punto. Se acumula automáticamente con el scheduler.
+- **NextGoalCard usa primer instrumento LETRA del universo**: `top_instrument = next((i for i in UNIVERSE if i.asset_type == "LETRA"), UNIVERSE[0])`. Actualmente = S15Y6 68% TNA.
+
+### Estado actual
+
+Backend v0.6.0 corriendo en `localhost:8007`. Frontend v0.6.0 corriendo en `localhost:3001`. Dashboard con NextGoalCard funcional (muestra "Ropa — 1 mes"). Portafolio con gráfico y tabs. Snapshots acumulándose automáticamente L-V 17:30 ART.
+
+---
+
 ## Sesión v0.5.0 — 2026-03-30
 
 ### Objetivo

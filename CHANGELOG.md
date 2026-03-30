@@ -16,6 +16,25 @@ Commits: [Conventional Commits](https://www.conventionalcommits.org/)
 
 ---
 
+## [0.6.0] — 2026-03-30
+
+### Added
+- **`GET /portfolio/history`**: historial de `PortfolioSnapshot` agrupado por período (daily/monthly/annual), con `delta_usd` contra período anterior
+- **`GET /portfolio/next-goal`**: próxima categoría a desbloquear del presupuesto — capital necesario USD/ARS, meses de ahorro, ticker recomendado
+- **`PerformanceChart`**: gráfico de barras con dos modos (Tenencia = valor acumulado / Rendimiento = ganancia/pérdida diaria en verde-rojo) y chips de período (Diario/Mensual/Anual)
+- **`PortfolioTabs`**: tabs Composición (barra apilada por tipo de activo + % del total) y Rendimientos (posiciones ordenadas por performance, barra horizontal, P&L USD)
+- **`NextGoalCard`**: card en dashboard con próxima categoría a desbloquear, progreso actual, capital necesario, ahorro disponible, ticker recomendado con yield
+- **Portfolio page v2**: header con total USD + equivalente ARS + renta anual, integra PerformanceChart y PortfolioTabs
+
+### Changed
+- **Dashboard**: Freedom % eliminado del hero (reemplazado por total USD del portafolio)
+- **Dashboard**: bloque "Próximo hito" abstracto (25/50/75/100%) reemplazado por `NextGoalCard` basada en presupuesto real
+
+### Fixed
+- `strftime("%-d %b")` → formato explícito sin directives de Unix para compatibilidad Windows
+
+---
+
 ## [0.5.0] — 2026-03-30
 
 ### Added

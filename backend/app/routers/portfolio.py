@@ -173,6 +173,147 @@ def get_gamification(db: Session = Depends(get_db)):
     }
 
 
+@router.get("/history")
+def get_portfolio_history(
+    period: str = Query(default="daily"),  # daily | monthly | annual
+    db: Session = Depends(get_db),
+):
+    """
+    Retorna historial de snapshots del portafolio agrupados por período.
+    - daily: un punto por día
+    - monthly: último snapshot de cada mes
+    - annual: último snapshot de cada año
+    Cada punto incluye total_usd y el delta vs el punto anterior (para barras de rendimiento).
+    """
+    from app.models import PortfolioSnapshot
+
+    snapshots = (
+        db.query(PortfolioSnapshot)
+        .order_by(PortfolioSnapshot.snapshot_date.asc())
+        .all()
+    )
+
+    if not snapshots:
+        return {"period": period, "points": [], "has_data": False}
+
+    MONTH_NAMES = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"]
+
+    def _date(s_date):
+        """Normaliza a datetime.date aunque SQLite devuelva str."""
+        if hasattr(s_date, "year"):
+            return s_date
+        from datetime import date as _date_cls
+        return _date_cls.fromisoformat(str(s_date))
+
+    # Agrupar según período
+    grouped: dict = {}
+    for s in snapshots:
+        d = _date(s.snapshot_date)
+        if period == "daily":
+            key = d.isoformat()
+            label = f"{d.day} {MONTH_NAMES[d.month - 1]}"
+        elif period == "monthly":
+            key = f"{d.year}-{d.month:02d}"
+            label = f"{MONTH_NAMES[d.month - 1]} {str(d.year)[2:]}"
+        else:  # annual
+            key = str(d.year)
+            label = key
+
+        # Quedarse con el último snapshot del período
+        grouped[key] = {"label": label, "snapshot": s}
+
+    points_raw = list(grouped.values())
+
+    # Calcular delta vs punto anterior
+    points = []
+    for i, item in enumerate(points_raw):
+        s = item["snapshot"]
+        total = float(s.total_usd)
+        prev_total = float(points_raw[i - 1]["snapshot"].total_usd) if i > 0 else total
+        delta = round(total - prev_total, 2)
+        points.append({
+            "label": item["label"],
+            "date": _date(s.snapshot_date).isoformat(),
+            "total_usd": round(total, 2),
+            "monthly_return_usd": round(float(s.monthly_return_usd), 2),
+            "fx_mep": round(float(s.fx_mep), 2) if s.fx_mep else 0,
+            "delta_usd": delta,          # ganancia/pérdida vs período anterior
+        })
+
+    return {"period": period, "points": points, "has_data": len(points) >= 2}
+
+
+@router.get("/next-goal")
+def get_next_goal(db: Session = Depends(get_db)):
+    """
+    Calcula cuántos meses faltan para desbloquear la próxima categoría del presupuesto,
+    basándose en el ahorro mensual disponible del presupuesto actual.
+    """
+    from app.services.expert_committee import UNIVERSE
+
+    positions = db.query(Position).filter(Position.is_active == True).all()
+    budget = db.query(BudgetConfig).order_by(BudgetConfig.effective_month.desc()).first()
+    if not budget:
+        return None
+
+    score = calculate_freedom_score(positions, budget.total_monthly_usd)
+    monthly_return = float(score["monthly_return_usd"])
+    mep = float(budget.fx_rate)
+    savings_ars = float(budget.savings_monthly_ars)
+    savings_usd = savings_ars / mep if mep > 0 else 0
+
+    # Encontrar la próxima categoría a desbloquear (la más barata aún no cubierta)
+    cats = sorted(budget.categories, key=lambda c: float(c.amount_usd))
+    remaining = monthly_return
+    next_cat = None
+    for c in cats:
+        cat_usd = float(c.amount_usd)
+        if cat_usd <= 0:
+            continue
+        if remaining >= cat_usd:
+            remaining -= cat_usd
+        else:
+            missing_return_usd = round(cat_usd - max(remaining, 0), 2)
+            next_cat = {
+                "name": c.name,
+                "icon": c.icon,
+                "target_monthly_usd": round(cat_usd, 2),
+                "current_monthly_usd": round(max(remaining + (monthly_return - remaining), 0), 2),
+                "missing_monthly_usd": missing_return_usd,
+            }
+            remaining = 0
+            break
+
+    if not next_cat:
+        return {"all_unlocked": True}
+
+    # Instrumento top del comité para calcular proyección
+    top_instrument = next((i for i in UNIVERSE if i.asset_type == "LETRA"), UNIVERSE[0])
+    annual_yield = top_instrument.base_yield_pct
+
+    # Capital necesario para generar missing_return_usd/mes
+    # missing_return = capital × annual_yield / 12  →  capital = missing_return × 12 / annual_yield
+    capital_needed_usd = (next_cat["missing_monthly_usd"] * 12 / annual_yield) if annual_yield > 0 else 0
+    capital_needed_ars = round(capital_needed_usd * mep)
+
+    # Meses de ahorro necesarios
+    months_to_unlock = round(capital_needed_usd / savings_usd) if savings_usd > 0 else None
+
+    return {
+        "all_unlocked": False,
+        "next_category": next_cat,
+        "capital_needed_usd": round(capital_needed_usd, 2),
+        "capital_needed_ars": capital_needed_ars,
+        "savings_monthly_usd": round(savings_usd, 2),
+        "savings_monthly_ars": round(savings_ars),
+        "months_to_unlock": months_to_unlock,
+        "recommended_ticker": top_instrument.ticker,
+        "recommended_name": top_instrument.name,
+        "recommended_yield_pct": top_instrument.base_yield_pct,
+        "mep": round(mep, 2),
+    }
+
+
 @router.get("/freedom-score")
 def get_freedom_score(db: Session = Depends(get_db)):
     positions = db.query(Position).filter(Position.is_active == True).all()
