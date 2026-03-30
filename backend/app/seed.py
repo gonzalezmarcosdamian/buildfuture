@@ -25,7 +25,7 @@ def seed(db: Session) -> None:
             avg_purchase_price_usd=Decimal("12.50"),
             current_price_usd=Decimal("14.20"),
             annual_yield_pct=Decimal("0.12"),  # CEDEARs: mix de apreciación + dividendo
-            snapshot_date=today,
+            snapshot_date=date(2025, 10, 15),
         ),
         Position(
             ticker="MSFT",
@@ -36,7 +36,7 @@ def seed(db: Session) -> None:
             avg_purchase_price_usd=Decimal("380.00"),
             current_price_usd=Decimal("415.00"),
             annual_yield_pct=Decimal("0.10"),
-            snapshot_date=today,
+            snapshot_date=date(2025, 11, 15),
         ),
         Position(
             ticker="AL30",
@@ -47,7 +47,7 @@ def seed(db: Session) -> None:
             avg_purchase_price_usd=Decimal("45.00"),
             current_price_usd=Decimal("51.00"),
             annual_yield_pct=Decimal("0.09"),  # cupón + apreciación
-            snapshot_date=today,
+            snapshot_date=date(2026, 1, 15),
         ),
         Position(
             ticker="LECAP",
@@ -57,8 +57,8 @@ def seed(db: Session) -> None:
             quantity=Decimal("500000"),
             avg_purchase_price_usd=Decimal("0.00075"),
             current_price_usd=Decimal("0.00080"),
-            annual_yield_pct=Decimal("0.40"),  # TNA en ARS (~40%) convertida
-            snapshot_date=today,
+            annual_yield_pct=Decimal("0.68"),  # TNA vigente de mercado
+            snapshot_date=date(2026, 2, 15),
         ),
         Position(
             ticker="BTC",
@@ -69,7 +69,7 @@ def seed(db: Session) -> None:
             avg_purchase_price_usd=Decimal("42000.00"),
             current_price_usd=Decimal("67000.00"),
             annual_yield_pct=Decimal("0.04"),  # yield de Nexo ~4%
-            snapshot_date=today,
+            snapshot_date=date(2025, 9, 15),
         ),
         Position(
             ticker="USDT",
@@ -80,7 +80,7 @@ def seed(db: Session) -> None:
             avg_purchase_price_usd=Decimal("1.00"),
             current_price_usd=Decimal("1.00"),
             annual_yield_pct=Decimal("0.10"),  # yield stablecoin Nexo ~10%
-            snapshot_date=today,
+            snapshot_date=date(2025, 12, 15),
         ),
         Position(
             ticker="CASH_ARS",
@@ -97,22 +97,27 @@ def seed(db: Session) -> None:
     db.add_all(positions)
 
     # ── Presupuesto mensual (basado en el perfil real de Marcos) ──────────
+    # Sueldo neto estimado (7,560,000 bruto ~ 5,500,000 neto)
+    income_ars = Decimal("5500000")
     budget = BudgetConfig(
         effective_month=date(today.year, today.month, 1),
-        total_monthly_ars=Decimal("2640000"),  # gastos totales estimados
-        fx_rate=Decimal("1320"),               # tipo de cambio MEP aprox
+        income_monthly_ars=income_ars,
+        total_monthly_ars=Decimal("2640000"),
+        fx_rate=Decimal("1320"),
         notes="Presupuesto base 2026 — actualizar con tipo de cambio mensual",
     )
     db.add(budget)
-    db.flush()  # para tener el id
+    db.flush()
 
+    # Porcentajes sobre el ingreso neto
     categories = [
-        BudgetCategory(budget_id=budget.id, name="Vivienda",      percentage=Decimal("0.511"), icon="🏠", color="#3B82F6"),
-        BudgetCategory(budget_id=budget.id, name="Alimentación",  percentage=Decimal("0.170"), icon="🛒", color="#10B981"),
-        BudgetCategory(budget_id=budget.id, name="Transporte",    percentage=Decimal("0.057"), icon="🚗", color="#F59E0B"),
-        BudgetCategory(budget_id=budget.id, name="Ocio",          percentage=Decimal("0.114"), icon="🎯", color="#8B5CF6"),
-        BudgetCategory(budget_id=budget.id, name="Servicios",     percentage=Decimal("0.076"), icon="⚡", color="#EF4444"),
-        BudgetCategory(budget_id=budget.id, name="Varios",        percentage=Decimal("0.072"), icon="📦", color="#6B7280"),
+        BudgetCategory(budget_id=budget.id, name="Vivienda",      percentage=Decimal("0.236"), icon="🏠", color="#3B82F6", is_vacation=False),
+        BudgetCategory(budget_id=budget.id, name="Alimentación",  percentage=Decimal("0.082"), icon="🛒", color="#10B981", is_vacation=False),
+        BudgetCategory(budget_id=budget.id, name="Transporte",    percentage=Decimal("0.027"), icon="🚗", color="#F59E0B", is_vacation=False),
+        BudgetCategory(budget_id=budget.id, name="Ocio",          percentage=Decimal("0.055"), icon="🎯", color="#8B5CF6", is_vacation=False),
+        BudgetCategory(budget_id=budget.id, name="Servicios",     percentage=Decimal("0.036"), icon="⚡", color="#EF4444", is_vacation=False),
+        BudgetCategory(budget_id=budget.id, name="Varios",        percentage=Decimal("0.034"), icon="📦", color="#6B7280", is_vacation=False),
+        BudgetCategory(budget_id=budget.id, name="Vacaciones",    percentage=Decimal("0.050"), icon="🌴", color="#0EA5E9", is_vacation=True),
     ]
     db.add_all(categories)
 

@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import Integration, Position
 from app.services.iol_client import IOLClient, IOLAuthError
+from app.services.nexo_client import NexoClient, NexoAuthError
 
 router = APIRouter(prefix="/integrations", tags=["integrations"])
 
@@ -13,6 +14,11 @@ router = APIRouter(prefix="/integrations", tags=["integrations"])
 class ConnectRequest(BaseModel):
     username: str
     password: str
+
+
+class ConnectNexoRequest(BaseModel):
+    api_key: str
+    api_secret: str
 
 
 @router.get("/")
@@ -91,6 +97,88 @@ def sync_iol(db: Session = Depends(get_db)):
         integration.last_error = str(e)[:200]
         db.commit()
         raise HTTPException(status_code=502, detail=str(e))
+
+
+@router.post("/nexo/connect")
+def connect_nexo(body: ConnectNexoRequest, db: Session = Depends(get_db)):
+    client = NexoClient(body.api_key, body.api_secret)
+    try:
+        client.test_auth()
+    except NexoAuthError as e:
+        raise HTTPException(status_code=401, detail=f"Credenciales Nexo inválidas: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Error conectando con Nexo: {str(e)}")
+
+    integration = db.query(Integration).filter(Integration.provider == "NEXO").first()
+    if not integration:
+        integration = Integration(provider="NEXO", provider_type="CRYPTO")
+        db.add(integration)
+
+    integration.encrypted_credentials = f"{body.api_key}:{body.api_secret}"
+    integration.is_connected = True
+    integration.last_error = ""
+    db.flush()
+
+    result = _sync_nexo(client, db)
+    integration.last_synced_at = datetime.utcnow()
+    db.commit()
+
+    return {
+        "connected": True,
+        "positions_synced": result["positions_synced"],
+        "message": f"Nexo conectado. {result['positions_synced']} assets sincronizados.",
+    }
+
+
+@router.post("/nexo/sync")
+def sync_nexo(db: Session = Depends(get_db)):
+    integration = db.query(Integration).filter(Integration.provider == "NEXO").first()
+    if not integration or not integration.is_connected:
+        raise HTTPException(status_code=400, detail="Nexo no está conectado")
+
+    try:
+        parts = integration.encrypted_credentials.split(":", 1)
+        client = NexoClient(parts[0], parts[1])
+        result = _sync_nexo(client, db)
+        integration.last_synced_at = datetime.utcnow()
+        integration.last_error = ""
+        db.commit()
+        return {"positions_synced": result["positions_synced"]}
+    except Exception as e:
+        integration.last_error = str(e)[:200]
+        db.commit()
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+def _sync_nexo(client: NexoClient, db: Session) -> dict:
+    positions = client.get_balances()
+
+    db.query(Position).filter(
+        Position.source == "NEXO",
+        Position.is_active == True
+    ).update({"is_active": False})
+
+    today = date.today()
+    synced = 0
+
+    for p in positions:
+        pos = Position(
+            ticker=p.ticker,
+            description=p.description,
+            asset_type=p.asset_type,
+            source="NEXO",
+            quantity=p.quantity,
+            avg_purchase_price_usd=p.current_price_usd,
+            current_price_usd=p.current_price_usd,
+            annual_yield_pct=p.annual_yield_pct,
+            snapshot_date=today,
+            is_active=True,
+        )
+        db.add(pos)
+        synced += 1
+
+    db.flush()
+    return {"positions_synced": synced}
 
 
 def _sync_iol(client: IOLClient, db: Session) -> dict:

@@ -36,6 +36,7 @@ class BudgetConfig(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     effective_month: Mapped[date] = mapped_column(Date)
+    income_monthly_ars: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=Decimal("0"))
     total_monthly_ars: Mapped[Decimal] = mapped_column(Numeric(18, 2))
     fx_rate: Mapped[Decimal] = mapped_column(Numeric(10, 2))
     notes: Mapped[str] = mapped_column(Text, default="")
@@ -44,6 +45,38 @@ class BudgetConfig(Base):
     @property
     def total_monthly_usd(self) -> Decimal:
         return self.total_monthly_ars / self.fx_rate
+
+    @property
+    def income_monthly_usd(self) -> Decimal:
+        if self.fx_rate == 0:
+            return Decimal("0")
+        return self.income_monthly_ars / self.fx_rate
+
+    @property
+    def expenses_pct(self) -> Decimal:
+        """% del ingreso que va a gastos (excl. vacaciones e inversión)."""
+        return sum(
+            c.percentage for c in self.categories
+            if not c.is_vacation
+        )
+
+    @property
+    def vacation_pct(self) -> Decimal:
+        vac = next((c for c in self.categories if c.is_vacation), None)
+        return vac.percentage if vac else Decimal("0")
+
+    @property
+    def savings_monthly_ars(self) -> Decimal:
+        """Lo que queda para invertir = ingreso - gastos - vacaciones."""
+        return self.income_monthly_ars * (
+            1 - self.expenses_pct - self.vacation_pct
+        )
+
+    @property
+    def savings_monthly_usd(self) -> Decimal:
+        if self.fx_rate == 0:
+            return Decimal("0")
+        return self.savings_monthly_ars / self.fx_rate
 
 
 class BudgetCategory(Base):
@@ -55,11 +88,12 @@ class BudgetCategory(Base):
     percentage: Mapped[Decimal] = mapped_column(Numeric(5, 4))
     icon: Mapped[str] = mapped_column(String(10), default="💰")
     color: Mapped[str] = mapped_column(String(10), default="#3B82F6")
+    is_vacation: Mapped[bool] = mapped_column(Boolean, default=False)
     budget: Mapped["BudgetConfig"] = relationship(back_populates="categories")
 
     @property
     def amount_ars(self) -> Decimal:
-        return self.budget.total_monthly_ars * self.percentage
+        return self.budget.income_monthly_ars * self.percentage
 
     @property
     def amount_usd(self) -> Decimal:
