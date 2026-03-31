@@ -1,6 +1,6 @@
 from datetime import date, datetime
 from decimal import Decimal
-from sqlalchemy import String, Numeric, Boolean, Date, DateTime, ForeignKey, Text
+from sqlalchemy import String, Numeric, Boolean, Date, DateTime, ForeignKey, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
@@ -9,6 +9,7 @@ class Position(Base):
     __tablename__ = "positions"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(36), index=True)
     ticker: Mapped[str] = mapped_column(String(20))
     description: Mapped[str] = mapped_column(String(100))
     asset_type: Mapped[str] = mapped_column(String(20))  # CEDEAR | BOND | FCI | LETRA | CRYPTO | CASH
@@ -50,8 +51,6 @@ class Position(Base):
         """Rendimiento puramente en ARS (precio ARS actual vs PPC ARS)."""
         if self.ppc_ars == 0:
             return Decimal("0")
-        # Para LECAPs: precio actual = current_price_usd × purchase_fx_rate aproximado
-        # Usamos avg_purchase_price_usd como proxy si no hay ppc_ars
         if self.avg_purchase_price_usd == 0:
             return Decimal("0")
         return (self.current_price_usd - self.avg_purchase_price_usd) / self.avg_purchase_price_usd
@@ -61,6 +60,7 @@ class BudgetConfig(Base):
     __tablename__ = "budget_configs"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(36), index=True)
     effective_month: Mapped[date] = mapped_column(Date)
     income_monthly_ars: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=Decimal("0"))
     total_monthly_ars: Mapped[Decimal] = mapped_column(Numeric(18, 2))
@@ -130,6 +130,7 @@ class FreedomGoal(Base):
     __tablename__ = "freedom_goals"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(36), index=True)
     monthly_savings_usd: Mapped[Decimal] = mapped_column(Numeric(10, 2))
     target_annual_return_pct: Mapped[Decimal] = mapped_column(Numeric(5, 4), default=Decimal("0.08"))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
@@ -141,9 +142,11 @@ class PortfolioSnapshot(Base):
     Fuente de verdad para el historial de valor — no recuperable de IOL.
     """
     __tablename__ = "portfolio_snapshots"
+    __table_args__ = (UniqueConstraint("user_id", "snapshot_date", name="uq_snapshot_user_date"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    snapshot_date: Mapped[date] = mapped_column(Date, unique=True)
+    user_id: Mapped[str] = mapped_column(String(36), index=True)
+    snapshot_date: Mapped[date] = mapped_column(Date)
     total_usd: Mapped[Decimal] = mapped_column(Numeric(12, 2))
     monthly_return_usd: Mapped[Decimal] = mapped_column(Numeric(10, 2))
     positions_count: Mapped[int] = mapped_column(default=0)
@@ -156,9 +159,11 @@ class InvestmentMonth(Base):
     Fuente primaria: operaciones IOL. También se puede marcar manualmente.
     """
     __tablename__ = "investment_months"
+    __table_args__ = (UniqueConstraint("user_id", "month", name="uq_investment_user_month"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    month: Mapped[date] = mapped_column(Date, unique=True)   # siempre el día 1 del mes
+    user_id: Mapped[str] = mapped_column(String(36), index=True)
+    month: Mapped[date] = mapped_column(Date)  # siempre el día 1 del mes
     amount_ars: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=Decimal("0"))
     amount_usd: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0"))
     source: Mapped[str] = mapped_column(String(20), default="IOL")  # IOL | MANUAL
@@ -169,6 +174,7 @@ class Integration(Base):
     __tablename__ = "integrations"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(36), index=True)
     provider: Mapped[str] = mapped_column(String(20))  # IOL | NEXO | BITSO
     provider_type: Mapped[str] = mapped_column(String(10))  # ALYC | CRYPTO
     is_active: Mapped[bool] = mapped_column(Boolean, default=False)

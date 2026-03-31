@@ -7,6 +7,7 @@ logger = logging.getLogger("buildfuture.integrations")
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from app.database import get_db
+from app.auth import get_current_user
 from app.models import Integration, Position, InvestmentMonth
 from app.services.iol_client import IOLClient, IOLAuthError
 from app.services.nexo_client import NexoClient, NexoAuthError
@@ -25,8 +26,13 @@ class ConnectNexoRequest(BaseModel):
 
 
 @router.get("/")
-def get_integrations(db: Session = Depends(get_db)):
-    integrations = db.query(Integration).all()
+def get_integrations(
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    integrations = db.query(Integration).filter(
+        Integration.user_id == current_user
+    ).all()
     return [
         {
             "id": i.id,
@@ -42,7 +48,11 @@ def get_integrations(db: Session = Depends(get_db)):
 
 
 @router.post("/iol/connect")
-def connect_iol(body: ConnectRequest, db: Session = Depends(get_db)):
+def connect_iol(
+    body: ConnectRequest,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
     """
     Testea credenciales IOL, guarda en DB (plain text para dev local),
     y hace el primer sync del portafolio.
@@ -57,9 +67,16 @@ def connect_iol(body: ConnectRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=502, detail=f"Error conectando con IOL: {str(e)}")
 
     # 2. Guardar credenciales (dev: plain text — prod: AES-256)
-    integration = db.query(Integration).filter(Integration.provider == "IOL").first()
+    integration = db.query(Integration).filter(
+        Integration.provider == "IOL",
+        Integration.user_id == current_user,
+    ).first()
     if not integration:
-        integration = Integration(provider="IOL", provider_type="ALYC")
+        integration = Integration(
+            user_id=current_user,
+            provider="IOL",
+            provider_type="ALYC",
+        )
         db.add(integration)
 
     # Guardamos como "usuario:password" — solo para dev local
@@ -69,7 +86,7 @@ def connect_iol(body: ConnectRequest, db: Session = Depends(get_db)):
     db.flush()
 
     # 3. Sincronizar portafolio real
-    result = _sync_iol(client, db)
+    result = _sync_iol(client, db, current_user)
 
     integration.last_synced_at = datetime.utcnow()
     db.commit()
@@ -82,16 +99,22 @@ def connect_iol(body: ConnectRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/iol/sync")
-def sync_iol(db: Session = Depends(get_db)):
+def sync_iol(
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
     """Re-sincroniza el portafolio IOL con las credenciales guardadas."""
-    integration = db.query(Integration).filter(Integration.provider == "IOL").first()
+    integration = db.query(Integration).filter(
+        Integration.provider == "IOL",
+        Integration.user_id == current_user,
+    ).first()
     if not integration or not integration.is_connected:
         raise HTTPException(status_code=400, detail="IOL no está conectado")
 
     try:
         creds = integration.encrypted_credentials.split(":", 1)
         client = IOLClient(creds[0], creds[1])
-        result = _sync_iol(client, db)
+        result = _sync_iol(client, db, current_user)
         integration.last_synced_at = datetime.utcnow()
         integration.last_error = ""
         db.commit()
@@ -103,7 +126,11 @@ def sync_iol(db: Session = Depends(get_db)):
 
 
 @router.post("/nexo/connect")
-def connect_nexo(body: ConnectNexoRequest, db: Session = Depends(get_db)):
+def connect_nexo(
+    body: ConnectNexoRequest,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
     client = NexoClient(body.api_key, body.api_secret)
     try:
         client.test_auth()
@@ -112,9 +139,16 @@ def connect_nexo(body: ConnectNexoRequest, db: Session = Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Error conectando con Nexo: {str(e)}")
 
-    integration = db.query(Integration).filter(Integration.provider == "NEXO").first()
+    integration = db.query(Integration).filter(
+        Integration.provider == "NEXO",
+        Integration.user_id == current_user,
+    ).first()
     if not integration:
-        integration = Integration(provider="NEXO", provider_type="CRYPTO")
+        integration = Integration(
+            user_id=current_user,
+            provider="NEXO",
+            provider_type="CRYPTO",
+        )
         db.add(integration)
 
     integration.encrypted_credentials = f"{body.api_key}:{body.api_secret}"
@@ -122,7 +156,7 @@ def connect_nexo(body: ConnectNexoRequest, db: Session = Depends(get_db)):
     integration.last_error = ""
     db.flush()
 
-    result = _sync_nexo(client, db)
+    result = _sync_nexo(client, db, current_user)
     integration.last_synced_at = datetime.utcnow()
     db.commit()
 
@@ -134,15 +168,21 @@ def connect_nexo(body: ConnectNexoRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/nexo/sync")
-def sync_nexo(db: Session = Depends(get_db)):
-    integration = db.query(Integration).filter(Integration.provider == "NEXO").first()
+def sync_nexo(
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    integration = db.query(Integration).filter(
+        Integration.provider == "NEXO",
+        Integration.user_id == current_user,
+    ).first()
     if not integration or not integration.is_connected:
         raise HTTPException(status_code=400, detail="Nexo no está conectado")
 
     try:
         parts = integration.encrypted_credentials.split(":", 1)
         client = NexoClient(parts[0], parts[1])
-        result = _sync_nexo(client, db)
+        result = _sync_nexo(client, db, current_user)
         integration.last_synced_at = datetime.utcnow()
         integration.last_error = ""
         db.commit()
@@ -153,12 +193,13 @@ def sync_nexo(db: Session = Depends(get_db)):
         raise HTTPException(status_code=502, detail=str(e))
 
 
-def _sync_nexo(client: NexoClient, db: Session) -> dict:
+def _sync_nexo(client: NexoClient, db: Session, user_id: str) -> dict:
     positions = client.get_balances()
 
     db.query(Position).filter(
         Position.source == "NEXO",
-        Position.is_active == True
+        Position.is_active == True,
+        Position.user_id == user_id,
     ).update({"is_active": False})
 
     today = date.today()
@@ -166,6 +207,7 @@ def _sync_nexo(client: NexoClient, db: Session) -> dict:
 
     for p in positions:
         pos = Position(
+            user_id=user_id,
             ticker=p.ticker,
             description=p.description,
             asset_type=p.asset_type,
@@ -184,14 +226,15 @@ def _sync_nexo(client: NexoClient, db: Session) -> dict:
     return {"positions_synced": synced}
 
 
-def _sync_iol(client: IOLClient, db: Session) -> dict:
+def _sync_iol(client: IOLClient, db: Session, user_id: str) -> dict:
     """Trae posiciones y operaciones de IOL, upserta en la DB."""
     positions = client.get_portfolio()
 
-    # Desactivar posiciones IOL anteriores
+    # Desactivar posiciones IOL anteriores del usuario
     db.query(Position).filter(
         Position.source == "IOL",
-        Position.is_active == True
+        Position.is_active == True,
+        Position.user_id == user_id,
     ).update({"is_active": False})
 
     today = date.today()
@@ -210,6 +253,7 @@ def _sync_iol(client: IOLClient, db: Session) -> dict:
             purchase_fx = client._get_mep()
 
         pos = Position(
+            user_id=user_id,
             ticker=p.ticker,
             description=p.description,
             asset_type=p.asset_type,
@@ -227,7 +271,7 @@ def _sync_iol(client: IOLClient, db: Session) -> dict:
         synced += 1
 
     # Sincronizar meses de inversión desde operaciones (últimos 13 meses)
-    months_synced = _sync_investment_months(client, db)
+    months_synced = _sync_investment_months(client, db, user_id)
 
     db.flush()
     return {"positions_synced": synced, "months_synced": months_synced}
@@ -286,7 +330,7 @@ def _get_purchase_mep_from_operations(client: IOLClient) -> dict[str, float]:
     return result
 
 
-def _sync_investment_months(client: IOLClient, db: Session) -> int:
+def _sync_investment_months(client: IOLClient, db: Session, user_id: str) -> int:
     """
     Trae operaciones de compra de IOL y registra los meses con inversión real.
     IOL devuelve: fechaOrden, tipo ('compra'/'venta'), simbolo, monto, precio.
@@ -312,7 +356,6 @@ def _sync_investment_months(client: IOLClient, db: Session) -> int:
 
         month_key = op_date.replace(day=1)
         monto = float(op.get("monto", 0) or op.get("montoOperado", 0) or 0)
-        precio = float(op.get("precio", 0) or 0)
 
         if month_key not in months_found:
             months_found[month_key] = {"amount_ars": 0.0, "tickers": []}
@@ -323,10 +366,14 @@ def _sync_investment_months(client: IOLClient, db: Session) -> int:
 
     synced = 0
     for month_date, data in months_found.items():
-        existing = db.query(InvestmentMonth).filter(InvestmentMonth.month == month_date).first()
+        existing = db.query(InvestmentMonth).filter(
+            InvestmentMonth.month == month_date,
+            InvestmentMonth.user_id == user_id,
+        ).first()
         if not existing:
             note = ", ".join(set(data["tickers"]))[:200]
             db.add(InvestmentMonth(
+                user_id=user_id,
                 month=month_date,
                 amount_ars=Decimal(str(round(data["amount_ars"], 2))),
                 source="IOL",

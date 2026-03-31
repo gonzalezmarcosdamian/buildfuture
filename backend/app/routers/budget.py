@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from app.database import get_db
+from app.auth import get_current_user
 from app.models import BudgetConfig, BudgetCategory
 
 logger = logging.getLogger("buildfuture.budget")
@@ -88,18 +89,38 @@ def _serialize(budget: BudgetConfig) -> dict:
 
 
 @router.get("/")
-def get_budget(db: Session = Depends(get_db)):
-    budget = db.query(BudgetConfig).order_by(BudgetConfig.effective_month.desc()).first()
+def get_budget(
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    budget = (
+        db.query(BudgetConfig)
+        .filter(BudgetConfig.user_id == current_user)
+        .order_by(BudgetConfig.effective_month.desc())
+        .first()
+    )
     if not budget:
         return None
     return _serialize(budget)
 
 
 @router.put("/")
-def update_budget(body: BudgetIn, db: Session = Depends(get_db)):
-    budget = db.query(BudgetConfig).order_by(BudgetConfig.effective_month.desc()).first()
+def update_budget(
+    body: BudgetIn,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    budget = (
+        db.query(BudgetConfig)
+        .filter(BudgetConfig.user_id == current_user)
+        .order_by(BudgetConfig.effective_month.desc())
+        .first()
+    )
     if not budget:
-        budget = BudgetConfig(effective_month=date.today().replace(day=1))
+        budget = BudgetConfig(
+            user_id=current_user,
+            effective_month=date.today().replace(day=1),
+        )
         db.add(budget)
 
     budget.income_monthly_ars = Decimal(str(body.income_monthly_ars))

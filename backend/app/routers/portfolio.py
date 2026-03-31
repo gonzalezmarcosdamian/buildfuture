@@ -1,8 +1,12 @@
+import logging
 from decimal import Decimal
 from datetime import date
 from fastapi import APIRouter, Depends, Query
+
+logger = logging.getLogger("buildfuture.portfolio")
 from sqlalchemy.orm import Session
 from app.database import get_db
+from app.auth import get_current_user
 from app.models import Position, BudgetConfig, BudgetCategory, FreedomGoal, InvestmentMonth, PortfolioSnapshot
 from app.services.freedom_calculator import calculate_freedom_score, calculate_milestone_projections
 from app.services.ai_recommendations import get_ai_recommendations
@@ -14,9 +18,20 @@ router = APIRouter(prefix="/portfolio", tags=["portfolio"])
 
 
 @router.get("/")
-def get_portfolio(db: Session = Depends(get_db)):
-    positions = db.query(Position).filter(Position.is_active == True).all()
-    budget = db.query(BudgetConfig).order_by(BudgetConfig.effective_month.desc()).first()
+def get_portfolio(
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    positions = db.query(Position).filter(
+        Position.is_active == True,
+        Position.user_id == current_user,
+    ).all()
+    budget = (
+        db.query(BudgetConfig)
+        .filter(BudgetConfig.user_id == current_user)
+        .order_by(BudgetConfig.effective_month.desc())
+        .first()
+    )
     monthly_expenses_usd = budget.total_monthly_usd if budget else Decimal("2000")
 
     score = calculate_freedom_score(positions, monthly_expenses_usd)
@@ -57,9 +72,18 @@ def get_portfolio_recommendations(
     use_ai: bool = Query(default=False),
     force_refresh: bool = Query(default=False),
     db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
 ):
-    positions = db.query(Position).filter(Position.is_active == True).all()
-    budget = db.query(BudgetConfig).order_by(BudgetConfig.effective_month.desc()).first()
+    positions = db.query(Position).filter(
+        Position.is_active == True,
+        Position.user_id == current_user,
+    ).all()
+    budget = (
+        db.query(BudgetConfig)
+        .filter(BudgetConfig.user_id == current_user)
+        .order_by(BudgetConfig.effective_month.desc())
+        .first()
+    )
     score = calculate_freedom_score(positions, budget.total_monthly_usd if budget else Decimal("2000"))
 
     current_tickers = [p.ticker for p in positions]
@@ -88,9 +112,20 @@ def get_portfolio_recommendations(
 
 
 @router.get("/gamification")
-def get_gamification(db: Session = Depends(get_db)):
-    positions = db.query(Position).filter(Position.is_active == True).all()
-    budget = db.query(BudgetConfig).order_by(BudgetConfig.effective_month.desc()).first()
+def get_gamification(
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    positions = db.query(Position).filter(
+        Position.is_active == True,
+        Position.user_id == current_user,
+    ).all()
+    budget = (
+        db.query(BudgetConfig)
+        .filter(BudgetConfig.user_id == current_user)
+        .order_by(BudgetConfig.effective_month.desc())
+        .first()
+    )
 
     # ── 1. ¿Qué paga tu portafolio? ──────────────────────────────────────────
     monthly_return_usd = float(sum(
@@ -127,7 +162,9 @@ def get_gamification(db: Session = Depends(get_db)):
     # ── 2. Racha mensual ─────────────────────────────────────────────────────
     # Fuente primaria: tabla investment_months (operaciones reales de IOL).
     # Fallback: proxy por snapshot_date si no hay datos reales aún.
-    real_months = db.query(InvestmentMonth.month).all()
+    real_months = db.query(InvestmentMonth.month).filter(
+        InvestmentMonth.user_id == current_user
+    ).all()
     if real_months:
         invested_months = {row.month.replace(day=1) for row in real_months}
     else:
@@ -187,9 +224,60 @@ def _normalize_date(s_date) -> date:
 def get_portfolio_history(
     period: str = Query(default="daily"),  # daily | monthly | annual
     db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
 ):
+    from app.scheduler import trigger_snapshot_now
+
+    # Actualizar snapshot de hoy con valor live (así el chart termina igual que el header)
+    today = date.today()
+    try:
+        from app.services.freedom_calculator import calculate_freedom_score
+
+        live_positions = db.query(Position).filter(
+            Position.is_active == True,
+            Position.user_id == current_user,
+        ).all()
+        if live_positions:
+            budget = (
+                db.query(BudgetConfig)
+                .filter(BudgetConfig.user_id == current_user)
+                .order_by(BudgetConfig.effective_month.desc())
+                .first()
+            )
+            monthly_expenses = budget.total_monthly_usd if budget else Decimal("2000")
+            score = calculate_freedom_score(live_positions, monthly_expenses)
+
+            # MEP: reusar el del budget (ya disponible, sin llamada extra)
+            fx_mep = Decimal(str(budget.fx_rate)) if budget and budget.fx_rate else Decimal("0")
+
+            snapshot_today = db.query(PortfolioSnapshot).filter(
+                PortfolioSnapshot.snapshot_date == today,
+                PortfolioSnapshot.user_id == current_user,
+            ).first()
+            if snapshot_today:
+                snapshot_today.total_usd = score["portfolio_total_usd"]
+                snapshot_today.monthly_return_usd = score["monthly_return_usd"]
+                snapshot_today.positions_count = len(live_positions)
+                if fx_mep > 0:
+                    snapshot_today.fx_mep = fx_mep
+            else:
+                db.add(PortfolioSnapshot(
+                    user_id=current_user,
+                    snapshot_date=today,
+                    total_usd=score["portfolio_total_usd"],
+                    monthly_return_usd=score["monthly_return_usd"],
+                    positions_count=len(live_positions),
+                    fx_mep=fx_mep,
+                ))
+            db.commit()
+            db.expire_all()
+            logger.info("Snapshot hoy actualizado: USD %.4f", float(score["portfolio_total_usd"]))
+    except Exception as e:
+        logger.warning("Refresh snapshot hoy fallo: %s", e, exc_info=True)
+
     snapshots = (
         db.query(PortfolioSnapshot)
+        .filter(PortfolioSnapshot.user_id == current_user)
         .order_by(PortfolioSnapshot.snapshot_date.asc())
         .all()
     )
@@ -227,13 +315,24 @@ def get_portfolio_history(
             "delta_usd": round(total - prev_total, 2),
         })
 
-    return {"period": period, "points": points, "has_data": len(points) >= 2}
+    return {"period": period, "points": points, "has_data": len(points) >= 1}
 
 
 @router.get("/next-goal")
-def get_next_goal(db: Session = Depends(get_db)):
-    positions = db.query(Position).filter(Position.is_active == True).all()
-    budget = db.query(BudgetConfig).order_by(BudgetConfig.effective_month.desc()).first()
+def get_next_goal(
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    positions = db.query(Position).filter(
+        Position.is_active == True,
+        Position.user_id == current_user,
+    ).all()
+    budget = (
+        db.query(BudgetConfig)
+        .filter(BudgetConfig.user_id == current_user)
+        .order_by(BudgetConfig.effective_month.desc())
+        .first()
+    )
     if not budget:
         return None
 
@@ -296,10 +395,26 @@ def get_next_goal(db: Session = Depends(get_db)):
 
 
 @router.get("/freedom-score")
-def get_freedom_score(db: Session = Depends(get_db)):
-    positions = db.query(Position).filter(Position.is_active == True).all()
-    budget = db.query(BudgetConfig).order_by(BudgetConfig.effective_month.desc()).first()
-    goal = db.query(FreedomGoal).order_by(FreedomGoal.id.desc()).first()
+def get_freedom_score(
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    positions = db.query(Position).filter(
+        Position.is_active == True,
+        Position.user_id == current_user,
+    ).all()
+    budget = (
+        db.query(BudgetConfig)
+        .filter(BudgetConfig.user_id == current_user)
+        .order_by(BudgetConfig.effective_month.desc())
+        .first()
+    )
+    goal = (
+        db.query(FreedomGoal)
+        .filter(FreedomGoal.user_id == current_user)
+        .order_by(FreedomGoal.id.desc())
+        .first()
+    )
 
     monthly_expenses_usd = budget.total_monthly_usd if budget else Decimal("2000")
     monthly_savings_usd = goal.monthly_savings_usd if goal else Decimal("1250")

@@ -7,7 +7,7 @@ quedan protegidas sin depender de servicios externos.
 
 Job diario: cierre de mercado local (17:30 ART = 20:30 UTC).
   1. Sync portafolio IOL si está conectado.
-  2. Guarda snapshot diario de valor del portafolio.
+  2. Guarda snapshot diario de valor del portafolio (por cada usuario activo).
 
 El scheduler corre en-proceso con FastAPI (APScheduler 3.x BackgroundScheduler).
 Solo captura datos mientras el servidor está corriendo — aceptable para uso personal.
@@ -98,59 +98,61 @@ def _daily_close_job() -> None:
 
 
 def _maybe_sync_iol(db) -> None:
-    """Sync IOL si está conectado."""
+    """Sync IOL para todos los usuarios conectados."""
     from app.models import Integration
     from app.services.iol_client import IOLClient
     from app.routers.integrations import _sync_iol
 
-    integration = db.query(Integration).filter(
+    integrations = db.query(Integration).filter(
         Integration.provider == "IOL",
         Integration.is_connected == True,
-    ).first()
+    ).all()
 
-    if not integration or not integration.encrypted_credentials:
+    if not integrations:
         logger.info("IOL no conectado — skip sync")
         return
 
-    try:
-        creds = integration.encrypted_credentials.split(":", 1)
-        client = IOLClient(creds[0], creds[1])
-        result = _sync_iol(client, db)
-        from datetime import datetime
-        integration.last_synced_at = datetime.utcnow()
-        integration.last_error = ""
-        db.commit()
-        logger.info("IOL sync OK — posiciones: %d, meses: %d",
-                    result.get("positions_synced", 0), result.get("months_synced", 0))
-    except Exception as e:
-        logger.warning("IOL sync falló en scheduler: %s", e)
-        integration.last_error = str(e)[:200]
-        db.commit()
+    for integration in integrations:
+        if not integration.encrypted_credentials:
+            continue
+        try:
+            creds = integration.encrypted_credentials.split(":", 1)
+            client = IOLClient(creds[0], creds[1])
+            result = _sync_iol(client, db, integration.user_id)
+            from datetime import datetime
+            integration.last_synced_at = datetime.utcnow()
+            integration.last_error = ""
+            db.commit()
+            logger.info("IOL sync OK user=%s — posiciones: %d, meses: %d",
+                        integration.user_id,
+                        result.get("positions_synced", 0),
+                        result.get("months_synced", 0))
+        except Exception as e:
+            logger.warning("IOL sync falló en scheduler user=%s: %s", integration.user_id, e)
+            integration.last_error = str(e)[:200]
+            db.commit()
 
 
 def _save_portfolio_snapshot(db) -> None:
-    """Guarda snapshot diario si no existe ya para hoy."""
+    """Guarda snapshot diario para cada usuario con posiciones activas."""
     from app.models import Position, PortfolioSnapshot
     from app.services.freedom_calculator import calculate_freedom_score
 
     today = date.today()
-    existing = db.query(PortfolioSnapshot).filter(
-        PortfolioSnapshot.snapshot_date == today
-    ).first()
-    if existing:
-        logger.info("Snapshot de hoy ya existe — skip")
-        return
 
-    positions = db.query(Position).filter(Position.is_active == True).all()
-    if not positions:
+    # Obtener todos los user_ids distintos con posiciones activas
+    user_ids = (
+        db.query(Position.user_id)
+        .filter(Position.is_active == True)
+        .distinct()
+        .all()
+    )
+
+    if not user_ids:
         logger.info("Sin posiciones activas — skip snapshot")
         return
 
-    score = calculate_freedom_score(positions, Decimal("2000"))
-    total_usd = score["portfolio_total_usd"]
-    monthly_return = score["monthly_return_usd"]
-
-    # Intentar traer MEP actual
+    # Intentar traer MEP actual una sola vez
     fx_mep = Decimal("0")
     try:
         import httpx
@@ -160,17 +162,38 @@ def _save_portfolio_snapshot(db) -> None:
     except Exception:
         pass
 
-    snapshot = PortfolioSnapshot(
-        snapshot_date=today,
-        total_usd=total_usd,
-        monthly_return_usd=monthly_return,
-        positions_count=len(positions),
-        fx_mep=fx_mep,
-    )
-    db.add(snapshot)
-    db.commit()
-    logger.info("Snapshot guardado: USD %.2f | retorno %.2f/mes | MEP %.0f",
-                float(total_usd), float(monthly_return), float(fx_mep))
+    for (user_id,) in user_ids:
+        existing = db.query(PortfolioSnapshot).filter(
+            PortfolioSnapshot.snapshot_date == today,
+            PortfolioSnapshot.user_id == user_id,
+        ).first()
+        if existing:
+            logger.info("Snapshot de hoy ya existe para user=%s — skip", user_id)
+            continue
+
+        positions = db.query(Position).filter(
+            Position.is_active == True,
+            Position.user_id == user_id,
+        ).all()
+        if not positions:
+            continue
+
+        score = calculate_freedom_score(positions, Decimal("2000"))
+        total_usd = score["portfolio_total_usd"]
+        monthly_return = score["monthly_return_usd"]
+
+        snapshot = PortfolioSnapshot(
+            user_id=user_id,
+            snapshot_date=today,
+            total_usd=total_usd,
+            monthly_return_usd=monthly_return,
+            positions_count=len(positions),
+            fx_mep=fx_mep,
+        )
+        db.add(snapshot)
+        db.commit()
+        logger.info("Snapshot guardado user=%s: USD %.2f | retorno %.2f/mes | MEP %.0f",
+                    user_id, float(total_usd), float(monthly_return), float(fx_mep))
 
 
 def trigger_snapshot_now() -> dict:

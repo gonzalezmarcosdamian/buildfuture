@@ -139,8 +139,9 @@ class IOLClient:
         positions = []
         for activo in activos:
             titulo = activo.get("titulo", {})
+            ticker_sym = titulo.get("simbolo", "")
             tipo_raw = str(titulo.get("tipo", "")).lower()
-            asset_type = _normalize_asset_type(tipo_raw)
+            asset_type = _normalize_asset_type(tipo_raw, ticker_sym)
             # Normalizar clave para DEFAULT_YIELDS (IOL devuelve "CEDEARS", "Letras", etc.)
             yield_key = next((k for k in DEFAULT_YIELDS if k in tipo_raw), "default")
             annual_yield = DEFAULT_YIELDS[yield_key]
@@ -372,14 +373,28 @@ class IOLClient:
         return results
 
 
-def _normalize_asset_type(tipo_iol: str) -> str:
+# Tickers conocidos que IOL clasifica mal — override explícito
+_TICKER_TYPE_OVERRIDES: dict[str, str] = {
+    "IOLCAMA": "FCI",
+    "IOLCAM":  "FCI",
+    "IOLMMA":  "FCI",
+    "IOLMM":   "FCI",
+}
+
+
+def _normalize_asset_type(tipo_iol: str, ticker: str = "") -> str:
+    # Override por ticker (más confiable que el string de tipo IOL)
+    if ticker.upper() in _TICKER_TYPE_OVERRIDES:
+        return _TICKER_TYPE_OVERRIDES[ticker.upper()]
+
     mapping = {
-        "accion":    "CEDEAR",
-        "cedear":    "CEDEAR",
-        "bono":      "BOND",
-        "on":        "BOND",
-        "letra":     "LETRA",
         "fci":       "FCI",
+        "fondo":     "FCI",
+        "cedear":    "CEDEAR",
+        "accion":    "CEDEAR",
+        "letra":     "LETRA",
+        "on":        "ON",
+        "bono":      "BOND",
         "cauciones": "CAUCION",
         "opcion":    "OPTION",
     }

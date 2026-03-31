@@ -2,21 +2,25 @@
 Seed data — portafolio mock de Marcos para desarrollo local.
 Refleja su perfil financiero real con posiciones ficticias pero realistas.
 """
+import os
 from datetime import date
 from decimal import Decimal
 from sqlalchemy.orm import Session
 from app.models import Position, BudgetConfig, BudgetCategory, FreedomGoal, Integration
 
+SEED_USER_ID = os.getenv("SEED_USER_ID", "00000000-0000-0000-0000-000000000001")
+
 
 def seed(db: Session) -> None:
-    if db.query(Position).count() > 0:
-        return  # Ya está seeded
+    if db.query(Position).filter(Position.user_id == SEED_USER_ID).count() > 0:
+        return  # Ya está seeded para este usuario
 
     today = date.today()
 
     # ── Posiciones mock (portafolio inicial realista para AR) ──────────────
     positions = [
         Position(
+            user_id=SEED_USER_ID,
             ticker="GGAL",
             description="Grupo Financiero Galicia CEDEAR",
             asset_type="CEDEAR",
@@ -28,6 +32,7 @@ def seed(db: Session) -> None:
             snapshot_date=date(2025, 10, 15),
         ),
         Position(
+            user_id=SEED_USER_ID,
             ticker="MSFT",
             description="Microsoft CEDEAR",
             asset_type="CEDEAR",
@@ -39,6 +44,7 @@ def seed(db: Session) -> None:
             snapshot_date=date(2025, 11, 15),
         ),
         Position(
+            user_id=SEED_USER_ID,
             ticker="AL30",
             description="Bono Soberano AL30 USD",
             asset_type="BOND",
@@ -50,6 +56,7 @@ def seed(db: Session) -> None:
             snapshot_date=date(2026, 1, 15),
         ),
         Position(
+            user_id=SEED_USER_ID,
             ticker="LECAP",
             description="Letra Capitalizable Tesoro",
             asset_type="LETRA",
@@ -61,6 +68,7 @@ def seed(db: Session) -> None:
             snapshot_date=date(2026, 2, 15),
         ),
         Position(
+            user_id=SEED_USER_ID,
             ticker="CASH_ARS",
             description="Efectivo ARS",
             asset_type="CASH",
@@ -78,6 +86,7 @@ def seed(db: Session) -> None:
     # Sueldo neto estimado (7,560,000 bruto ~ 5,500,000 neto)
     income_ars = Decimal("5500000")
     budget = BudgetConfig(
+        user_id=SEED_USER_ID,
         effective_month=date(today.year, today.month, 1),
         income_monthly_ars=income_ars,
         total_monthly_ars=Decimal("2640000"),
@@ -101,6 +110,7 @@ def seed(db: Session) -> None:
 
     # ── Objetivo de libertad financiera ───────────────────────────────────
     goal = FreedomGoal(
+        user_id=SEED_USER_ID,
         monthly_savings_usd=Decimal("1250"),
         target_annual_return_pct=Decimal("0.08"),
     )
@@ -108,8 +118,8 @@ def seed(db: Session) -> None:
 
     # ── Integraciones (solo ALYCs con API pública confirmada) ────────────────
     integrations = [
-        Integration(provider="IOL", provider_type="ALYC", is_active=True, is_connected=False),
-        Integration(provider="PPI", provider_type="ALYC", is_active=True, is_connected=False),
+        Integration(user_id=SEED_USER_ID, provider="IOL", provider_type="ALYC", is_active=True, is_connected=False),
+        Integration(user_id=SEED_USER_ID, provider="PPI", provider_type="ALYC", is_active=True, is_connected=False),
     ]
     db.add_all(integrations)
 
