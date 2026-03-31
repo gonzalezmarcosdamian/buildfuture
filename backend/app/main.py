@@ -35,12 +35,13 @@ app.include_router(integrations.router)
 
 @app.on_event("startup")
 def startup():
+    if IS_SERVERLESS:
+        return
     Base.metadata.create_all(bind=engine)
-    if not IS_SERVERLESS:
-        db = SessionLocal()
-        seed(db)
-        db.close()
-        start_scheduler()
+    db = SessionLocal()
+    seed(db)
+    db.close()
+    start_scheduler()
 
 
 @app.on_event("shutdown")
