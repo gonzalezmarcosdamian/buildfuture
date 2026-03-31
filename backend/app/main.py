@@ -5,8 +5,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.database import engine, SessionLocal
 from app.models import Base
 from app.routers import portfolio, budget, integrations
-from app.seed import seed
-from app.scheduler import start_scheduler, stop_scheduler
+IS_SERVERLESS = os.environ.get("VERCEL", "") == "1"
+
+if not IS_SERVERLESS:
+    from app.seed import seed
+    from app.scheduler import start_scheduler, stop_scheduler
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -28,9 +31,6 @@ app.add_middleware(
 app.include_router(portfolio.router)
 app.include_router(budget.router)
 app.include_router(integrations.router)
-
-
-IS_SERVERLESS = os.environ.get("VERCEL", "") == "1"
 
 
 @app.on_event("startup")
