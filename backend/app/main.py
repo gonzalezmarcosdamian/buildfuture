@@ -1,4 +1,5 @@
 import logging
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import engine, SessionLocal
@@ -29,18 +30,23 @@ app.include_router(budget.router)
 app.include_router(integrations.router)
 
 
+IS_SERVERLESS = os.environ.get("VERCEL", "") == "1"
+
+
 @app.on_event("startup")
 def startup():
     Base.metadata.create_all(bind=engine)
-    db = SessionLocal()
-    seed(db)
-    db.close()
-    start_scheduler()
+    if not IS_SERVERLESS:
+        db = SessionLocal()
+        seed(db)
+        db.close()
+        start_scheduler()
 
 
 @app.on_event("shutdown")
 def shutdown():
-    stop_scheduler()
+    if not IS_SERVERLESS:
+        stop_scheduler()
 
 
 @app.get("/health")
