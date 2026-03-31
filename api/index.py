@@ -1,26 +1,11 @@
-"""Vercel serverless entry point — minimal test first."""
+"""Vercel serverless entry point — wraps the FastAPI app."""
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+import sys
+from pathlib import Path
 
-app = FastAPI(title="BuildFuture API", version="0.6.1")
+# Add backend directory to Python path so imports work
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "backend"))
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-
-@app.get("/")
-def root():
-    return {"status": "ok", "version": "0.6.1", "env": "vercel"}
-
-
-@app.get("/health")
-def health():
-    return {"status": "ok", "version": "0.6.1"}
-
+from app.main import app  # noqa: E402
 
 handler = app
