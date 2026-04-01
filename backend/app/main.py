@@ -50,6 +50,11 @@ def shutdown():
         stop_scheduler()
 
 
+@app.get("/")
+def root():
+    return {"status": "ok", "version": "0.6.1", "env": "vercel"}
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "version": "0.6.1"}
