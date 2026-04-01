@@ -50,16 +50,32 @@ def _auto_sync_iol(user_id: str) -> None:
 
         # Lock optimista: marcar como "en sync" antes de empezar
         # Evita que requests concurrentes del mismo usuario dupliquen posiciones
+        prev_synced_at = integration.last_synced_at
         integration.last_synced_at = datetime.utcnow()
         db.commit()
 
-        logger.info("Auto-sync IOL iniciando para user %s", user_id)
-        creds = integration.encrypted_credentials.split(":", 1)
-        client = IOLClient(creds[0], creds[1])
-        result = _sync_iol(client, db, user_id)
-        integration.last_error = ""
-        db.commit()
-        logger.info("Auto-sync IOL OK: %d posiciones para user %s", result["positions_synced"], user_id)
+        try:
+            logger.info("Auto-sync IOL iniciando para user %s", user_id)
+            creds = integration.encrypted_credentials.split(":", 1)
+            client = IOLClient(creds[0], creds[1])
+            result = _sync_iol(client, db, user_id)
+            integration.last_error = ""
+            db.commit()
+            logger.info("Auto-sync IOL OK: %d posiciones para user %s", result["positions_synced"], user_id)
+        except Exception as inner_e:
+            logger.warning("Auto-sync IOL falló para user %s: %s", user_id, inner_e)
+            try:
+                db.rollback()
+                # Restaurar last_synced_at para que el próximo auto-sync pueda reintentar
+                integration2 = db.query(Integration).filter(
+                    Integration.provider == "IOL",
+                    Integration.user_id == user_id,
+                ).first()
+                if integration2:
+                    integration2.last_synced_at = prev_synced_at
+                    db.commit()
+            except Exception:
+                pass
     except Exception as e:
         logger.warning("Auto-sync IOL falló para user %s: %s", user_id, e)
         try:
