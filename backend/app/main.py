@@ -45,6 +45,7 @@ def startup():
     db = SessionLocal()
     seed(db)
     _purge_bad_manual_positions(db)
+    _dedup_positions(db)
     db.close()
     start_scheduler()
 
@@ -69,6 +70,47 @@ def _purge_bad_manual_positions(db):
             logger.info("Purged %d bad manual positions on startup", purged)
     except Exception as e:
         logger.warning("_purge_bad_manual_positions failed: %s", e)
+        db.rollback()
+
+
+def _dedup_positions(db):
+    """
+    Limpia posiciones duplicadas activas causadas por race condition en auto-sync.
+    Para cada (user_id, ticker, source) mantiene solo la posición con el id más alto
+    (la más reciente) y desactiva las anteriores.
+    """
+    from app.models import Position
+    from sqlalchemy import func
+    try:
+        # Encontrar grupos con más de una posición activa para el mismo ticker
+        dupes = (
+            db.query(Position.user_id, Position.ticker, Position.source,
+                     func.count(Position.id).label("cnt"),
+                     func.max(Position.id).label("keep_id"))
+            .filter(Position.is_active == True)
+            .group_by(Position.user_id, Position.ticker, Position.source)
+            .having(func.count(Position.id) > 1)
+            .all()
+        )
+        total = 0
+        for row in dupes:
+            deactivated = (
+                db.query(Position)
+                .filter(
+                    Position.user_id == row.user_id,
+                    Position.ticker == row.ticker,
+                    Position.source == row.source,
+                    Position.is_active == True,
+                    Position.id != row.keep_id,
+                )
+                .update({"is_active": False})
+            )
+            total += deactivated
+        if total:
+            db.commit()
+            logger.info("_dedup_positions: %d posiciones duplicadas desactivadas", total)
+    except Exception as e:
+        logger.warning("_dedup_positions failed: %s", e)
         db.rollback()
 
 

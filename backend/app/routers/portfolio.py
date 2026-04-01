@@ -23,7 +23,9 @@ AUTO_SYNC_MIN_AGE_MINUTES = 60
 def _auto_sync_iol(user_id: str) -> None:
     """
     Sincroniza IOL en background si los datos tienen más de AUTO_SYNC_MIN_AGE_MINUTES.
-    Usa su propia sesión de DB — se llama desde BackgroundTasks después de enviar la respuesta.
+    Usa lock optimista: actualiza last_synced_at ANTES de sincronizar para evitar
+    que múltiples requests concurrentes (dashboard llama 3 endpoints en paralelo)
+    disparen syncs simultáneos y dupliquen posiciones.
     """
     from app.database import SessionLocal
     from app.models import Integration
@@ -46,11 +48,15 @@ def _auto_sync_iol(user_id: str) -> None:
                 logger.debug("Auto-sync IOL skipped — synced %.0f min ago", age)
                 return
 
+        # Lock optimista: marcar como "en sync" antes de empezar
+        # Evita que requests concurrentes del mismo usuario dupliquen posiciones
+        integration.last_synced_at = datetime.utcnow()
+        db.commit()
+
         logger.info("Auto-sync IOL iniciando para user %s", user_id)
         creds = integration.encrypted_credentials.split(":", 1)
         client = IOLClient(creds[0], creds[1])
         result = _sync_iol(client, db, user_id)
-        integration.last_synced_at = datetime.utcnow()
         integration.last_error = ""
         db.commit()
         logger.info("Auto-sync IOL OK: %d posiciones para user %s", result["positions_synced"], user_id)
@@ -66,12 +72,9 @@ def _auto_sync_iol(user_id: str) -> None:
 
 @router.get("/")
 def get_portfolio(
-    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: str = Depends(get_current_user),
 ):
-    background_tasks.add_task(_auto_sync_iol, current_user)
-
     positions = db.query(Position).filter(
         Position.is_active == True,
         Position.user_id == current_user,
@@ -163,9 +166,11 @@ def get_portfolio_recommendations(
 
 @router.get("/gamification")
 def get_gamification(
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: str = Depends(get_current_user),
 ):
+    background_tasks.add_task(_auto_sync_iol, current_user)
     positions = db.query(Position).filter(
         Position.is_active == True,
         Position.user_id == current_user,
@@ -454,12 +459,9 @@ def get_next_goal(
 
 @router.get("/freedom-score")
 def get_freedom_score(
-    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: str = Depends(get_current_user),
 ):
-    background_tasks.add_task(_auto_sync_iol, current_user)
-
     positions = db.query(Position).filter(
         Position.is_active == True,
         Position.user_id == current_user,
