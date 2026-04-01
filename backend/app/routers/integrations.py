@@ -26,6 +26,11 @@ class ConnectNexoRequest(BaseModel):
     api_secret: str
 
 
+_DEFAULT_INTEGRATIONS = [
+    {"provider": "IOL", "provider_type": "ALYC"},
+    {"provider": "PPI", "provider_type": "ALYC"},
+]
+
 @router.get("/")
 def get_integrations(
     db: Session = Depends(get_db),
@@ -34,6 +39,22 @@ def get_integrations(
     integrations = db.query(Integration).filter(
         Integration.user_id == current_user
     ).all()
+
+    # Primer acceso: crear integraciones por defecto si el usuario no tiene ninguna
+    if not integrations:
+        for spec in _DEFAULT_INTEGRATIONS:
+            db.add(Integration(
+                user_id=current_user,
+                provider=spec["provider"],
+                provider_type=spec["provider_type"],
+                is_active=True,
+                is_connected=False,
+            ))
+        db.commit()
+        integrations = db.query(Integration).filter(
+            Integration.user_id == current_user
+        ).all()
+
     return [
         {
             "id": i.id,
