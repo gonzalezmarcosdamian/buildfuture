@@ -113,6 +113,22 @@ UNIVERSE: list[Instrument] = [
         affinity_carry=0.1, affinity_dolar=0.8, affinity_renta_fija=0.0,
         tags=["energia", "vaca_muerta", "commodities"],
     ),
+    # YPF ON hard dollar — renta fija privada con respaldo en exportaciones
+    Instrument(
+        ticker="YCA6O", name="YPF ON USD 2026",
+        asset_type="ON", currency="USD",
+        base_yield_pct=0.085, risk_level="medio", min_capital_ars=50_000,
+        affinity_carry=0.1, affinity_dolar=0.6, affinity_renta_fija=0.95,
+        tags=["on", "hard_dollar", "ypf", "vaca_muerta", "flujo_fijo"],
+    ),
+    # VIST — CEDEAR Vista Energy, beta alto a Vaca Muerta
+    Instrument(
+        ticker="VIST", name="CEDEAR Vista Energy",
+        asset_type="CEDEAR", currency="USD",
+        base_yield_pct=0.22, risk_level="alto", min_capital_ars=10_000,
+        affinity_carry=0.05, affinity_dolar=0.7, affinity_renta_fija=0.0,
+        tags=["energia", "vaca_muerta", "beta_alto", "crecimiento"],
+    ),
 ]
 
 
@@ -424,6 +440,79 @@ class AgenteDiversificacion:
         )
 
 
+class AgenteMacro:
+    """
+    Contexto macro transversal. Ajusta el score de todos los instrumentos
+    según el régimen macro actual: normalización (post-acuerdo FMI),
+    brecha cambiaria, y dinámica inflacionaria.
+    No penaliza ni premia por tipo de instrumento sino por el contexto global.
+    """
+    name = "Macro"
+
+    def vote(self, market: dict, portfolio_tickers: list[str], capital_ars: float) -> AgentVote:
+        spread = market["spread_pct"]
+        inflation = market["inflation_monthly"]
+        riesgo_pais = market.get("riesgo_pais", 700)
+        tasa_real = market["tasa_real_mensual"]
+
+        # Régimen: "normalizacion" si riesgo_país < 800 y spread < 10
+        normalizando = riesgo_pais < 800 and spread < 10
+
+        scores = {}
+        for inst in UNIVERSE:
+            s = 50.0
+
+            if normalizando:
+                # En normalización: bonos y renta fija tienen upside de capital
+                if inst.asset_type in ("BOND", "ON"):
+                    s += 25
+                # CEDEARs siguen siendo buenos hedge pero menos urgencia
+                if inst.asset_type == "CEDEAR":
+                    s += 10
+            else:
+                # Estrés macro: liquidez y dolarización urgente
+                if inst.asset_type == "FCI":
+                    s += 30
+                if inst.currency == "USD":
+                    s += 20
+
+            # Inflación alta → penalizar ARS largo plazo, premiar USD
+            if inflation > 4:
+                if inst.currency == "ARS" and "largo_plazo" in inst.tags:
+                    s -= 20
+                if inst.currency == "USD":
+                    s += 10
+            elif inflation < 3 and tasa_real > 2:
+                # Desinflación con carry positivo → LECAPs atractivas
+                if inst.asset_type in ("LETRA", "FCI"):
+                    s += 20
+
+            if capital_ars < inst.min_capital_ars:
+                s = 0
+
+            scores[inst.ticker] = max(s, 0)
+
+        conviction = 0.7 if normalizando else 0.5
+
+        if normalizando:
+            key = f"Normalizacion macro: riesgo pais {riesgo_pais}pb, brecha {spread:.1f}% — bonos y renta fija con upside"
+        else:
+            key = f"Estrés macro activo: riesgo pais {riesgo_pais}pb, brecha {spread:.1f}% — priorizar liquidez y USD"
+
+        rationale = (
+            f"{'El proceso de normalizacion macro favorece compresion de spreads y revalorizacion de bonos.' if normalizando else 'Entorno de estres: preservar capital en USD y mantener liquidez.'} "
+            f"Inflacion {inflation:.1f}%/mes, tasa real {'+' if tasa_real >= 0 else ''}{tasa_real:.1f}pp."
+        )
+
+        return AgentVote(
+            agent=self.name,
+            scores=scores,
+            rationale=rationale,
+            conviction=round(conviction, 2),
+            key_signal=key,
+        )
+
+
 # ── Sets derivados de UNIVERSE — precalculados para no recalcular en cada vote() ──
 _LECAP_TICKERS  = frozenset(i.ticker for i in UNIVERSE if i.asset_type == "LETRA")
 _USD_TICKERS    = frozenset(i.ticker for i in UNIVERSE if i.currency == "USD")
@@ -442,10 +531,11 @@ RISK_PROFILE_FILTERS = {
 # El orquestador elige el mejor instrumento que pasa el filtro sin repetir.
 
 
-def _pick_by_slots(ranked: list, profile: str) -> list:
+def _pick_by_slots(ranked: list, profile: str, target: int = 5) -> list:
     """
-    Selecciona hasta 3 instrumentos usando el slot system.
+    Selecciona hasta `target` instrumentos usando el slot system.
     ranked: [(score, Instrument), ...] ordenado descendente.
+    Garantiza variedad por perfil y rellena con los mejores restantes.
     """
     selected: list = []
     used: set = set()
@@ -468,30 +558,55 @@ def _pick_by_slots(ranked: list, profile: str) -> list:
         # Slot 1: capital garantizado + liquidez → FCI money market, fallback LETRA
         if not pick(lambda i: i.asset_type == "FCI"):
             pick(lambda i: i.asset_type == "LETRA")
-        # Slot 2: dolarización defensiva → CEDEAR bajo/medio (no GGAL)
+        # Slot 2: LETRA corto plazo (carry ARS)
+        pick(lambda i: i.asset_type == "LETRA")
+        # Slot 3: segunda LETRA (más largo) si hay, sino CEDEAR defensivo
+        if not pick(lambda i: i.asset_type == "LETRA"):
+            pick(lambda i: i.asset_type == "CEDEAR" and i.risk_level in ("bajo", "medio"))
+        # Slot 4: dolarización defensiva → CEDEAR bajo/medio
         pick(lambda i: i.asset_type == "CEDEAR" and i.risk_level in ("bajo", "medio"))
-        # Slot 3: mejor restante sin riesgo alto (distinto a lo ya elegido)
+        # Slot 5: mejor restante sin riesgo alto
         if not pick(lambda i: i.risk_level != "alto"):
             pick()
 
     elif profile == "agresivo":
         # Slot 1: mayor retorno → riesgo alto
         pick(lambda i: i.risk_level == "alto")
-        # Slot 2: CEDEAR (USD líquido)
+        # Slot 2: segundo riesgo alto de tipo distinto (BOND vs CEDEAR)
+        used_types = {inst.asset_type for _, inst in selected}
+        if not pick(lambda i: i.risk_level == "alto" and i.asset_type not in used_types):
+            pick(lambda i: i.risk_level == "alto")
+        # Slot 3: CEDEAR USD líquido (diversificación)
         pick(lambda i: i.asset_type == "CEDEAR")
-        # Slot 3: cualquier restante
-        if not pick(lambda i: True):
-            pick()
+        # Slot 4: riesgo medio USD (ej: SPY/QQQ/XLE)
+        pick(lambda i: i.risk_level in ("medio", "alto"))
+        # Slot 5: cualquier restante
+        pick()
 
     else:  # moderado
         # Slot 1: mejor score global
         pick()
         # Slot 2: instrumento USD obligatorio (dolarización)
         pick(lambda i: i.currency == "USD")
-        # Slot 3: tipo diferente a los ya seleccionados (diversificación real)
+        # Slot 3: tipo diferente a los ya seleccionados
+        used_types = {inst.asset_type for _, inst in selected}
+        pick(lambda i: i.asset_type not in used_types)
+        # Slot 4: otro tipo o moneda diferente (ARS si todos son USD y viceversa)
         used_types = {inst.asset_type for _, inst in selected}
         if not pick(lambda i: i.asset_type not in used_types):
-            pick()  # fallback sin restricción
+            used_currencies = {inst.currency for _, inst in selected}
+            if not pick(lambda i: i.currency not in used_currencies):
+                pick()
+        # Slot 5: mejor restante sin restricción
+        pick()
+
+    # Rellenar hasta target con los mejores restantes (sin duplicar)
+    while len(selected) < target:
+        result = best()
+        if not result:
+            break
+        selected.append(result)
+        used.add(result[1].ticker)
 
     return selected
 
@@ -586,6 +701,7 @@ def get_committee_recommendations(
         AgenteDolarizacion(),
         AgenteRentaFija(),
         AgenteDiversificacion(),
+        AgenteMacro(),
     ]
 
     votes: list[AgentVote] = [
@@ -596,22 +712,25 @@ def get_committee_recommendations(
     # Pesos de cada agente según perfil de riesgo
     agent_weights = {
         "conservador": {
-            "Carry ARS": 0.45,
-            "Dolarizacion": 0.25,
+            "Carry ARS": 0.35,
+            "Dolarizacion": 0.20,
             "Renta Fija": 0.20,
             "Diversificacion": 0.10,
+            "Macro": 0.15,
         },
         "moderado": {
-            "Carry ARS": 0.30,
-            "Dolarizacion": 0.30,
+            "Carry ARS": 0.25,
+            "Dolarizacion": 0.25,
             "Renta Fija": 0.25,
-            "Diversificacion": 0.15,
+            "Diversificacion": 0.10,
+            "Macro": 0.15,
         },
         "agresivo": {
-            "Carry ARS": 0.15,
-            "Dolarizacion": 0.40,
+            "Carry ARS": 0.10,
+            "Dolarizacion": 0.35,
             "Renta Fija": 0.30,
-            "Diversificacion": 0.15,
+            "Diversificacion": 0.10,
+            "Macro": 0.15,
         },
     }
     weights = agent_weights.get(risk_profile, agent_weights["moderado"])
@@ -651,10 +770,10 @@ def get_committee_recommendations(
     if not ranked_all:
         ranked_all = [(50.0, universe[0])]
 
-    # Selección por slots — garantiza variedad por perfil
-    ranked = _pick_by_slots(ranked_all, risk_profile)
+    # Selección por slots — garantiza variedad por perfil (5 instrumentos)
+    ranked = _pick_by_slots(ranked_all, risk_profile, target=5)
     if not ranked:
-        ranked = ranked_all[:3]
+        ranked = ranked_all[:5]
 
     total_score = sum(s for s, _ in ranked) or 1
     recommendations = []
