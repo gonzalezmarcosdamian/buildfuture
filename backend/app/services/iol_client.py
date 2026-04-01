@@ -305,6 +305,48 @@ class IOLClient:
             logger.warning("No se pudo traer estado de cuenta: %s", e)
             return {}
 
+    def get_cash_balance_ars(self) -> Decimal:
+        """
+        Extrae el saldo disponible en pesos (no invertido) del estado de cuenta.
+        IOL puede devolver la estructura como lista de cuentas o un objeto flat.
+        Retorna Decimal("0") si no puede determinarlo — nunca falla.
+        """
+        try:
+            data = self.get_account_balance()
+            logger.info("estadocuenta raw: %s", str(data)[:500])
+
+            # Estructura 1: {"cuentas": [{"moneda": "peso_Argentino", "disponible": 50000}, ...]}
+            cuentas = data.get("cuentas") or data.get("cuenta") or []
+            if isinstance(cuentas, list) and cuentas:
+                for cuenta in cuentas:
+                    moneda = str(cuenta.get("moneda", "")).lower()
+                    if any(k in moneda for k in ("peso", "ars", "pesos", "argentino")):
+                        disponible = cuenta.get("disponible") or cuenta.get("saldo") or 0
+                        logger.info("Cash ARS (cuenta): %.2f", float(disponible))
+                        return Decimal(str(disponible))
+                # Si no encontramos por moneda, tomar la primera cuenta
+                disponible = cuentas[0].get("disponible") or 0
+                logger.info("Cash ARS (primera cuenta fallback): %.2f", float(disponible))
+                return Decimal(str(disponible))
+
+            # Estructura 2: {"disponible": 50000, ...} (flat)
+            if "disponible" in data:
+                disponible = data["disponible"] or 0
+                logger.info("Cash ARS (flat): %.2f", float(disponible))
+                return Decimal(str(disponible))
+
+            # Estructura 3: {"saldo": [...]} u otras variantes
+            for key in ("saldo", "saldoDisponible", "saldo_disponible"):
+                if key in data and isinstance(data[key], (int, float)):
+                    logger.info("Cash ARS (%s): %.2f", key, float(data[key]))
+                    return Decimal(str(data[key]))
+
+            logger.warning("No se encontró saldo disponible en estadocuenta: keys=%s", list(data.keys()))
+            return Decimal("0")
+        except Exception as e:
+            logger.warning("get_cash_balance_ars falló: %s", e)
+            return Decimal("0")
+
     def get_operations(self, fecha_desde: str | None = None, fecha_hasta: str | None = None) -> list[dict]:
         """
         Trae historial de operaciones (compras/ventas).
