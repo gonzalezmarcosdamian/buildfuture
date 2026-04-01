@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import engine, SessionLocal
 from app.models import Base
-from app.routers import portfolio, budget, integrations, profile
+from app.routers import portfolio, budget, integrations, profile, positions
 IS_SERVERLESS = os.environ.get("VERCEL", "") == "1"
 
 if not IS_SERVERLESS:
@@ -32,7 +32,7 @@ app.include_router(portfolio.router)
 app.include_router(budget.router)
 app.include_router(integrations.router)
 app.include_router(profile.router)
-# positions router: WIP local — pendiente migración DB prod
+app.include_router(positions.router)
 
 
 @app.on_event("startup")

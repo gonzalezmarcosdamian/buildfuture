@@ -70,13 +70,17 @@ def _get_live_price_and_yield(
         yield_pct = crypto_prices.get_yield_30d(external_id)
 
     elif asset_type == "FCI" and external_id and fci_categoria:
-        # FCI: VCP en ARS — necesitamos MEP para convertir a USD
-        # Lo manejamos a nivel de snapshot; aquí guardamos el VCP como precio "ARS"
-        # y la conversión la hace el scheduler. Por ahora dejamos el precio de compra.
         yield_pct = fci_prices.get_yield_30d(external_id, fci_categoria)
         vcp = fci_prices.get_vcp(external_id, fci_categoria)
         if vcp:
-            price = vcp  # se almacena en ARS; la conversión a USD es responsabilidad del snapshot
+            # Convertir VCP (ARS) a USD usando MEP actual
+            try:
+                import httpx as _httpx
+                r = _httpx.get("https://dolarapi.com/v1/dolares/bolsa", timeout=5)
+                mep = float(r.json().get("venta", 1430)) if r.status_code == 200 else 1430.0
+            except Exception:
+                mep = 1430.0
+            price = vcp / mep if mep > 0 else purchase_price_usd
 
     elif asset_type in ("ETF", "CEDEAR") and external_id:
         live = external_prices.get_price_usd(external_id)
