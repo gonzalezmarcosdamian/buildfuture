@@ -90,6 +90,7 @@ def _daily_close_job() -> None:
         db = SessionLocal()
         try:
             _maybe_sync_iol(db)
+            _maybe_sync_ppi(db)
             _refresh_manual_prices(db)
             _save_portfolio_snapshot(db)
         finally:
@@ -130,6 +131,42 @@ def _maybe_sync_iol(db) -> None:
                         result.get("months_synced", 0))
         except Exception as e:
             logger.warning("IOL sync falló en scheduler user=%s: %s", integration.user_id, e)
+            integration.last_error = str(e)[:200]
+            db.commit()
+
+
+def _maybe_sync_ppi(db) -> None:
+    """Sync PPI para todos los usuarios conectados."""
+    from app.models import Integration
+    from app.services.ppi_client import PPIClient
+    from app.routers.integrations import _sync_ppi
+
+    integrations = db.query(Integration).filter(
+        Integration.provider == "PPI",
+        Integration.is_connected == True,
+    ).all()
+
+    if not integrations:
+        logger.info("PPI no conectado — skip sync")
+        return
+
+    for integration in integrations:
+        if not integration.encrypted_credentials:
+            continue
+        try:
+            pub, priv, acct = integration.encrypted_credentials.split(":", 2)
+            client = PPIClient(pub, priv)
+            result = _sync_ppi(client, acct, db, integration.user_id)
+            from datetime import datetime
+            integration.last_synced_at = datetime.utcnow()
+            integration.last_error = ""
+            db.commit()
+            logger.info("PPI sync OK user=%s — posiciones: %d, meses: %d",
+                        integration.user_id,
+                        result.get("positions_synced", 0),
+                        result.get("months_synced", 0))
+        except Exception as e:
+            logger.warning("PPI sync falló en scheduler user=%s: %s", integration.user_id, e)
             integration.last_error = str(e)[:200]
             db.commit()
 
