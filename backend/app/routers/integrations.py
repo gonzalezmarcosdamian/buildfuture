@@ -374,6 +374,44 @@ def _sync_iol(client: IOLClient, db: Session, user_id: str) -> dict:
         budget.fx_rate = Decimal(str(round(current_mep, 2)))
         logger.info("Budget fx_rate actualizado a MEP=%.2f para user %s", current_mep, user_id)
 
+    # ── Cash disponible IOL ──────────────────────────────────────────────────
+    # Se guarda como posición sintética CASH_IOL para que aparezca en el portafolio.
+    # Primero desactivar cualquier cash anterior para este usuario.
+    db.query(Position).filter(
+        Position.ticker == "CASH_IOL",
+        Position.user_id == user_id,
+    ).update({"is_active": False})
+
+    cash_ars = client.get_cash_balance_ars()
+    if cash_ars > 0:
+        mep_dec = Decimal(str(current_mep))
+        cash_usd = cash_ars / mep_dec if mep_dec > 0 else Decimal("0")
+        db.add(Position(
+            user_id=user_id,
+            ticker="CASH_IOL",
+            description="Saldo disponible en pesos · IOL",
+            asset_type="CASH",
+            source="IOL",
+            quantity=Decimal("1"),
+            avg_purchase_price_usd=cash_usd,
+            current_price_usd=cash_usd,
+            annual_yield_pct=Decimal("0"),
+            snapshot_date=today,
+            is_active=True,
+            ppc_ars=cash_ars,
+            purchase_fx_rate=mep_dec,
+            current_value_ars=cash_ars,
+        ))
+        logger.info("Cash IOL guardado: ARS %.2f → USD %.2f", float(cash_ars), float(cash_usd))
+        synced += 1
+
+    # Invalidar cache de freedom score para que el próximo request incluya el cash
+    try:
+        from app.routers.portfolio import _invalidate_score_cache
+        _invalidate_score_cache(user_id)
+    except Exception:
+        pass
+
     db.flush()
     return {"positions_synced": synced, "months_synced": months_synced, "mep": round(current_mep, 2)}
 
