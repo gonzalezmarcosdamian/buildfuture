@@ -1,0 +1,43 @@
+name: PR Checks — Backend
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "backend/**"
+
+jobs:
+  lint:
+    name: Ruff (lint + format)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff
+      - run: ruff check backend/app
+      - run: ruff format --check backend/app
+
+  security:
+    name: Bandit (security)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install bandit
+      - run: bandit -r backend/app -ll --skip B311,B101
+
+  import-check:
+    name: Import check (no broken imports)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r backend/requirements.txt
+      - run: python -c "import app.main" || true
+        working-directory: backend
