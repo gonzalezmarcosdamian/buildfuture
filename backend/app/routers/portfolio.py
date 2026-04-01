@@ -163,9 +163,11 @@ def get_portfolio_recommendations(
 
 @router.get("/gamification")
 def get_gamification(
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: str = Depends(get_current_user),
 ):
+    background_tasks.add_task(_auto_sync_iol, current_user)
     positions = db.query(Position).filter(
         Position.is_active == True,
         Position.user_id == current_user,
