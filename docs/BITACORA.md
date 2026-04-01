@@ -2,6 +2,36 @@
 
 ---
 
+## Sesión v0.9.0 — 2026-03-31
+
+### Objetivo
+Corregir la lógica de rendimiento: mostrar P&L vs PPC (costo base real) en lugar de delta día anterior. Agregar detalle de instrumento al tocar cualquier posición del portafolio.
+
+### Cambios realizados
+
+**Rendimiento — P&L vs PPC (no delta día anterior)**
+- `GET /portfolio/history`: calcula `total_cost_basis` como suma de `cost_basis_usd` de posiciones activas
+- Cada punto histórico incluye ahora `pnl_usd = total_usd − total_cost_basis` y `pnl_pct`
+- `PerformanceChart`: gráfico de rendimientos usa `displayPnl` (vs costo base) en lugar de `displayDelta` (vs día anterior)
+- `RendimientoTooltip`: muestra "vs PPC" con ganancia/pérdida acumulada y P&L %
+- Dominio del eje Y simétrico ahora basado en max abs `pnl_usd`
+
+**Info modal — actualizado**
+- Tenencia: explicación más simple + nota "podés ver en USD o ARS con el selector de moneda"
+- Rendimiento: "ganancia/pérdida vs precio de compra (PPC)" — no vs día anterior; mención dual currency
+
+**Detalle de instrumento**
+- `GET /portfolio/instrument/{ticker}`: retorna datos completos de la posición + contexto por tipo de activo (CEDEAR, LETRA, FCI, BOND, CRYPTO) con descripción, nota de moneda y liquidez
+- `fetchInstrumentDetail(ticker)` en `api-server.ts`
+- `PortfolioTabs`: filas de posiciones ahora son botones con `ChevronRight`; navegan a `/portfolio/{ticker}`
+- `/app/portfolio/[ticker]/page.tsx`: server component con fetch + back link a Portafolio
+- `InstrumentDetail.tsx`: héroe con P&L, tabla de métricas completa, contexto del activo, MEP actual, fecha de última actualización
+
+### Estado
+Backend v0.9.0 pusheado a main → Railway auto-deploy. Frontend pusheado a master → Vercel auto-deploy.
+
+---
+
 ## Sesión v0.8.0 — 2026-04-01
 
 ### Objetivo

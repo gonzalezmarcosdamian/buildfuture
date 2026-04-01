@@ -68,6 +68,13 @@ Usuario target: Marcos González — PM Ualá, Córdoba, ahorro USD 1000-1500/me
 - ✅ IOLCAMA en universo de recomendaciones (FCI money market, liquidez diaria)
 - ✅ Conservador slot 1 → FCI money market (ya no duplica LECAP con moderado)
 
+### Portfolio v4
+- ✅ Rendimiento = P&L vs PPC (costo base real), no delta día anterior — reconstruible desde toda la historia
+- ✅ Info modales actualizados: explicación simple + nota dual currency (USD 🇺🇸 / ARS 🇦🇷)
+- ✅ Posiciones clickeables en ambas vistas (Composición y Rendimientos) → detalle del instrumento
+- ✅ `/portfolio/[ticker]`: página de detalle por instrumento con P&L, métricas completas, contexto del activo
+- ✅ `GET /portfolio/instrument/{ticker}`: endpoint dedicado con tipo de activo, liquidez, nota de moneda
+
 ### Auth y deploy
 - ✅ **Supabase Auth multi-usuario**: JWT ES256 via JWKS, sesión en cookies (SSR compatible)
 - ✅ **Login completo**: tabs Ingresar/Registrarse + Olvidaste contraseña + form cambio de contraseña con token recovery
