@@ -125,6 +125,36 @@ def sync_iol(
         raise HTTPException(status_code=502, detail=str(e))
 
 
+@router.post("/iol/disconnect")
+def disconnect_iol(
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    """Desconecta IOL: borra credenciales y desactiva posiciones sincronizadas."""
+    integration = db.query(Integration).filter(
+        Integration.provider == "IOL",
+        Integration.user_id == current_user,
+    ).first()
+    if not integration:
+        raise HTTPException(status_code=404, detail="Integración IOL no encontrada")
+
+    # Limpiar credenciales y marcar como desconectado
+    integration.encrypted_credentials = ""
+    integration.is_connected = False
+    integration.last_error = ""
+
+    # Desactivar todas las posiciones IOL del usuario
+    from app.models import Position
+    db.query(Position).filter(
+        Position.user_id == current_user,
+        Position.source == "IOL",
+        Position.is_active == True,
+    ).update({"is_active": False})
+
+    db.commit()
+    return {"disconnected": True}
+
+
 @router.post("/nexo/connect")
 def connect_nexo(
     body: ConnectNexoRequest,
