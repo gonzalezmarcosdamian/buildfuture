@@ -2,6 +2,44 @@
 
 ---
 
+## Sesión v0.8.0 — 2026-04-01
+
+### Objetivo
+Portfolio page: switch unificado que afecta gráfico + listado de activos simultáneamente; modales informativos de cómo se calcula cada vista. Fix de recomendaciones duplicadas entre conservador y moderado. Fix crítico de FTU bloqueado cuando backend no tiene el endpoint `/profile/` aún.
+
+### Cambios realizados
+
+**Portfolio — switch unificado + modales info**
+- `PortfolioClient.tsx` (nuevo): client wrapper que maneja `mode = "composicion" | "rendimientos"` y se lo pasa como prop a `PerformanceChart` (chartMode) y a `PortfolioTabs` (activeTab)
+- `PerformanceChart`: eliminado switch interno; recibe `chartMode` como prop externa; conserva chips de período
+- `PortfolioTabs`: eliminado tab bar interno; recibe `activeTab` como prop externa
+- `PortfolioClient`: ícono ⓘ abre un panel inline con explicación de cálculo según el modo activo:
+  - Tenencia: snapshot diario 17:30 ART, CEDEARs ARS÷MEP, LECAPs/FCI nominal×precio÷MEP
+  - Rendimiento: delta vs día anterior, TNA÷365 para renta fija, precio de mercado para CEDEARs
+- Card "Próximamente: ingreso manual de tenencias" al final de la página
+- `portfolio/page.tsx` simplificado: usa `PortfolioClient` en lugar de instanciar los dos componentes por separado
+
+**Recomendaciones — fix conservador duplica moderado**
+- `IOLCAMA` agregado a `UNIVERSE`: FCI money market, TNA 64%, liquidez diaria, riesgo bajo, `min_capital_ars=1000`
+- `conservador` slot 1: `pick(FCI)` con fallback a `LETRA` — ya no toma la misma LECAP que moderado
+- `_build_rationale`: case para `FCI` con texto específico de money market
+
+**FTU — fix bloqueado en production**
+- Problema raíz: backend en producción era v0.6.1 (Railway sin redeploy); `/profile/` retornaba 404 → FTU bloqueado en "Confirmar perfil" sin error visible
+- `fetchProfile()` en `api-server.ts`: ahora retorna `{ risk_profile, available }` — status 404 → `available: false`
+- `dashboard/page.tsx`: solo bloquea por risk profile si `profile.available === true`; si el backend es viejo, el dashboard se muestra igual
+- `FTUFlow.tsx`: check `res.ok` con mensaje de error visible; `window.location.href = "/dashboard"` (antes `router.refresh()`)
+
+### Bugs encontrados y resueltos
+- Railway no auto-deploying: el backend se quedó en v0.6.1 porque Railway no tenía auto-deploy desde GitHub habilitado → solución: redeploy manual desde dashboard Railway
+- Token Railway expirado (947ef2f7 y 165f29bd): ambos fallan con "Not Authorized" en la GraphQL API → redeploy vía dashboard web
+- TypeScript error: `profile.available` no existía en el tipo del catch → corregido a `catch(() => ({ risk_profile: null, available: false }))`
+
+### Estado actual
+Frontend v0.8.0 en Vercel. Backend pendiente redeploy Railway (v0.6.1 → v0.8.0).
+
+---
+
 ## Sesión v0.7.0 — 2026-03-31
 
 ### Objetivo

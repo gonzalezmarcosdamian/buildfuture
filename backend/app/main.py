@@ -19,7 +19,7 @@ logging.basicConfig(
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 
-app = FastAPI(title="BuildFuture API", version="0.7.0")
+app = FastAPI(title="BuildFuture API", version="0.8.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -53,12 +53,12 @@ def shutdown():
 
 @app.get("/")
 def root():
-    return {"status": "ok", "version": "0.7.0", "env": "vercel"}
+    return {"status": "ok", "version": "0.8.0", "env": "vercel"}
 
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "version": "0.7.0"}
+    return {"status": "ok", "version": "0.8.0"}
 
 
 @app.post("/admin/snapshot")

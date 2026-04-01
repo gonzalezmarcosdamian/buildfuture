@@ -5,6 +5,32 @@ Commits: [Conventional Commits](https://www.conventionalcommits.org/)
 
 ---
 
+## [0.8.0] — 2026-04-01
+
+### Added
+- **Switch unificado Composición / Rendimientos**: un solo control en `/portfolio` que afecta simultáneamente al gráfico de barras y al listado de activos — eliminados los switches independientes de `PerformanceChart` y `PortfolioTabs`
+- **Modales informativos de cálculo**: ícono ⓘ junto al switch abre un panel inline con:
+  - *Composición/Tenencia*: cómo se calcula el valor total diario (snapshot 17:30 ART, CEDEARs via ARS÷MEP, LECAPs/FCI via nominal×precio)
+  - *Rendimientos*: cómo se calcula el delta del día (barra verde/roja, TNA÷365 para renta fija, movimiento de mercado para CEDEARs)
+- **"Próximamente: ingreso manual de tenencias"**: card al final de `/portfolio` con descripción de la feature pendiente
+- **`IOLCAMA` en universo de recomendaciones**: FCI money market con liquidez diaria, TNA ~64%, riesgo bajo — aparece en slot 1 del perfil conservador
+- **Conservador: slot 1 → FCI money market** (antes era LECAP): elimina duplicado con perfil moderado que también tomaba la misma letra
+- **Rationale para FCI** en `_build_rationale`: texto específico de money market (liquidez diaria, tasa real positiva sin atar el capital)
+- **FTU fix crítico**: el gate de risk profile solo bloquea cuando el endpoint `/profile/` existe en el backend (`available: true`); si el backend es viejo (404), el dashboard se muestra igual
+- **FTU error handling**: mensaje de error visible cuando `PUT /profile/` falla; `window.location.href` en lugar de `router.refresh()` para recargar estado del servidor
+
+### Changed
+- `PerformanceChart`: ya no tiene switch interno de modo; recibe `chartMode: "tenencia" | "rendimiento"` como prop
+- `PortfolioTabs`: ya no tiene tab bar interno; recibe `activeTab: "composicion" | "rendimientos"` como prop
+- `portfolio/page.tsx`: usa nuevo `PortfolioClient` wrapper que orquesta el estado unificado
+- `fetchProfile()` en `api-server.ts`: ahora retorna `{ risk_profile, available }` — distingue 404 (backend viejo) de null (sin perfil configurado)
+
+### Fixed
+- Perfiles **conservador** y **moderado** ya no recomiendan la misma LECAP: conservador ahora recibe IOLCAMA (money market) en slot 1
+- Login: `router.refresh()` reemplazado por `window.location.href` en FTU para asegurar re-evaluación completa del server component
+
+---
+
 ## [Unreleased]
 
 ### Pendiente

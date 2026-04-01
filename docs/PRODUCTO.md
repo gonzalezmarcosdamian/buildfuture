@@ -61,6 +61,13 @@ Usuario target: Marcos González — PM Ualá, Córdoba, ahorro USD 1000-1500/me
 - ✅ Scheduler: sync + snapshot automático L-V 17:30 ART (APScheduler)
 - ✅ Error handling en sync con feedback diferenciado
 
+### Portfolio v3
+- ✅ Switch unificado Composición / Rendimientos: un control que afecta gráfico + listado de activos
+- ✅ Modales informativos: ⓘ explica cómo se calcula la tenencia y los rendimientos del día
+- ✅ "Próximamente: ingreso manual de tenencias" card al final de portfolio
+- ✅ IOLCAMA en universo de recomendaciones (FCI money market, liquidez diaria)
+- ✅ Conservador slot 1 → FCI money market (ya no duplica LECAP con moderado)
+
 ### Auth y deploy
 - ✅ **Supabase Auth multi-usuario**: JWT ES256 via JWKS, sesión en cookies (SSR compatible)
 - ✅ **Login completo**: tabs Ingresar/Registrarse + Olvidaste contraseña + form cambio de contraseña con token recovery

@@ -48,6 +48,14 @@ class Instrument:
 
 # Universo base — yields se actualizan con datos reales de IOL cuando disponible
 UNIVERSE: list[Instrument] = [
+    # Money market FCI — liquidez diaria, capital garantizado, sin riesgo tasa
+    Instrument(
+        ticker="IOLCAMA", name="IOL Conservador Money Market",
+        asset_type="FCI", currency="ARS",
+        base_yield_pct=0.64, risk_level="bajo", min_capital_ars=1_000,
+        affinity_carry=0.9, affinity_dolar=0.05, affinity_renta_fija=0.2,
+        tags=["money_market", "liquidez_diaria", "capital_garantizado", "fci"],
+    ),
     # LECAPs vigentes al Q1-2026 — tickers confirmados en IOL
     Instrument(
         ticker="S15Y6", name="LECAP May-26",
@@ -457,11 +465,12 @@ def _pick_by_slots(ranked: list, profile: str) -> list:
         return result
 
     if profile == "conservador":
-        # Slot 1: capital garantizado → LETRA
-        pick(lambda i: i.asset_type == "LETRA")
+        # Slot 1: capital garantizado + liquidez → FCI money market, fallback LETRA
+        if not pick(lambda i: i.asset_type == "FCI"):
+            pick(lambda i: i.asset_type == "LETRA")
         # Slot 2: dolarización defensiva → CEDEAR bajo/medio (no GGAL)
         pick(lambda i: i.asset_type == "CEDEAR" and i.risk_level in ("bajo", "medio"))
-        # Slot 3: mejor restante sin riesgo alto
+        # Slot 3: mejor restante sin riesgo alto (distinto a lo ya elegido)
         if not pick(lambda i: i.risk_level != "alto"):
             pick()
 
@@ -491,7 +500,16 @@ def _build_rationale(inst: Instrument, winning_agents: list[AgentVote], market: 
     """Genera rationale compuesto con las voces de los agentes que votaron alto."""
     agents_for = [a for a in winning_agents if a.scores.get(inst.ticker, 0) > 50]
 
-    if inst.asset_type == "LETRA":
+    if inst.asset_type == "FCI":
+        rationale = (
+            f"Money market en ARS con liquidez diaria — rescate acreditado en 24hs. "
+            f"TNA {inst.base_yield_pct * 100:.0f}% sin riesgo de tasa ni plazo minimo."
+        )
+        why_now = (
+            f"Ideal para el tramo conservador: rendimiento similar a LECAP con total liquidez. "
+            f"Con inflacion {market['inflation_monthly']:.1f}%/mes, genera tasa real positiva sin atar el capital."
+        )
+    elif inst.asset_type == "LETRA":
         rationale = (
             f"TNA {inst.base_yield_pct * 100:.0f}% con capital garantizado al vencimiento. "
             f"Tasa real positiva de +{market['tasa_real_mensual']:.1f}pp/mes sobre inflacion."
