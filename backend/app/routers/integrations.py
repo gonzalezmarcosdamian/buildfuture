@@ -375,35 +375,38 @@ def _sync_iol(client: IOLClient, db: Session, user_id: str) -> dict:
         logger.info("Budget fx_rate actualizado a MEP=%.2f para user %s", current_mep, user_id)
 
     # ── Cash disponible IOL ──────────────────────────────────────────────────
-    # Se guarda como posición sintética CASH_IOL para que aparezca en el portafolio.
-    # Primero desactivar cualquier cash anterior para este usuario.
-    db.query(Position).filter(
-        Position.ticker == "CASH_IOL",
-        Position.user_id == user_id,
-    ).update({"is_active": False})
+    logger.info("CASH_IOL: iniciando sección cash para user %s", user_id)
+    try:
+        db.query(Position).filter(
+            Position.ticker == "CASH_IOL",
+            Position.user_id == user_id,
+        ).update({"is_active": False})
 
-    cash_ars = client.get_cash_balance_ars()
-    if cash_ars > 0:
-        mep_dec = Decimal(str(current_mep))
-        cash_usd = cash_ars / mep_dec if mep_dec > 0 else Decimal("0")
-        db.add(Position(
-            user_id=user_id,
-            ticker="CASH_IOL",
-            description="Saldo disponible en pesos · IOL",
-            asset_type="CASH",
-            source="IOL",
-            quantity=Decimal("1"),
-            avg_purchase_price_usd=cash_usd,
-            current_price_usd=cash_usd,
-            annual_yield_pct=Decimal("0"),
-            snapshot_date=today,
-            is_active=True,
-            ppc_ars=cash_ars,
-            purchase_fx_rate=mep_dec,
-            current_value_ars=cash_ars,
-        ))
-        logger.info("Cash IOL guardado: ARS %.2f → USD %.2f", float(cash_ars), float(cash_usd))
-        synced += 1
+        cash_ars = client.get_cash_balance_ars()
+        logger.info("CASH_IOL: cash_ars=%s", cash_ars)
+        if cash_ars > 0:
+            mep_dec = Decimal(str(current_mep))
+            cash_usd = cash_ars / mep_dec if mep_dec > 0 else Decimal("0")
+            db.add(Position(
+                user_id=user_id,
+                ticker="CASH_IOL",
+                description="Saldo disponible en pesos · IOL",
+                asset_type="CASH",
+                source="IOL",
+                quantity=Decimal("1"),
+                avg_purchase_price_usd=cash_usd,
+                current_price_usd=cash_usd,
+                annual_yield_pct=Decimal("0"),
+                snapshot_date=today,
+                is_active=True,
+                ppc_ars=cash_ars,
+                purchase_fx_rate=mep_dec,
+                current_value_ars=cash_ars,
+            ))
+            logger.info("CASH_IOL: guardado ARS %.2f → USD %.2f", float(cash_ars), float(cash_usd))
+            synced += 1
+    except Exception as e:
+        logger.error("CASH_IOL: error en sección cash: %s", e, exc_info=True)
 
     # Invalidar cache de freedom score para que el próximo request incluya el cash
     try:
