@@ -1,7 +1,8 @@
 import logging
+import threading
 from decimal import Decimal
-from datetime import date
-from fastapi import APIRouter, Depends, Query, HTTPException
+from datetime import date, datetime
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, HTTPException
 
 logger = logging.getLogger("buildfuture.portfolio")
 from sqlalchemy.orm import Session
@@ -16,12 +17,61 @@ from app.services.expert_committee import get_committee_recommendations, UNIVERS
 
 router = APIRouter(prefix="/portfolio", tags=["portfolio"])
 
+AUTO_SYNC_MIN_AGE_MINUTES = 60
+
+
+def _auto_sync_iol(user_id: str) -> None:
+    """
+    Sincroniza IOL en background si los datos tienen más de AUTO_SYNC_MIN_AGE_MINUTES.
+    Usa su propia sesión de DB — se llama desde BackgroundTasks después de enviar la respuesta.
+    """
+    from app.database import SessionLocal
+    from app.models import Integration
+    from app.routers.integrations import _sync_iol
+    from app.services.iol_client import IOLClient
+
+    db = SessionLocal()
+    try:
+        integration = db.query(Integration).filter(
+            Integration.provider == "IOL",
+            Integration.user_id == user_id,
+            Integration.is_connected == True,
+        ).first()
+        if not integration or not integration.encrypted_credentials:
+            return
+
+        if integration.last_synced_at:
+            age = (datetime.utcnow() - integration.last_synced_at).total_seconds() / 60
+            if age < AUTO_SYNC_MIN_AGE_MINUTES:
+                logger.debug("Auto-sync IOL skipped — synced %.0f min ago", age)
+                return
+
+        logger.info("Auto-sync IOL iniciando para user %s", user_id)
+        creds = integration.encrypted_credentials.split(":", 1)
+        client = IOLClient(creds[0], creds[1])
+        result = _sync_iol(client, db, user_id)
+        integration.last_synced_at = datetime.utcnow()
+        integration.last_error = ""
+        db.commit()
+        logger.info("Auto-sync IOL OK: %d posiciones para user %s", result["positions_synced"], user_id)
+    except Exception as e:
+        logger.warning("Auto-sync IOL falló para user %s: %s", user_id, e)
+        try:
+            db.rollback()
+        except Exception:
+            pass
+    finally:
+        db.close()
+
 
 @router.get("/")
 def get_portfolio(
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: str = Depends(get_current_user),
 ):
+    background_tasks.add_task(_auto_sync_iol, current_user)
+
     positions = db.query(Position).filter(
         Position.is_active == True,
         Position.user_id == current_user,
@@ -404,9 +454,12 @@ def get_next_goal(
 
 @router.get("/freedom-score")
 def get_freedom_score(
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: str = Depends(get_current_user),
 ):
+    background_tasks.add_task(_auto_sync_iol, current_user)
+
     positions = db.query(Position).filter(
         Position.is_active == True,
         Position.user_id == current_user,
