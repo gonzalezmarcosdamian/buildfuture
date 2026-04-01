@@ -117,6 +117,7 @@ def get_portfolio(
                 "avg_purchase_price_usd": float(p.avg_purchase_price_usd),
                 "current_price_usd": float(p.current_price_usd),
                 "current_value_usd": float(p.current_value_usd),
+                "current_value_ars": float(p.current_value_ars) if p.current_value_ars else None,
                 "cost_basis_usd": float(p.cost_basis_usd),
                 "performance_pct": float(p.performance_pct),
                 "purchase_fx_rate": float(p.purchase_fx_rate),
@@ -127,6 +128,7 @@ def get_portfolio(
         ],
         "summary": {
             "total_usd": float(score["portfolio_total_usd"]),
+            "total_ars": float(sum(p.current_value_ars for p in positions if p.current_value_ars)) or None,
             "monthly_return_usd": float(score["monthly_return_usd"]),
             "freedom_pct": float(score["freedom_pct"]),
             "annual_return_pct": float(score["annual_return_pct"]),

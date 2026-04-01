@@ -28,6 +28,8 @@ class Position(Base):
     external_id: Mapped[str | None] = mapped_column(String(100), nullable=True, default=None)
     # Categoría FCI para ArgentinaDatos
     fci_categoria: Mapped[str | None] = mapped_column(String(30), nullable=True, default=None)
+    # Valor en ARS directo de IOL (sin conversión) — evita error de MEP al mostrar ARS
+    current_value_ars: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=Decimal("0"))
 
     @property
     def current_value_usd(self) -> Decimal:

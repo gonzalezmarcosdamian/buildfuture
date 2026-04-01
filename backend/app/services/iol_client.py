@@ -34,7 +34,8 @@ class IOLPosition:
     avg_price_usd: Decimal
     current_price_usd: Decimal
     annual_yield_pct: Decimal
-    ppc_ars: Decimal = Decimal("0")   # precio promedio de compra en ARS crudo
+    ppc_ars: Decimal = Decimal("0")      # precio promedio de compra en ARS crudo
+    valorizado_ars: Decimal = Decimal("0")  # valor total ARS directo de IOL (sin conversión)
 
 
 class IOLAuthError(Exception):
@@ -180,7 +181,8 @@ class IOLClient:
                 avg_price_usd=avg_price_usd,
                 current_price_usd=current_price_usd,
                 annual_yield_pct=annual_yield,
-                ppc_ars=Decimal(str(ppc)),  # ARS crudo, sin convertir
+                ppc_ars=Decimal(str(ppc)),       # ARS crudo, sin convertir
+                valorizado_ars=valorizado,        # valor total ARS directo de IOL
             ))
 
         return positions
