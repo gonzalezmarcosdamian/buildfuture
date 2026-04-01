@@ -165,12 +165,15 @@ def debug_iol(
                 "ppc": a.get("ppc"),
             })
 
+        cuenta = client.get_account_balance()
+
         return {
             "mep": round(mep, 2),
             "total_ars_iol": round(total_ars, 2),
             "total_usd_iol": round(total_ars / mep, 2) if mep else 0,
             "positions_count": len(items),
             "positions": items,
+            "estadocuenta_raw": cuenta,
         }
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e))
