@@ -90,6 +90,7 @@ def _daily_close_job() -> None:
         db = SessionLocal()
         try:
             _maybe_sync_iol(db)
+            _refresh_manual_prices(db)
             _save_portfolio_snapshot(db)
         finally:
             db.close()
@@ -131,6 +132,63 @@ def _maybe_sync_iol(db) -> None:
             logger.warning("IOL sync falló en scheduler user=%s: %s", integration.user_id, e)
             integration.last_error = str(e)[:200]
             db.commit()
+
+
+def _refresh_manual_prices(db) -> None:
+    """Actualiza current_price_usd y annual_yield_pct para posiciones manuales."""
+    from decimal import Decimal
+    from app.models import Position
+    from app.services import crypto_prices, fci_prices, external_prices
+
+    manual = db.query(Position).filter(
+        Position.source == "MANUAL",
+        Position.is_active == True,
+    ).all()
+
+    if not manual:
+        return
+
+    # MEP actual para convertir VCP de FCI (ARS) a USD
+    fx_mep = 1430.0
+    try:
+        import httpx
+        r = httpx.get("https://dolarapi.com/v1/dolares/bolsa", timeout=5)
+        if r.status_code == 200:
+            fx_mep = float(r.json().get("venta", fx_mep))
+    except Exception:
+        pass
+
+    for pos in manual:
+        try:
+            if pos.asset_type == "CRYPTO" and pos.external_id:
+                price = crypto_prices.get_price_usd(pos.external_id)
+                if price:
+                    pos.current_price_usd = Decimal(str(price))
+                yield_pct = crypto_prices.get_yield_30d(pos.external_id)
+                pos.annual_yield_pct = Decimal(str(yield_pct))
+
+            elif pos.asset_type == "FCI" and pos.external_id and pos.fci_categoria:
+                vcp = fci_prices.get_vcp(pos.external_id, pos.fci_categoria)
+                if vcp and fx_mep > 0:
+                    pos.current_price_usd = Decimal(str(vcp / fx_mep))
+                yield_pct = fci_prices.get_yield_30d(pos.external_id, pos.fci_categoria)
+                pos.annual_yield_pct = Decimal(str(yield_pct))
+
+            elif pos.asset_type in ("ETF", "CEDEAR") and pos.external_id:
+                price = external_prices.get_price_usd(pos.external_id)
+                if price:
+                    pos.current_price_usd = Decimal(str(price))
+                yield_pct = external_prices.get_yield_30d(pos.external_id)
+                pos.annual_yield_pct = Decimal(str(yield_pct))
+
+            logger.info("Precio manual actualizado: %s %s → USD %.4f yield %.2f%%",
+                        pos.asset_type, pos.ticker,
+                        float(pos.current_price_usd), float(pos.annual_yield_pct) * 100)
+        except Exception as e:
+            logger.warning("Refresh precio manual falló (%s %s): %s",
+                           pos.asset_type, pos.ticker, e)
+
+    db.commit()
 
 
 def _save_portfolio_snapshot(db) -> None:
