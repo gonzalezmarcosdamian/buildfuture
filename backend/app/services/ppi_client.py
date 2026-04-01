@@ -53,10 +53,57 @@ class PPIAuthError(Exception):
     pass
 
 
+_MOCK_PREFIX = "mock-"
+
+def _mock_portfolio() -> list["PPIPosition"]:
+    """Portafolio falso para testing visual sin credenciales reales."""
+    mep = Decimal("1450")
+    return [
+        PPIPosition(
+            ticker="QQQ",
+            description="Invesco QQQ Trust (CEDEAR)",
+            asset_type="CEDEAR",
+            quantity=Decimal("25"),
+            current_price_usd=Decimal("18.50"),
+            avg_price_usd=Decimal("16.00"),
+            annual_yield_pct=DEFAULT_YIELDS["cedear"],
+            ppc_ars=Decimal("26825"),
+            current_value_ars=Decimal("26825") * 25,
+        ),
+        PPIPosition(
+            ticker="AL30",
+            description="Bono Soberano AL30 USD",
+            asset_type="BOND",
+            quantity=Decimal("1000"),
+            current_price_usd=Decimal("0.585"),
+            avg_price_usd=Decimal("0.520"),
+            annual_yield_pct=DEFAULT_YIELDS["bond"],
+            ppc_ars=Decimal("0"),
+            current_value_ars=Decimal("0"),
+        ),
+        PPIPosition(
+            ticker="S31G6",
+            description="LECAP S31G6",
+            asset_type="LETRA",
+            quantity=Decimal("500"),
+            current_price_usd=Decimal("0.690"),
+            avg_price_usd=Decimal("0.650"),
+            annual_yield_pct=DEFAULT_YIELDS["letra"],
+            ppc_ars=Decimal("1001"),
+            current_value_ars=Decimal("1001") * 500,
+        ),
+    ]
+
+
+def _mock_cash() -> dict[str, Decimal]:
+    return {"ars": Decimal("35000"), "usd": Decimal("120")}
+
+
 class PPIClient:
     def __init__(self, public_key: str, private_key: str, sandbox: bool = False):
         self.public_key = public_key
         self.private_key = private_key
+        self._mock = public_key.startswith(_MOCK_PREFIX)
         self._base = PPI_BASE_SANDBOX if sandbox else PPI_BASE_PROD
         self._access_token: str | None = None
         self._refresh_token: str | None = None
@@ -64,6 +111,10 @@ class PPIClient:
     # ── Autenticación ──────────────────────────────────────────────────────────
 
     def authenticate(self) -> None:
+        if self._mock:
+            logger.info("PPI mock mode — skip auth")
+            self._access_token = "mock-token"
+            return
         logger.info("PPI auth — public_key: %s...", self.public_key[:8])
         try:
             resp = httpx.post(
@@ -149,6 +200,8 @@ class PPIClient:
 
     def get_accounts(self) -> list[dict]:
         """Lista de cuentas disponibles del usuario."""
+        if self._mock:
+            return [{"accountNumber": "99999999", "name": "Cuenta Mock PPI", "type": "INVERSION"}]
         data = self._get("/api/v1/Account/Accounts")
         if isinstance(data, list):
             return data
@@ -159,7 +212,11 @@ class PPIClient:
         Trae posiciones desde /Account/GetBalanceAndPositions.
         PPI devuelve groupedInstruments con tipos: CEDEARS, BONOS, ACCIONES, ETFs, etc.
         Futuros y Opciones se ignoran (no aportan al freedom score).
+        En mock mode retorna datos hardcodeados sin llamar a PPI.
         """
+        if self._mock:
+            logger.info("PPI mock mode — returning fake portfolio")
+            return _mock_portfolio()
         mep = self._get_mep()
         mep_dec = Decimal(str(mep))
 
@@ -239,6 +296,8 @@ class PPIClient:
         Saldo disponible en ARS y USD.
         PPI: groupedAvailability[].availability[].{name, amount}
         """
+        if self._mock:
+            return _mock_cash()
         try:
             data = self._get(
                 "/api/v1/Account/GetBalance",
@@ -274,6 +333,8 @@ class PPIClient:
         Fechas en formato 'YYYY-MM-DD'.
         Cada operación devuelve: ticker, type ('COMPRA'/'VENTA'), quantity, price, date.
         """
+        if self._mock:
+            return []
         params: dict = {"accountNumber": account_number}
         if fecha_desde:
             params["dateFrom"] = fecha_desde
