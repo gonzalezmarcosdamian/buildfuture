@@ -1,7 +1,7 @@
 import logging
 from decimal import Decimal
 from datetime import date
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
 
 logger = logging.getLogger("buildfuture.portfolio")
 from sqlalchemy.orm import Session
@@ -228,15 +228,18 @@ def get_portfolio_history(
 ):
     from app.scheduler import trigger_snapshot_now
 
+    # Posiciones activas — necesarias tanto para el snapshot live como para el costo base
+    live_positions = db.query(Position).filter(
+        Position.is_active == True,
+        Position.user_id == current_user,
+    ).all()
+    total_cost_basis = sum(float(p.cost_basis_usd) for p in live_positions) if live_positions else 0
+
     # Actualizar snapshot de hoy con valor live (así el chart termina igual que el header)
     today = date.today()
     try:
         from app.services.freedom_calculator import calculate_freedom_score
 
-        live_positions = db.query(Position).filter(
-            Position.is_active == True,
-            Position.user_id == current_user,
-        ).all()
         if live_positions:
             budget = (
                 db.query(BudgetConfig)
@@ -306,6 +309,8 @@ def get_portfolio_history(
         s = item["snapshot"]
         total = float(s.total_usd)
         prev_total = float(points_raw[i - 1]["snapshot"].total_usd) if i > 0 else total
+        pnl_usd = round(total - total_cost_basis, 2) if total_cost_basis > 0 else 0
+        pnl_pct = round(pnl_usd / total_cost_basis * 100, 2) if total_cost_basis > 0 else 0
         points.append({
             "label": item["label"],
             "date": item["date_iso"],
@@ -313,6 +318,8 @@ def get_portfolio_history(
             "monthly_return_usd": round(float(s.monthly_return_usd), 2),
             "fx_mep": round(float(s.fx_mep), 2) if s.fx_mep else 0,
             "delta_usd": round(total - prev_total, 2),
+            "pnl_usd": pnl_usd,
+            "pnl_pct": pnl_pct,
         })
 
     return {"period": period, "points": points, "has_data": len(points) >= 1}
@@ -435,4 +442,99 @@ def get_freedom_score(
         "monthly_return_usd": float(score["monthly_return_usd"]),
         "monthly_expenses_usd": float(score["monthly_expenses_usd"]),
         "milestones": milestones,
+    }
+
+
+_ASSET_CONTEXT = {
+    "CEDEAR": {
+        "type_label": "CEDEAR",
+        "full_name": "Certificado de Depósito Argentino",
+        "description": "Representa acciones de empresas extranjeras que cotizan en ARS vía CCL.",
+        "currency_note": "El precio en ARS refleja el tipo de cambio CCL implícito. El rendimiento en USD es el más representativo.",
+        "liquidity": "Alta — mercado continuo L-V.",
+    },
+    "LETRA": {
+        "type_label": "LECAP",
+        "full_name": "Letra de Capitalización del Tesoro",
+        "description": "Instrumento de deuda de corto plazo del Tesoro Argentino en ARS. Capitaliza diariamente.",
+        "currency_note": "Cotiza en ARS. Valor par = 100 nominales. El precio sube diariamente con la TNA.",
+        "liquidity": "Alta — mercado secundario BYMA.",
+    },
+    "FCI": {
+        "type_label": "FCI",
+        "full_name": "Fondo Común de Inversión",
+        "description": "Fondo de inversión colectiva administrado por una sociedad gerente. Diversificación automática.",
+        "currency_note": "Cuotapartes en ARS. El valor cuotaparte actualiza diariamente.",
+        "liquidity": "Alta — rescate acreditado en 24-48hs hábiles.",
+    },
+    "BOND": {
+        "type_label": "BONO",
+        "full_name": "Bono de Renta Fija",
+        "description": "Instrumento de deuda que paga cupones periódicos y amortización. Puede ser soberano o corporativo.",
+        "currency_note": "Puede cotizar en ARS o USD según la serie. Los dollar-linked siguen al tipo de cambio oficial.",
+        "liquidity": "Media — depende del volumen del bono.",
+    },
+    "CRYPTO": {
+        "type_label": "CRYPTO",
+        "full_name": "Criptomoneda",
+        "description": "Activo digital descentralizado. Alta volatilidad. Mercado 24/7.",
+        "currency_note": "Cotiza en USD. Sin regulación BCRA.",
+        "liquidity": "Muy alta — mercado 24/7.",
+    },
+}
+
+
+@router.get("/instrument/{ticker}")
+def get_instrument_detail(
+    ticker: str,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    position = db.query(Position).filter(
+        Position.ticker == ticker,
+        Position.is_active == True,
+        Position.user_id == current_user,
+    ).first()
+
+    if not position:
+        raise HTTPException(status_code=404, detail="Instrumento no encontrado")
+
+    budget = (
+        db.query(BudgetConfig)
+        .filter(BudgetConfig.user_id == current_user)
+        .order_by(BudgetConfig.effective_month.desc())
+        .first()
+    )
+    mep = float(budget.fx_rate) if budget and budget.fx_rate else 1430.0
+
+    pnl_usd = float(position.current_value_usd) - float(position.cost_basis_usd)
+    monthly_return_usd = float(position.current_value_usd) * float(position.annual_yield_pct) / 12
+
+    context = _ASSET_CONTEXT.get(position.asset_type, {
+        "type_label": position.asset_type,
+        "full_name": position.asset_type,
+        "description": "Activo financiero.",
+        "currency_note": "",
+        "liquidity": "Variable.",
+    })
+
+    return {
+        "ticker": position.ticker,
+        "description": position.description,
+        "asset_type": position.asset_type,
+        "source": position.source,
+        "quantity": float(position.quantity),
+        "ppc_ars": float(position.ppc_ars),
+        "purchase_fx_rate": float(position.purchase_fx_rate),
+        "avg_purchase_price_usd": float(position.avg_purchase_price_usd),
+        "current_price_usd": float(position.current_price_usd),
+        "current_value_usd": float(position.current_value_usd),
+        "cost_basis_usd": float(position.cost_basis_usd),
+        "performance_pct": float(position.performance_pct),
+        "pnl_usd": round(pnl_usd, 2),
+        "annual_yield_pct": float(position.annual_yield_pct),
+        "monthly_return_usd": round(monthly_return_usd, 4),
+        "last_updated": position.snapshot_date.isoformat() if position.snapshot_date else None,
+        "mep": round(mep, 2),
+        "context": context,
     }
