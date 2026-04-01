@@ -47,6 +47,7 @@ def startup():
     seed(db)
     _purge_bad_manual_positions(db)
     _dedup_positions(db)
+    _backfill_integrations(db)
     db.close()
     start_scheduler()
 
@@ -143,6 +144,52 @@ def _dedup_positions(db):
             logger.info("_dedup_positions: %d posiciones duplicadas desactivadas", total)
     except Exception as e:
         logger.warning("_dedup_positions failed: %s", e)
+        db.rollback()
+
+
+_DEFAULT_INTEGRATIONS = [
+    {"provider": "IOL",  "provider_type": "ALYC"},
+    {"provider": "PPI",  "provider_type": "ALYC"},
+]
+
+def _backfill_integrations(db):
+    """
+    Garantiza que todos los usuarios existentes tengan los registros
+    de integración IOL y PPI. Crea únicamente los que faltan.
+    Cubre usuarios creados antes de que el lazy-creation existiera.
+    """
+    from app.models import Integration, Position
+    from sqlalchemy import select, distinct
+    try:
+        # Recolectar todos los user_id conocidos en la DB
+        user_ids = set()
+        for model in (Position,):
+            rows = db.execute(select(distinct(model.user_id))).scalars().all()
+            user_ids.update(rows)
+
+        created = 0
+        for user_id in user_ids:
+            existing_providers = {
+                i.provider
+                for i in db.query(Integration.provider)
+                .filter(Integration.user_id == user_id)
+                .all()
+            }
+            for spec in _DEFAULT_INTEGRATIONS:
+                if spec["provider"] not in existing_providers:
+                    db.add(Integration(
+                        user_id=user_id,
+                        provider=spec["provider"],
+                        provider_type=spec["provider_type"],
+                        is_active=True,
+                        is_connected=False,
+                    ))
+                    created += 1
+        if created:
+            db.commit()
+            logger.info("_backfill_integrations: %d registros creados para %d usuarios", created, len(user_ids))
+    except Exception as e:
+        logger.warning("_backfill_integrations failed: %s", e)
         db.rollback()
 
 
