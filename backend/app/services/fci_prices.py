@@ -40,7 +40,7 @@ def _fetch_categoria(cat: str) -> list[dict]:
                 "horizonte": f.get("horizonte"),
             }
             for f in r.json()
-            if f.get("fondo")
+            if f.get("fondo") and f.get("vcp") is not None
         ]
         _CACHE[cat] = (now, fondos)
         return fondos
