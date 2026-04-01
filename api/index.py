@@ -1,21 +1,14 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+"""Vercel serverless entry point — full FastAPI backend."""
 
-app = FastAPI()
+import os
+import sys
+from pathlib import Path
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+os.environ["VERCEL"] = "1"
 
+# Add backend directory to Python path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "backend"))
 
-@app.get("/")
-def root():
-    return {"status": "ok", "version": "0.6.1", "env": "vercel"}
+from app.main import app  # noqa: E402
 
-
-@app.get("/health")
-def health():
-    return {"status": "ok", "version": "0.6.1"}
+handler = app
