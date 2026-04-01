@@ -1,5 +1,7 @@
 import logging
 import os
+
+logger = logging.getLogger("buildfuture.main")
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import engine, SessionLocal
