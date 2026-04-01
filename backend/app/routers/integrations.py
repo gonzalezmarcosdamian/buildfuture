@@ -125,6 +125,57 @@ def sync_iol(
         raise HTTPException(status_code=502, detail=str(e))
 
 
+@router.get("/iol/debug")
+def debug_iol(
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    """
+    Muestra lo que IOL devuelve sin modificar la DB.
+    Útil para diagnosticar diferencias entre IOL y BuildFuture.
+    """
+    integration = db.query(Integration).filter(
+        Integration.provider == "IOL",
+        Integration.user_id == current_user,
+        Integration.is_connected == True,
+    ).first()
+    if not integration or not integration.encrypted_credentials:
+        raise HTTPException(status_code=400, detail="IOL no está conectado")
+
+    try:
+        creds = integration.encrypted_credentials.split(":", 1)
+        client = IOLClient(creds[0], creds[1])
+        mep = client._get_mep()
+        raw = client._get("/api/v2/portafolio/argentina")
+        activos = raw.get("activos", [])
+
+        items = []
+        total_ars = 0.0
+        for a in activos:
+            titulo = a.get("titulo", {})
+            valorizado = float(a.get("valorizado") or 0)
+            cantidad = float(a.get("cantidad") or 0)
+            total_ars += valorizado
+            items.append({
+                "ticker": titulo.get("simbolo"),
+                "tipo": titulo.get("tipo"),
+                "cantidad": cantidad,
+                "valorizado_ars": round(valorizado, 2),
+                "valorizado_usd": round(valorizado / mep, 2) if mep else 0,
+                "ppc": a.get("ppc"),
+            })
+
+        return {
+            "mep": round(mep, 2),
+            "total_ars_iol": round(total_ars, 2),
+            "total_usd_iol": round(total_ars / mep, 2) if mep else 0,
+            "positions_count": len(items),
+            "positions": items,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
 @router.post("/iol/disconnect")
 def disconnect_iol(
     db: Session = Depends(get_db),
