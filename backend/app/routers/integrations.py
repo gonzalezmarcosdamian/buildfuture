@@ -350,6 +350,7 @@ def _sync_iol(client: IOLClient, db: Session, user_id: str) -> dict:
             is_active=True,
             ppc_ars=p.ppc_ars,
             purchase_fx_rate=Decimal(str(round(purchase_fx, 2))),
+            current_value_ars=p.valorizado_ars,
         )
         db.add(pos)
         synced += 1
