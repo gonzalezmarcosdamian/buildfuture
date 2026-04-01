@@ -149,6 +149,7 @@ def get_portfolio(
                 "purchase_fx_rate": float(p.purchase_fx_rate),
                 "ppc_ars": float(p.ppc_ars),
                 "annual_yield_pct": float(p.annual_yield_pct),
+                "snapshot_date": p.snapshot_date.isoformat() if p.snapshot_date else None,
             }
             for p in positions
         ],
