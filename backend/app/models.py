@@ -170,6 +170,14 @@ class InvestmentMonth(Base):
     note: Mapped[str] = mapped_column(Text, default="")
 
 
+class UserProfile(Base):
+    __tablename__ = "user_profiles"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(36), unique=True, index=True)
+    risk_profile: Mapped[str | None] = mapped_column(String(20), nullable=True)  # conservative | moderate | aggressive
+
+
 class Integration(Base):
     __tablename__ = "integrations"
 
