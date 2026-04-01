@@ -6,14 +6,17 @@ Falls back to SEED_USER_ID in local dev (no SUPABASE_URL set).
 import os
 import logging
 import httpx
+from dotenv import load_dotenv
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
 
+load_dotenv()
+
 logger = logging.getLogger("buildfuture.auth")
 
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
-DEV_USER_ID  = os.getenv("SEED_USER_ID", "dev-user-00000000-0000-0000-0000-000000000000")
+DEV_USER_ID  = os.getenv("SEED_USER_ID", "00000000-0000-0000-0000-000000000001")
 
 _bearer = HTTPBearer(auto_error=False)
 _jwks_cache: list | None = None
