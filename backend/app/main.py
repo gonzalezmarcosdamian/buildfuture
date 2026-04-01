@@ -67,3 +67,21 @@ def manual_snapshot():
     """Dispara el snapshot manualmente — útil para testing o sync forzado."""
     from app.scheduler import trigger_snapshot_now
     return trigger_snapshot_now()
+
+
+@app.delete("/admin/purge-manual/{ticker}")
+def purge_manual_position(ticker: str):
+    """TEMP: soft-delete todas las posiciones manuales con ese ticker."""
+    from app.models import Position
+    db = SessionLocal()
+    try:
+        rows = db.query(Position).filter(
+            Position.ticker.ilike(ticker),
+            Position.source == "MANUAL",
+        ).all()
+        for r in rows:
+            r.is_active = False
+        db.commit()
+        return {"deleted": len(rows), "ticker": ticker}
+    finally:
+        db.close()
