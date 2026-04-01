@@ -277,6 +277,7 @@ def get_portfolio_history(
             logger.info("Snapshot hoy actualizado: USD %.4f", float(score["portfolio_total_usd"]))
     except Exception as e:
         logger.warning("Refresh snapshot hoy fallo: %s", e, exc_info=True)
+        db.rollback()  # sin esto la sesión queda rota y toda query posterior falla
 
     snapshots = (
         db.query(PortfolioSnapshot)
