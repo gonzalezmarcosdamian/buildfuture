@@ -258,6 +258,9 @@ def _sync_nexo(client: NexoClient, db: Session, user_id: str) -> dict:
 
 def _sync_iol(client: IOLClient, db: Session, user_id: str) -> dict:
     """Trae posiciones y operaciones de IOL, upserta en la DB."""
+    # Obtener MEP actual UNA vez — se usa para conversión ARS→USD y para actualizar budget
+    current_mep = client._get_mep()
+
     positions = client.get_portfolio()
 
     # Desactivar posiciones IOL anteriores del usuario
@@ -303,8 +306,21 @@ def _sync_iol(client: IOLClient, db: Session, user_id: str) -> dict:
     # Sincronizar meses de inversión desde operaciones (últimos 13 meses)
     months_synced = _sync_investment_months(client, db, user_id)
 
+    # Actualizar MEP en el presupuesto del usuario para que el display en ARS sea consistente
+    # con los valores almacenados (que usan el mismo MEP para la conversión ARS→USD)
+    from app.models import BudgetConfig
+    budget = (
+        db.query(BudgetConfig)
+        .filter(BudgetConfig.user_id == user_id)
+        .order_by(BudgetConfig.effective_month.desc())
+        .first()
+    )
+    if budget and current_mep > 0:
+        budget.fx_rate = Decimal(str(round(current_mep, 2)))
+        logger.info("Budget fx_rate actualizado a MEP=%.2f para user %s", current_mep, user_id)
+
     db.flush()
-    return {"positions_synced": synced, "months_synced": months_synced}
+    return {"positions_synced": synced, "months_synced": months_synced, "mep": round(current_mep, 2)}
 
 
 def _get_purchase_mep_from_operations(client: IOLClient) -> dict[str, float]:
