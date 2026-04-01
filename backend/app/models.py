@@ -24,11 +24,7 @@ class Position(Base):
     ppc_ars: Mapped[Decimal] = mapped_column(Numeric(18, 6), default=Decimal("0"))
     # MEP/CCL al momento de la compra — para calcular costo base real en USD
     purchase_fx_rate: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0"))
-    # ID externo para actualización automática de precios:
-    # CRYPTO → CoinGecko ID (ej: "bitcoin"), ETF → ticker Yahoo (ej: "SPY"), FCI → nombre fondo ArgentinaDatos
-    external_id: Mapped[str | None] = mapped_column(String(100), nullable=True, default=None)
-    # Categoría FCI para ArgentinaDatos (mercadoDinero | rentaFija | rentaVariable | rentaMixta | otros)
-    fci_categoria: Mapped[str | None] = mapped_column(String(30), nullable=True, default=None)
+    # external_id / fci_categoria: WIP local — pendiente migración DB prod
 
     @property
     def current_value_usd(self) -> Decimal:
