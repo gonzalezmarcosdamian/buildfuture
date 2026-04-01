@@ -96,8 +96,8 @@ def search_crypto(q: str = Query(min_length=1)):
 
 
 @router.get("/search/fci")
-def search_fci(q: str = Query(min_length=2)):
-    """Busca fondos de inversión en ArgentinaDatos por nombre."""
+def search_fci(q: str = Query(default="", min_length=0)):
+    """Busca fondos de inversión en ArgentinaDatos por nombre. Sin q devuelve todos."""
     return {"results": fci_prices.search_fci(q)}
 
 
