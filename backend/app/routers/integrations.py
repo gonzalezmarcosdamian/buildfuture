@@ -11,6 +11,7 @@ from app.auth import get_current_user
 from app.models import Integration, Position, InvestmentMonth
 from app.services.iol_client import IOLClient, IOLAuthError
 from app.services.nexo_client import NexoClient, NexoAuthError
+from app.services.ppi_client import PPIClient, PPIAuthError
 
 router = APIRouter(prefix="/integrations", tags=["integrations"])
 
@@ -519,6 +520,396 @@ def _sync_investment_months(client: IOLClient, db: Session, user_id: str) -> int
                 month=month_date,
                 amount_ars=Decimal(str(round(data["amount_ars"], 2))),
                 source="IOL",
+                note=note,
+            ))
+            synced += 1
+
+    return synced
+
+
+# ── PPI (Portfolio Personal Inversiones) ──────────────────────────────────────
+
+class ConnectPPIRequest(BaseModel):
+    public_key: str
+    private_key: str
+    account_number: str
+
+
+@router.post("/ppi/connect")
+def connect_ppi(
+    body: ConnectPPIRequest,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    """
+    Autentica con PPI, guarda credenciales y hace el primer sync del portafolio.
+    Credenciales: public_key + private_key (se generan en PPI → Gestiones → API).
+    account_number: número de cuenta PPI (obtenible con GET /ppi/accounts).
+    """
+    client = PPIClient(body.public_key, body.private_key)
+    try:
+        client.authenticate()
+    except PPIAuthError as e:
+        raise HTTPException(status_code=401, detail=f"Credenciales PPI incorrectas: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Error conectando con PPI: {str(e)}")
+
+    integration = db.query(Integration).filter(
+        Integration.provider == "PPI",
+        Integration.user_id == current_user,
+    ).first()
+    if not integration:
+        integration = Integration(
+            user_id=current_user,
+            provider="PPI",
+            provider_type="ALYC",
+        )
+        db.add(integration)
+
+    # Formato: "public_key:private_key:account_number"
+    integration.encrypted_credentials = f"{body.public_key}:{body.private_key}:{body.account_number}"
+    integration.is_connected = True
+    integration.last_error = ""
+    db.flush()
+
+    result = _sync_ppi(client, body.account_number, db, current_user)
+    integration.last_synced_at = datetime.utcnow()
+    db.commit()
+
+    return {
+        "connected": True,
+        "positions_synced": result["positions_synced"],
+        "message": f"PPI conectado. {result['positions_synced']} posiciones sincronizadas.",
+    }
+
+
+@router.post("/ppi/sync")
+def sync_ppi(
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    """Re-sincroniza el portafolio PPI con las credenciales guardadas."""
+    integration = db.query(Integration).filter(
+        Integration.provider == "PPI",
+        Integration.user_id == current_user,
+    ).first()
+    if not integration or not integration.is_connected:
+        raise HTTPException(status_code=400, detail="PPI no está conectado")
+
+    try:
+        pub, priv, acct = integration.encrypted_credentials.split(":", 2)
+        client = PPIClient(pub, priv)
+        result = _sync_ppi(client, acct, db, current_user)
+        integration.last_synced_at = datetime.utcnow()
+        integration.last_error = ""
+        db.commit()
+        return {"positions_synced": result["positions_synced"]}
+    except Exception as e:
+        integration.last_error = str(e)[:200]
+        db.commit()
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@router.get("/ppi/accounts")
+def list_ppi_accounts(
+    public_key: str,
+    private_key: str,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    """
+    Lista las cuentas disponibles para el par de claves dado.
+    Útil para obtener el account_number antes de conectar.
+    """
+    client = PPIClient(public_key, private_key)
+    try:
+        client.authenticate()
+        accounts = client.get_accounts()
+        return {"accounts": accounts}
+    except PPIAuthError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@router.get("/ppi/debug")
+def debug_ppi(
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    """Muestra la respuesta raw de PPI sin modificar la DB. Para diagnóstico."""
+    integration = db.query(Integration).filter(
+        Integration.provider == "PPI",
+        Integration.user_id == current_user,
+        Integration.is_connected == True,
+    ).first()
+    if not integration or not integration.encrypted_credentials:
+        raise HTTPException(status_code=400, detail="PPI no está conectado")
+
+    try:
+        pub, priv, acct = integration.encrypted_credentials.split(":", 2)
+        client = PPIClient(pub, priv)
+        mep = client._get_mep()
+        raw = client._get(
+            "/api/v1/Account/GetBalanceAndPositions",
+            params={"accountNumber": acct},
+        )
+        cash = client.get_cash_balance(acct)
+
+        grouped = raw.get("groupedInstruments", [])
+        items = []
+        total_usd = 0.0
+        for group in grouped:
+            for inst in group.get("instruments", []):
+                qty = float(inst.get("quantity", inst.get("cantidad", 0)))
+                amt = float(inst.get("amount", inst.get("monto", 0)))
+                total_usd += amt / mep if mep else 0
+                items.append({
+                    "group": group.get("name"),
+                    "ticker": inst.get("ticker"),
+                    "quantity": qty,
+                    "price": inst.get("price", inst.get("precio")),
+                    "amount_ars": round(amt, 2),
+                    "amount_usd": round(amt / mep, 2) if mep else 0,
+                })
+
+        return {
+            "mep": round(mep, 2),
+            "account_number": acct,
+            "total_usd_estimated": round(total_usd, 2),
+            "positions_count": len(items),
+            "positions": items,
+            "cash_ars": float(cash["ars"]),
+            "cash_usd": float(cash["usd"]),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@router.post("/ppi/disconnect")
+def disconnect_ppi(
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    """Desconecta PPI: borra credenciales y desactiva posiciones."""
+    integration = db.query(Integration).filter(
+        Integration.provider == "PPI",
+        Integration.user_id == current_user,
+    ).first()
+    if not integration:
+        raise HTTPException(status_code=404, detail="Integración PPI no encontrada")
+
+    integration.encrypted_credentials = ""
+    integration.is_connected = False
+    integration.last_error = ""
+
+    db.query(Position).filter(
+        Position.user_id == current_user,
+        Position.source == "PPI",
+        Position.is_active == True,
+    ).update({"is_active": False})
+
+    db.commit()
+    return {"disconnected": True}
+
+
+def _sync_ppi(client: PPIClient, account_number: str, db: Session, user_id: str) -> dict:
+    """Trae posiciones de PPI y las upserta en la DB."""
+    current_mep = client._get_mep()
+    positions = client.get_portfolio(account_number)
+
+    # Desactivar posiciones PPI anteriores (evitar duplicados en re-sync)
+    db.query(Position).filter(
+        Position.source == "PPI",
+        Position.is_active == True,
+        Position.user_id == user_id,
+    ).update({"is_active": False})
+
+    today = date.today()
+    synced = 0
+
+    # MEP histórico por ticker para cost-basis real
+    purchase_mep_by_ticker = _get_purchase_mep_ppi(client, account_number)
+
+    for p in positions:
+        if p.quantity <= 0:
+            continue
+
+        purchase_fx = purchase_mep_by_ticker.get(p.ticker, 0.0)
+        if not purchase_fx:
+            purchase_fx = current_mep
+
+        db.add(Position(
+            user_id=user_id,
+            ticker=p.ticker,
+            description=p.description,
+            asset_type=p.asset_type,
+            source="PPI",
+            quantity=p.quantity,
+            avg_purchase_price_usd=p.avg_price_usd,
+            current_price_usd=p.current_price_usd,
+            annual_yield_pct=p.annual_yield_pct,
+            snapshot_date=today,
+            is_active=True,
+            ppc_ars=p.ppc_ars,
+            purchase_fx_rate=Decimal(str(round(purchase_fx, 2))),
+            current_value_ars=p.current_value_ars,
+        ))
+        synced += 1
+
+    # Cash disponible PPI (ARS y USD por separado)
+    try:
+        cash = client.get_cash_balance(account_number)
+        mep_dec = Decimal(str(current_mep))
+
+        cash_ars = cash["ars"]
+        if cash_ars > 0:
+            db.query(Position).filter(
+                Position.ticker == "CASH_PPI_ARS",
+                Position.user_id == user_id,
+            ).update({"is_active": False})
+            cash_usd = cash_ars / mep_dec if mep_dec > 0 else Decimal("0")
+            db.add(Position(
+                user_id=user_id,
+                ticker="CASH_PPI_ARS",
+                description="Saldo disponible en pesos · PPI",
+                asset_type="CASH",
+                source="PPI",
+                quantity=Decimal("1"),
+                avg_purchase_price_usd=cash_usd,
+                current_price_usd=cash_usd,
+                annual_yield_pct=Decimal("0"),
+                snapshot_date=today,
+                is_active=True,
+                ppc_ars=cash_ars,
+                purchase_fx_rate=mep_dec,
+                current_value_ars=cash_ars,
+            ))
+            synced += 1
+            logger.info("PPI cash ARS: %.2f → USD %.2f", float(cash_ars), float(cash_usd))
+
+        cash_usd_direct = cash["usd"]
+        if cash_usd_direct > 0:
+            db.query(Position).filter(
+                Position.ticker == "CASH_PPI_USD",
+                Position.user_id == user_id,
+            ).update({"is_active": False})
+            db.add(Position(
+                user_id=user_id,
+                ticker="CASH_PPI_USD",
+                description="Saldo disponible en dólares · PPI",
+                asset_type="CASH",
+                source="PPI",
+                quantity=Decimal("1"),
+                avg_purchase_price_usd=cash_usd_direct,
+                current_price_usd=cash_usd_direct,
+                annual_yield_pct=Decimal("0"),
+                snapshot_date=today,
+                is_active=True,
+                ppc_ars=Decimal("0"),
+                purchase_fx_rate=mep_dec,
+                current_value_ars=cash_usd_direct * mep_dec,
+            ))
+            synced += 1
+            logger.info("PPI cash USD: %.2f", float(cash_usd_direct))
+
+    except Exception as e:
+        logger.error("PPI: error al sincronizar cash: %s", e, exc_info=True)
+
+    # Meses de inversión PPI
+    months_synced = _sync_investment_months_ppi(client, account_number, db, user_id)
+
+    # Invalidar cache de freedom score
+    try:
+        from app.routers.portfolio import _invalidate_score_cache
+        _invalidate_score_cache(user_id)
+    except Exception:
+        pass
+
+    db.flush()
+    return {"positions_synced": synced, "months_synced": months_synced, "mep": round(current_mep, 2)}
+
+
+def _get_purchase_mep_ppi(client: PPIClient, account_number: str) -> dict[str, float]:
+    """
+    MEP histórico al momento de compra de cada ticker PPI.
+    Mismo patrón que _get_purchase_mep_from_operations para IOL.
+    PPI: operaciones con campos date/ticker/type (COMPRA/VENTA).
+    """
+    from datetime import timedelta
+    fecha_desde = (date.today().replace(day=1) - timedelta(days=365)).strftime("%Y-%m-%d")
+    operations = client.get_operations(account_number, fecha_desde=fecha_desde)
+
+    ticker_dates: dict[str, str] = {}
+    for op in operations:
+        tipo = str(op.get("type", op.get("tipo", ""))).upper()
+        if "COMPRA" not in tipo and "BUY" not in tipo:
+            continue
+        raw_date = op.get("date", op.get("fecha", op.get("fechaOrden", "")))
+        ticker = str(op.get("ticker", op.get("simbolo", ""))).upper()
+        if raw_date and ticker:
+            fecha = str(raw_date)[:10]
+            if ticker not in ticker_dates or fecha > ticker_dates[ticker]:
+                ticker_dates[ticker] = fecha
+
+    result: dict[str, float] = {}
+    for ticker, fecha in ticker_dates.items():
+        mep = client.get_historical_mep(fecha)
+        result[ticker] = mep
+        logger.info("PPI MEP compra %s en %s = %.2f", ticker, fecha, mep)
+
+    return result
+
+
+def _sync_investment_months_ppi(
+    client: PPIClient,
+    account_number: str,
+    db: Session,
+    user_id: str,
+) -> int:
+    """Registra meses con compras PPI en investment_months."""
+    from datetime import timedelta
+
+    fecha_desde = (date.today().replace(day=1) - timedelta(days=365)).strftime("%Y-%m-%d")
+    operations = client.get_operations(account_number, fecha_desde=fecha_desde)
+
+    months_found: dict[date, dict] = {}
+    for op in operations:
+        tipo = str(op.get("type", op.get("tipo", ""))).upper()
+        if "COMPRA" not in tipo and "BUY" not in tipo:
+            continue
+        raw_date = op.get("date", op.get("fecha", op.get("fechaOrden", "")))
+        if not raw_date:
+            continue
+        try:
+            from datetime import datetime as _dt
+            op_date = _dt.fromisoformat(str(raw_date)[:10]).date()
+        except ValueError:
+            continue
+
+        month_key = op_date.replace(day=1)
+        monto = float(op.get("amount", op.get("monto", op.get("montoOperado", 0))) or 0)
+        ticker = str(op.get("ticker", op.get("simbolo", ""))).upper()
+
+        if month_key not in months_found:
+            months_found[month_key] = {"amount_ars": 0.0, "tickers": []}
+        months_found[month_key]["amount_ars"] += monto
+        if ticker:
+            months_found[month_key]["tickers"].append(ticker)
+
+    synced = 0
+    for month_date, data in months_found.items():
+        existing = db.query(InvestmentMonth).filter(
+            InvestmentMonth.month == month_date,
+            InvestmentMonth.user_id == user_id,
+        ).first()
+        if not existing:
+            note = ", ".join(set(data["tickers"]))[:200]
+            db.add(InvestmentMonth(
+                user_id=user_id,
+                month=month_date,
+                amount_ars=Decimal(str(round(data["amount_ars"], 2))),
+                source="PPI",
                 note=note,
             ))
             synced += 1
