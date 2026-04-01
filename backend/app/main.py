@@ -63,6 +63,10 @@ def _run_migrations():
             "CREATE INDEX IF NOT EXISTS idx_positions_user_active ON positions(user_id, is_active)",
             "idx_positions_user_active",
         ),
+        (
+            "ALTER TABLE portfolio_snapshots ADD COLUMN IF NOT EXISTS cost_basis_usd NUMERIC(12,2) DEFAULT 0",
+            "portfolio_snapshots.cost_basis_usd",
+        ),
     ]
     try:
         with engine.connect() as conn:

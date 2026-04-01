@@ -157,6 +157,7 @@ class PortfolioSnapshot(Base):
     monthly_return_usd: Mapped[Decimal] = mapped_column(Numeric(10, 2))
     positions_count: Mapped[int] = mapped_column(default=0)
     fx_mep: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0"))
+    cost_basis_usd: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
 
 
 class InvestmentMonth(Base):

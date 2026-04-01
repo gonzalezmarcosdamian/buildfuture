@@ -324,6 +324,7 @@ def get_portfolio_history(
         Position.user_id == current_user,
     ).all()
     total_cost_basis = sum(float(p.cost_basis_usd) for p in live_positions) if live_positions else 0
+    total_cost_basis_decimal = Decimal(str(round(total_cost_basis, 2)))
 
     # Actualizar snapshot de hoy solo si no fue actualizado en los últimos 5 min
     today = date.today()
@@ -344,6 +345,7 @@ def get_portfolio_history(
                 snapshot_today.total_usd = score["portfolio_total_usd"]
                 snapshot_today.monthly_return_usd = score["monthly_return_usd"]
                 snapshot_today.positions_count = len(live_positions)
+                snapshot_today.cost_basis_usd = total_cost_basis_decimal
                 if fx_mep > 0:
                     snapshot_today.fx_mep = fx_mep
             else:
@@ -354,6 +356,7 @@ def get_portfolio_history(
                     monthly_return_usd=score["monthly_return_usd"],
                     positions_count=len(live_positions),
                     fx_mep=fx_mep,
+                    cost_basis_usd=total_cost_basis_decimal,
                 ))
             db.commit()
             db.expire_all()
@@ -393,17 +396,31 @@ def get_portfolio_history(
         s = item["snapshot"]
         total = float(s.total_usd)
         prev_total = float(points_raw[i - 1]["snapshot"].total_usd) if i > 0 else total
-        pnl_usd = round(total - total_cost_basis, 2) if total_cost_basis > 0 else 0
-        pnl_pct = round(pnl_usd / total_cost_basis * 100, 2) if total_cost_basis > 0 else 0
+        delta_usd = round(total - prev_total, 2)
+
+        # cost_basis guardado en el snapshot (histórico real) o fallback al actual
+        cost_now = float(s.cost_basis_usd) if s.cost_basis_usd else total_cost_basis
+        cost_prev = float(points_raw[i - 1]["snapshot"].cost_basis_usd) if i > 0 and points_raw[i - 1]["snapshot"].cost_basis_usd else cost_now
+
+        # capital_in = cuánto capital nuevo entró ese período
+        capital_in_usd = round(cost_now - cost_prev, 2) if i > 0 else 0
+        # market_gain = variación total - capital nuevo
+        market_gain_usd = round(delta_usd - capital_in_usd, 2)
+
+        pnl_usd = round(total - cost_now, 2) if cost_now > 0 else 0
+        pnl_pct = round(pnl_usd / cost_now * 100, 2) if cost_now > 0 else 0
+
         points.append({
             "label": item["label"],
             "date": item["date_iso"],
             "total_usd": round(total, 2),
             "monthly_return_usd": round(float(s.monthly_return_usd), 2),
             "fx_mep": round(float(s.fx_mep), 2) if s.fx_mep else 0,
-            "delta_usd": round(total - prev_total, 2),
+            "delta_usd": delta_usd,
             "pnl_usd": pnl_usd,
             "pnl_pct": pnl_pct,
+            "market_gain_usd": market_gain_usd,
+            "capital_in_usd": capital_in_usd,
         })
 
     return {"period": period, "points": points, "has_data": len(points) >= 1}
