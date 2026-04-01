@@ -2,6 +2,65 @@
 
 ---
 
+## Sesión v0.7.0 — 2026-03-31
+
+### Objetivo
+Llevar la app a producción real con un usuario real. Migrar a multi-usuario con Supabase Auth, deployar backend en Railway y frontend en Vercel, reconstituir historial real de tenencia, y agregar login completo + flujo de onboarding FTU (First-Time User).
+
+### Cambios realizados
+
+**Infraestructura — deploy en producción**
+- Backend deployado en Railway con `railway.toml` + `nixpacks`. URL: `api-production-7ddd6.up.railway.app`
+- Frontend deployado en Vercel. URL: `frontend-teal-seven-22.vercel.app`
+- Variables de entorno configuradas en Railway y Vercel (Supabase URL/key, DATABASE_URL PostgreSQL)
+
+**Auth multi-usuario**
+- `auth.py`: ES256 JWT verificado vía JWKS endpoint de Supabase. Dev fallback a `SEED_USER_ID` cuando no hay `SUPABASE_URL`
+- `database.py` y `auth.py`: agregado `load_dotenv()` — sin esto, las variables de entorno no cargaban en Railway ni en local fuera del Makefile
+- `DEV_USER_ID` cambiado a UUID válido (bug: `String(36)` column con value de 46 chars → `StringDataRightTruncation`)
+- Todos los endpoints ahora son multi-usuario: `user_id = Depends(get_current_user)` en todos los routers
+
+**Frontend — sesión correcta**
+- Cambio crítico: `createClient` (@supabase/supabase-js, localStorage) → `createBrowserClient` (@supabase/ssr, cookies). Sin esto, `proxy.ts` en el servidor no podía leer la sesión → loop de redirect infinito
+- Bearer token agregado en todos los componentes client (`BudgetEditor`, `IntegrationCard`, `ConnectIOLForm`, `ConnectNexoForm`, `PerformanceChart`, `RecommendationList`, `RecommendationCarousel`) — todos llaman `supabase.auth.getSession()` antes de cada fetch
+- `NEXT_PUBLIC_API_URL` usado en todos los componentes (eliminados hardcodes a localhost:8007)
+- `proxy.ts`: renombrado de `middleware.ts`, export `proxy` (Next.js 16 deprecó el nombre `middleware`)
+
+**Login page completo**
+- Tabs: Ingresar / Registrarse
+- Flujo "Olvidaste tu contraseña": envía email vía `supabase.auth.resetPasswordForEmail`, redirige a `/login`
+- Flujo "Cambiar contraseña": detecta evento `PASSWORD_RECOVERY` en `onAuthStateChange`, muestra form con nueva contraseña + confirmación, llama `supabase.auth.updateUser({ password })`
+- BottomNav: retorna `null` cuando `pathname === "/login"`
+
+**FTU flow (First-Time User)**
+- `UserProfile` model + tabla `user_profiles` con `risk_profile` (conservative/moderate/aggressive)
+- `GET /profile/` y `PUT /profile/` endpoints
+- Dashboard server component: verifica `hasBudget`, `hasPortfolio`, `hasRiskProfile` — si falta alguno, muestra `FTUFlow` en lugar del dashboard
+- `FTUFlow` client component: barra de progreso + card por cada paso faltante, selector inline de perfil de riesgo con guardado via `PUT /profile/`, `router.refresh()` al completar
+
+**Historial real de tenencia**
+- Eliminados 5 snapshots mock del usuario real (`f94d61c1-1b59-438c-bc79-a66139028c94`)
+- Posiciones reales: IOLCAMA (FCI TNA 36%), QQQ (CEDEAR), S15Y6 (LETRA TNA 36%), S31G6 (LETRA TNA 41%)
+- Precios QQQ: Yahoo Finance (Mar30=558.28, Mar31=577.18). MEP: 1430.8 ambos días
+- LECAPs y IOLCAMA: acumulación diaria con `valor × (1 + TNA/365)`
+- Snapshots: Mar 30 = USD 696.77 | Mar 31 = USD 699.40 | Abr 1 = USD 699.94
+
+### Bugs encontrados y resueltos
+- `StringDataRightTruncation`: `SEED_USER_ID` de 46 chars en columna `String(36)` → UUID válido de 36 chars
+- `anthropic` module not found en Railway: faltaba en `requirements.txt` → crash al arrancar
+- Login loop infinito: `createClient` (localStorage) incompatible con `proxy.ts` (lee cookies) → `createBrowserClient` (SSR)
+- `NotNullViolation` al insertar snapshots: `monthly_return_usd`, `positions_count`, `fx_mep` son NOT NULL → incluidos en inserción
+- Cloudflare bloqueaba Railway API desde Python urllib → curl con `User-Agent: Mozilla/5.0`
+- `vercel.json` tenía `@buildfuture_supabase_url` (secret refs que no existían en Vercel) → removido env section
+
+### Resultado validación
+`npm run build` ✅. Backend v0.7.0 respondiendo en Railway. Frontend live en Vercel. Usuario real con historial de 3 días visible en `/portfolio`.
+
+### Estado actual
+App en producción con usuario real. FTU activo para nuevos usuarios. Login completo con registro, recuperación y cambio de contraseña.
+
+---
+
 ## Sesión v0.6.1 — 2026-03-30 (code review)
 
 ### Objetivo

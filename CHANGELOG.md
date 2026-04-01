@@ -16,6 +16,31 @@ Commits: [Conventional Commits](https://www.conventionalcommits.org/)
 
 ---
 
+## [0.7.0] — 2026-03-31
+
+### Added
+- **Auth multi-usuario**: JWT ES256 verificado vía Supabase JWKS; dev fallback a `SEED_USER_ID` sin Supabase URL
+- **Deploy Railway + Vercel**: backend en Railway (`api-production-7ddd6.up.railway.app`), frontend en Vercel (`frontend-teal-seven-22.vercel.app`)
+- **Login page completo**: tabs Ingresar / Registrarse + flujo "olvidaste contraseña" + form de nueva contraseña al recibir el link de recovery (evento `PASSWORD_RECOVERY` de Supabase)
+- **BottomNav oculto en /login**: `usePathname()` detecta la ruta y retorna `null`
+- **FTU flow (First-Time User)**: dashboard gatea acceso hasta completar 3 pasos — configurar presupuesto, sincronizar portafolio, elegir perfil de riesgo
+- **`FTUFlow` component**: cards individuales por paso faltante con CTA buttons + selector inline de perfil de riesgo (conservador/moderado/agresivo) + barra de progreso
+- **`UserProfile` model**: tabla `user_profiles` con `risk_profile` (conservative/moderate/aggressive)
+- **`GET /profile/` + `PUT /profile/`**: endpoints para leer/guardar perfil de usuario
+- **Historial real de tenencia**: snapshots reconstituidos con precios reales — QQQ via Yahoo Finance, LECAPs y FCI vía acumulación TNA diaria, MEP 1430.8
+  - Mar 30: USD 696.77 | Mar 31: USD 699.40 (+2.63) | Abr 1: USD 699.94 (+3.17)
+
+### Fixed
+- **`createBrowserClient` (SSR)**: reemplaza `createClient` de `@supabase/supabase-js` — sesión en cookies en lugar de localStorage, compatible con proxy server-side
+- **Bearer token en todos los componentes client**: `BudgetEditor`, `IntegrationCard`, `ConnectIOLForm`, `ConnectNexoForm`, `PerformanceChart`, `RecommendationList`, `RecommendationCarousel` — todos usan `supabase.auth.getSession()` antes de cada fetch
+- **`NEXT_PUBLIC_API_URL` centralizado**: eliminados `localhost:8007` hardcodeados en componentes
+- **`load_dotenv()` en `database.py` y `auth.py`**: sin esto, Railway/local no cargaba `DATABASE_URL` ni `SUPABASE_URL`
+- **`anthropic>=0.40.0`** agregado a `requirements.txt` (crash en Railway al arrancar)
+- **`DEV_USER_ID`** cambiado a UUID válido `00000000-0000-0000-0000-000000000001` (evita `StringDataRightTruncation` en columna `String(36)`)
+- **`proxy.ts`**: Next.js 16 deprecó `middleware.ts` como nombre de export — renombrado y export actualizado
+
+---
+
 ## [0.6.1] — 2026-03-30
 
 ### Fixed (code review)

@@ -61,6 +61,16 @@ Usuario target: Marcos González — PM Ualá, Córdoba, ahorro USD 1000-1500/me
 - ✅ Scheduler: sync + snapshot automático L-V 17:30 ART (APScheduler)
 - ✅ Error handling en sync con feedback diferenciado
 
+### Auth y deploy
+- ✅ **Supabase Auth multi-usuario**: JWT ES256 via JWKS, sesión en cookies (SSR compatible)
+- ✅ **Login completo**: tabs Ingresar/Registrarse + Olvidaste contraseña + form cambio de contraseña con token recovery
+- ✅ **BottomNav oculto en /login**: sin nav en pantalla de autenticación
+- ✅ **FTU flow**: onboarding con 3 checks (presupuesto / portafolio / perfil de riesgo) antes de mostrar el dashboard
+- ✅ **Perfil de riesgo persistido**: `UserProfile` model + `GET /profile/` + `PUT /profile/`
+- ✅ **Railway deploy**: backend en producción (`api-production-7ddd6.up.railway.app`)
+- ✅ **Vercel deploy**: frontend en producción (`frontend-teal-seven-22.vercel.app`)
+- ✅ **Historial real de tenencia**: snapshots reconstruidos con precios reales (Yahoo Finance + TNA accrual)
+
 ### DevEx
 - ✅ Demo automatizado Playwright (`scripts/demo.js`) — viewport iPhone 14 Pro
 - ✅ URLs centralizadas en NEXT_PUBLIC_API_URL
@@ -73,7 +83,6 @@ Usuario target: Marcos González — PM Ualá, Córdoba, ahorro USD 1000-1500/me
 ### Alta prioridad
 - 🔲 **Entrada manual de posiciones**: FCI + cripto sin API → form manual en UI
 - 🔲 **FreedomGoal editable**: target_annual_return_pct y monthly_savings_usd desde UI
-- 🔲 **Historial real**: snapshot table tiene datos mock del seed — necesita reset al sincronizar IOL real
 
 ### Media prioridad
 - 🔲 **Claude API recommendations**: preparado en ai_recommendations.py, falta ANTHROPIC_API_KEY
@@ -82,7 +91,6 @@ Usuario target: Marcos González — PM Ualá, Córdoba, ahorro USD 1000-1500/me
 - 🔲 **Port management**: startup script que mata procesos viejos antes de levantar
 
 ### Baja prioridad
-- 🔲 Supabase Auth (multi-usuario)
-- 🔲 Railway deploy (producción)
 - 🔲 Notificaciones: alerta cuando la racha está en riesgo
 - 🔲 Metas custom del usuario (vacaciones, seña depto, fondo emergencia)
+- 🔲 Multi-tenant onboarding: admin panel para crear nuevos usuarios
