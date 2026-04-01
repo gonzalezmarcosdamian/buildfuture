@@ -52,16 +52,30 @@ def startup():
 
 
 def _run_migrations():
-    """Migraciones incrementales — ALTER TABLE para columnas nuevas en Postgres."""
+    """Migraciones incrementales — ALTER TABLE y CREATE INDEX para Postgres."""
+    from sqlalchemy import text
+    migrations = [
+        (
+            "ALTER TABLE positions ADD COLUMN IF NOT EXISTS current_value_ars NUMERIC(18,2) DEFAULT 0",
+            "positions.current_value_ars",
+        ),
+        (
+            "CREATE INDEX IF NOT EXISTS idx_positions_user_active ON positions(user_id, is_active)",
+            "idx_positions_user_active",
+        ),
+    ]
     try:
         with engine.connect() as conn:
-            conn.execute(__import__("sqlalchemy").text(
-                "ALTER TABLE positions ADD COLUMN IF NOT EXISTS current_value_ars NUMERIC(18,2) DEFAULT 0"
-            ))
-            conn.commit()
-            logger.info("Migration OK: positions.current_value_ars")
+            for sql, label in migrations:
+                try:
+                    conn.execute(text(sql))
+                    conn.commit()
+                    logger.info("Migration OK: %s", label)
+                except Exception as e:
+                    conn.rollback()
+                    logger.warning("Migration skipped (%s): %s", label, e)
     except Exception as e:
-        logger.warning("Migration skipped (probably SQLite or already exists): %s", e)
+        logger.warning("_run_migrations connection failed: %s", e)
 
 
 def _purge_bad_manual_positions(db):

@@ -1,11 +1,11 @@
 import logging
 import threading
 from decimal import Decimal
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from fastapi import APIRouter, BackgroundTasks, Depends, Query, HTTPException
 
 logger = logging.getLogger("buildfuture.portfolio")
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from app.database import get_db
 from app.auth import get_current_user
 from app.models import Position, BudgetConfig, BudgetCategory, FreedomGoal, InvestmentMonth, PortfolioSnapshot
@@ -17,7 +17,38 @@ from app.services.expert_committee import get_committee_recommendations, UNIVERS
 
 router = APIRouter(prefix="/portfolio", tags=["portfolio"])
 
-AUTO_SYNC_MIN_AGE_MINUTES = 60
+# Auto-sync solo si los datos tienen más de 4 horas — para el sync en tiempo real usar el botón
+AUTO_SYNC_MIN_AGE_MINUTES = 240
+
+# ── Cache in-process de freedom score (TTL 2 min por usuario) ─────────────────
+_score_cache: dict[str, tuple[dict, datetime]] = {}
+_score_lock = threading.Lock()
+_SCORE_TTL = 120  # segundos
+
+def _get_freedom_score(user_id: str, positions: list, monthly_expenses_usd: Decimal) -> dict:
+    """Calcula o devuelve desde cache el freedom score del usuario."""
+    with _score_lock:
+        cached = _score_cache.get(user_id)
+        if cached and (datetime.utcnow() - cached[1]).total_seconds() < _SCORE_TTL:
+            return cached[0]
+    score = calculate_freedom_score(positions, monthly_expenses_usd)
+    with _score_lock:
+        _score_cache[user_id] = (score, datetime.utcnow())
+    return score
+
+def _invalidate_score_cache(user_id: str) -> None:
+    with _score_lock:
+        _score_cache.pop(user_id, None)
+
+def _query_budget(db: Session, user_id: str) -> BudgetConfig | None:
+    """Carga BudgetConfig con categorías eager para evitar lazy queries."""
+    return (
+        db.query(BudgetConfig)
+        .options(selectinload(BudgetConfig.categories))
+        .filter(BudgetConfig.user_id == user_id)
+        .order_by(BudgetConfig.effective_month.desc())
+        .first()
+    )
 
 
 def _auto_sync_iol(user_id: str) -> None:
@@ -95,15 +126,10 @@ def get_portfolio(
         Position.is_active == True,
         Position.user_id == current_user,
     ).all()
-    budget = (
-        db.query(BudgetConfig)
-        .filter(BudgetConfig.user_id == current_user)
-        .order_by(BudgetConfig.effective_month.desc())
-        .first()
-    )
+    budget = _query_budget(db, current_user)
     monthly_expenses_usd = budget.total_monthly_usd if budget else Decimal("2000")
 
-    score = calculate_freedom_score(positions, monthly_expenses_usd)
+    score = _get_freedom_score(current_user, positions, monthly_expenses_usd)
 
     return {
         "positions": [
@@ -149,13 +175,8 @@ def get_portfolio_recommendations(
         Position.is_active == True,
         Position.user_id == current_user,
     ).all()
-    budget = (
-        db.query(BudgetConfig)
-        .filter(BudgetConfig.user_id == current_user)
-        .order_by(BudgetConfig.effective_month.desc())
-        .first()
-    )
-    score = calculate_freedom_score(positions, budget.total_monthly_usd if budget else Decimal("2000"))
+    budget = _query_budget(db, current_user)
+    score = _get_freedom_score(current_user, positions, budget.total_monthly_usd if budget else Decimal("2000"))
 
     current_tickers = [p.ticker for p in positions]
     monthly_savings_usd = float(budget.savings_monthly_usd) if budget else 1250.0
@@ -193,12 +214,7 @@ def get_gamification(
         Position.is_active == True,
         Position.user_id == current_user,
     ).all()
-    budget = (
-        db.query(BudgetConfig)
-        .filter(BudgetConfig.user_id == current_user)
-        .order_by(BudgetConfig.effective_month.desc())
-        .first()
-    )
+    budget = _query_budget(db, current_user)
 
     # ── 1. ¿Qué paga tu portafolio? ──────────────────────────────────────────
     monthly_return_usd = float(sum(
@@ -308,20 +324,13 @@ def get_portfolio_history(
     ).all()
     total_cost_basis = sum(float(p.cost_basis_usd) for p in live_positions) if live_positions else 0
 
-    # Actualizar snapshot de hoy con valor live (así el chart termina igual que el header)
+    # Actualizar snapshot de hoy solo si no fue actualizado en los últimos 5 min
     today = date.today()
     try:
-        from app.services.freedom_calculator import calculate_freedom_score
-
         if live_positions:
-            budget = (
-                db.query(BudgetConfig)
-                .filter(BudgetConfig.user_id == current_user)
-                .order_by(BudgetConfig.effective_month.desc())
-                .first()
-            )
+            budget = _query_budget(db, current_user)
             monthly_expenses = budget.total_monthly_usd if budget else Decimal("2000")
-            score = calculate_freedom_score(live_positions, monthly_expenses)
+            score = _get_freedom_score(current_user, live_positions, monthly_expenses)
 
             # MEP: reusar el del budget (ya disponible, sin llamada extra)
             fx_mep = Decimal(str(budget.fx_rate)) if budget and budget.fx_rate else Decimal("0")
@@ -408,16 +417,11 @@ def get_next_goal(
         Position.is_active == True,
         Position.user_id == current_user,
     ).all()
-    budget = (
-        db.query(BudgetConfig)
-        .filter(BudgetConfig.user_id == current_user)
-        .order_by(BudgetConfig.effective_month.desc())
-        .first()
-    )
+    budget = _query_budget(db, current_user)
     if not budget:
         return None
 
-    score = calculate_freedom_score(positions, budget.total_monthly_usd)
+    score = _get_freedom_score(current_user, positions, budget.total_monthly_usd)
     monthly_return = float(score["monthly_return_usd"])
     mep = float(budget.fx_rate)
     savings_ars = float(budget.savings_monthly_ars)
@@ -484,12 +488,7 @@ def get_freedom_score(
         Position.is_active == True,
         Position.user_id == current_user,
     ).all()
-    budget = (
-        db.query(BudgetConfig)
-        .filter(BudgetConfig.user_id == current_user)
-        .order_by(BudgetConfig.effective_month.desc())
-        .first()
-    )
+    budget = _query_budget(db, current_user)
     goal = (
         db.query(FreedomGoal)
         .filter(FreedomGoal.user_id == current_user)
@@ -501,7 +500,7 @@ def get_freedom_score(
     monthly_savings_usd = goal.monthly_savings_usd if goal else Decimal("1250")
     annual_return_pct = goal.target_annual_return_pct if goal else Decimal("0.08")
 
-    score = calculate_freedom_score(positions, monthly_expenses_usd)
+    score = _get_freedom_score(current_user, positions, monthly_expenses_usd)
 
     milestones = calculate_milestone_projections(
         current_portfolio_usd=score["portfolio_total_usd"],

@@ -1,5 +1,5 @@
 from decimal import Decimal
-from datetime import date
+from datetime import date, datetime
 import httpx
 import logging
 from fastapi import APIRouter, Depends, HTTPException
@@ -12,10 +12,26 @@ from app.models import BudgetConfig, BudgetCategory
 logger = logging.getLogger("buildfuture.budget")
 router = APIRouter(prefix="/budget", tags=["budget"])
 
+# Cache in-process del tipo de cambio MEP (TTL 10 min)
+_fx_cache: dict | None = None
+_fx_cache_time: datetime | None = None
+_FX_TTL = 600  # segundos
+
 
 @router.get("/fx-rate")
 def get_fx_rate():
-    """Trae el tipo de cambio MEP en tiempo real."""
+    """Trae el tipo de cambio MEP. Cacheado 10 min para no llamar APIs externas en cada request."""
+    global _fx_cache, _fx_cache_time
+    if _fx_cache and _fx_cache_time and (datetime.utcnow() - _fx_cache_time).total_seconds() < _FX_TTL:
+        return _fx_cache
+
+    result = _fetch_fx_rate()
+    _fx_cache = result
+    _fx_cache_time = datetime.utcnow()
+    return result
+
+
+def _fetch_fx_rate() -> dict:
     # Fuente 1: dolarapi.com
     try:
         resp = httpx.get("https://dolarapi.com/v1/dolares/bolsa", timeout=8)
