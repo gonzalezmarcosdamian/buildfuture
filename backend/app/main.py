@@ -80,12 +80,12 @@ def shutdown():
 
 @app.get("/")
 def root():
-    return {"status": "ok", "version": "0.9.0", "env": "vercel"}
+    return {"status": "ok", "version": "0.10.0", "env": "vercel"}
 
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "version": "0.9.0"}
+    return {"status": "ok", "version": "0.10.0"}
 
 
 @app.post("/admin/snapshot")
