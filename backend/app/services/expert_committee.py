@@ -740,10 +740,6 @@ def get_committee_recommendations(
 
     final_scores: dict[str, float] = {}
     for inst in universe:
-        if capital_ars < inst.min_capital_ars:
-            final_scores[inst.ticker] = 0
-            continue
-
         score = 0.0
         for vote in votes:
             w = weights.get(vote.agent, 0.25)
@@ -752,6 +748,10 @@ def get_committee_recommendations(
 
         # Ajuste por perfil de riesgo
         score *= risk_filter.get(inst.risk_level, 1.0)
+
+        # Capital insuficiente: penalizar pero no excluir (son recomendaciones, no órdenes)
+        if capital_ars < inst.min_capital_ars:
+            score *= 0.25
 
         # Freedom gap: si falta mucho para libertad financiera, priorizar yield
         freedom_gap = max(0, 1 - freedom_pct / 100)
