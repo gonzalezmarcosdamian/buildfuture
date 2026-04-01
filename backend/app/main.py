@@ -42,8 +42,32 @@ def startup():
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
     seed(db)
+    _purge_bad_manual_positions(db)
     db.close()
     start_scheduler()
+
+
+def _purge_bad_manual_positions(db):
+    """One-time cleanup: desactiva posiciones manuales con valor absurdo (> 10M USD)."""
+    from app.models import Position
+    from decimal import Decimal
+    try:
+        bad = db.query(Position).filter(
+            Position.source == "MANUAL",
+            Position.is_active == True,
+        ).all()
+        purged = 0
+        for p in bad:
+            if float(p.quantity) * float(p.current_price_usd) > 10_000_000:
+                p.is_active = False
+                purged += 1
+                logger.info("Purged bad manual position: %s id=%s value=%.0f", p.ticker, p.id, float(p.quantity * p.current_price_usd))
+        if purged:
+            db.commit()
+            logger.info("Purged %d bad manual positions on startup", purged)
+    except Exception as e:
+        logger.warning("_purge_bad_manual_positions failed: %s", e)
+        db.rollback()
 
 
 @app.on_event("shutdown")
@@ -69,19 +93,3 @@ def manual_snapshot():
     return trigger_snapshot_now()
 
 
-@app.delete("/admin/purge-manual/{ticker}")
-def purge_manual_position(ticker: str):
-    """TEMP: soft-delete todas las posiciones manuales con ese ticker."""
-    from app.models import Position
-    db = SessionLocal()
-    try:
-        rows = db.query(Position).filter(
-            Position.ticker.ilike(ticker),
-            Position.source == "MANUAL",
-        ).all()
-        for r in rows:
-            r.is_active = False
-        db.commit()
-        return {"deleted": len(rows), "ticker": ticker}
-    finally:
-        db.close()
