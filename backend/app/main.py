@@ -42,12 +42,26 @@ def startup():
     if IS_SERVERLESS:
         return
     Base.metadata.create_all(bind=engine)
+    _run_migrations()
     db = SessionLocal()
     seed(db)
     _purge_bad_manual_positions(db)
     _dedup_positions(db)
     db.close()
     start_scheduler()
+
+
+def _run_migrations():
+    """Migraciones incrementales — ALTER TABLE para columnas nuevas en Postgres."""
+    try:
+        with engine.connect() as conn:
+            conn.execute(__import__("sqlalchemy").text(
+                "ALTER TABLE positions ADD COLUMN IF NOT EXISTS current_value_ars NUMERIC(18,2) DEFAULT 0"
+            ))
+            conn.commit()
+            logger.info("Migration OK: positions.current_value_ars")
+    except Exception as e:
+        logger.warning("Migration skipped (probably SQLite or already exists): %s", e)
 
 
 def _purge_bad_manual_positions(db):
