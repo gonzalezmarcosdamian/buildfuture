@@ -11,8 +11,9 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from sqlalchemy.orm import Session
 
+from sqlalchemy import func
 from app.database import SessionLocal
-from app.models import PortfolioSnapshot, PriceHistory, MepHistory
+from app.models import PortfolioSnapshot, PriceHistory, MepHistory, Position
 
 logger = logging.getLogger("buildfuture.admin")
 
@@ -192,6 +193,83 @@ def price_cache_purge(
         raise HTTPException(status_code=500, detail=str(e))
     logger.info("admin/cache/price-purge: %d rows deleted (ticker=%s)", deleted, ticker)
     return {"deleted": deleted, "ticker": ticker or "ALL"}
+
+
+@router.get("/positions/dupes")
+def positions_dupes(
+    user_id: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    _: None = Depends(verify_admin),
+):
+    """Detecta posiciones activas duplicadas (mismo user+ticker+source con más de 1 fila activa)."""
+    q = (
+        db.query(
+            Position.user_id,
+            Position.ticker,
+            Position.source,
+            func.count(Position.id).label("cnt"),
+        )
+        .filter(Position.is_active == True)  # noqa: E712
+        .group_by(Position.user_id, Position.ticker, Position.source)
+        .having(func.count(Position.id) > 1)
+    )
+    if user_id:
+        q = q.filter(Position.user_id == user_id)
+    rows = q.all()
+    return {
+        "duplicates_found": len(rows),
+        "items": [{"user_id": r.user_id, "ticker": r.ticker, "source": r.source, "count": r.cnt} for r in rows],
+    }
+
+
+@router.delete("/positions/dedup")
+def positions_dedup(
+    user_id: Optional[str] = Query(None, description="Si se omite, dedup para todos los usuarios"),
+    db: Session = Depends(get_db),
+    _: None = Depends(verify_admin),
+):
+    """
+    Desactiva posiciones duplicadas activas — mantiene solo la más reciente (id más alto)
+    por cada combinación user+ticker+source.
+    """
+    q = (
+        db.query(
+            Position.user_id,
+            Position.ticker,
+            Position.source,
+            func.max(Position.id).label("keep_id"),
+        )
+        .filter(Position.is_active == True)  # noqa: E712
+        .group_by(Position.user_id, Position.ticker, Position.source)
+        .having(func.count(Position.id) > 1)
+    )
+    if user_id:
+        q = q.filter(Position.user_id == user_id)
+    dupes = q.all()
+
+    total_deactivated = 0
+    for row in dupes:
+        n = (
+            db.query(Position)
+            .filter(
+                Position.user_id == row.user_id,
+                Position.ticker == row.ticker,
+                Position.source == row.source,
+                Position.is_active == True,  # noqa: E712
+                Position.id != row.keep_id,
+            )
+            .update({"is_active": False})
+        )
+        total_deactivated += n
+
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+    logger.info("admin/positions/dedup: %d posiciones desactivadas", total_deactivated)
+    return {"deactivated": total_deactivated, "groups_affected": len(dupes)}
 
 
 @router.get("/cache/mep-info")
