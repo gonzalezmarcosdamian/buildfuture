@@ -14,8 +14,10 @@ logger = logging.getLogger("buildfuture.cocos")
 
 try:
     from pycocos import Cocos
+    from pycocos.main import PerformanceTimeframe
 except ImportError:
     Cocos = None  # type: ignore
+    PerformanceTimeframe = None  # type: ignore
 
 
 DEFAULT_YIELDS: dict[str, Decimal] = {
@@ -124,7 +126,7 @@ class CocosClient:
         mep = self._get_mep()
         mep_dec = Decimal(str(mep))
 
-        raw = self._app.historic_performance()
+        raw = self._app.portfolio_performance(PerformanceTimeframe.HISTORICAL)
         positions = []
 
         for item in raw:
@@ -191,7 +193,7 @@ class CocosClient:
             raise CocosAuthError("Cliente no autenticado. Llamar authenticate() primero.")
 
         try:
-            data = self._app.buying_power()
+            data = self._app.funds_available()
             ci = data.get("CI", {})
             ars = Decimal(str(ci.get("ars") or 0))
             usd = Decimal(str(ci.get("usd") or 0))

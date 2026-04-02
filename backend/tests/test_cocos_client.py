@@ -52,8 +52,8 @@ def _make_buying_power(ars=5000.0, usd=100.0):
 def _make_cocos_app(positions=None, buying_power=None):
     """Crea un mock del objeto pycocos.Cocos."""
     app = MagicMock()
-    app.historic_performance.return_value = [_make_position()] if positions is None else positions
-    app.buying_power.return_value = _make_buying_power() if buying_power is None else buying_power
+    app.portfolio_performance.return_value = [_make_position()] if positions is None else positions
+    app.funds_available.return_value = _make_buying_power() if buying_power is None else buying_power
     return app
 
 
@@ -237,7 +237,7 @@ class TestCocosGetPositions:
     def test_api_exception_raises_through(self):
         """Si historic_performance falla → la excepción sube (el caller decide)."""
         app = _make_cocos_app()
-        app.historic_performance.side_effect = Exception("Cloudflare timeout")
+        app.portfolio_performance.side_effect = Exception("Cloudflare timeout")
         client = self._client_with_app(app)
         with patch.object(client, "_get_mep", return_value=MEP):
             with pytest.raises(Exception, match="Cloudflare"):
@@ -272,7 +272,7 @@ class TestCocosGetCash:
     def test_api_exception_returns_zeros(self):
         """Si buying_power falla → retorna ceros, no crash."""
         app = _make_cocos_app()
-        app.buying_power.side_effect = Exception("timeout")
+        app.funds_available.side_effect = Exception("timeout")
         client = self._client_with_app(app)
         cash = client.get_cash()
 
