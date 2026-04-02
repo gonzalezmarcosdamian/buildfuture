@@ -259,11 +259,17 @@ def _interpolate(anchors: list[tuple[date, float]], target: date, fallback: floa
 
 def letra_price_usd_at(ppc_ars: float, annual_yield: float,
                         purchase_date: date, target_date: date, mep: float) -> float:
+    """
+    Retorna el precio en USD por cada 1 VN nominal de LETRA.
+    ppc_ars está expresado en ARS por cada 100 VN (convención IOL),
+    por eso se divide por 100 antes de capitalizar y convertir a USD.
+    """
     if mep <= 0:
         return 0.0
     days = max(0, (target_date - purchase_date).days)
     daily_rate = (1 + annual_yield) ** (1 / 365) - 1
-    return ppc_ars * ((1 + daily_rate) ** days) / mep
+    price_per_vn_ars = (ppc_ars / 100.0) * ((1 + daily_rate) ** days)
+    return price_per_vn_ars / mep
 
 
 def bond_price_usd_at(ppc_usd: float, current_usd: float,
