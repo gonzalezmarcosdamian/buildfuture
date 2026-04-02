@@ -1276,6 +1276,11 @@ def _sync_cocos(client: CocosClient, db: Session, user_id: str) -> dict:
         ))
         synced += 1
 
+    # Marcar el mes actual como invertido si hay posiciones con valor real.
+    # No podemos reconstruir meses históricos (Cocos no expone operaciones),
+    # pero sí podemos confirmar que el usuario está invertido este mes.
+    _mark_cocos_investment_month(db, positions, user_id, today)
+
     db.flush()
     if discovered:
         logger.info(
@@ -1283,3 +1288,46 @@ def _sync_cocos(client: CocosClient, db: Session, user_id: str) -> dict:
             synced, discovered,
         )
     return {"positions_synced": synced, "discovered": discovered}
+
+
+def _mark_cocos_investment_month(db: Session, positions, user_id: str, today: date) -> None:
+    """
+    Registra el mes actual como mes de inversión si el usuario tiene posiciones
+    Cocos con valor real (ppc_ars > 0).
+    No es historial — es confirmación de que está invertido en el mes del sync.
+    Cocos no expone operaciones históricas, así que meses anteriores quedan sin datos.
+    """
+    has_real_positions = any(
+        p.asset_type is not None and p.ppc_ars > 0
+        for p in positions
+    )
+    if not has_real_positions:
+        return
+
+    month_key = today.replace(day=1)
+    existing = db.query(InvestmentMonth).filter(
+        InvestmentMonth.user_id == user_id,
+        InvestmentMonth.month == month_key,
+    ).first()
+
+    total_ars = sum(p.ppc_ars * p.quantity for p in positions if p.asset_type is not None)
+
+    if existing:
+        # Si ya existe (posiblemente de IOL/PPI), no sobreescribir — solo log
+        logger.info(
+            "_mark_cocos_investment_month: mes %s ya registrado (source=%s) — skip",
+            month_key, existing.source,
+        )
+    else:
+        db.add(InvestmentMonth(
+            user_id=user_id,
+            month=month_key,
+            amount_ars=total_ars,
+            amount_usd=Decimal("0"),  # sin MEP confiable para el mes histórico
+            source="COCOS",
+            note="Sync automático Cocos — posiciones activas al momento del sync",
+        ))
+        logger.info(
+            "_mark_cocos_investment_month: mes %s marcado como invertido (ARS %.0f)",
+            month_key, float(total_ars),
+        )
