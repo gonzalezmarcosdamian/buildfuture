@@ -198,7 +198,7 @@ class PPIClient:
             return self._get(path, params=params, retry=False)
         if resp.status_code != 200:
             logger.error("GET %s falló: %s %s", url, resp.status_code, resp.text[:300])
-        resp.raise_for_status()
+            raise Exception(f"PPI {resp.status_code} en {path}: {resp.text[:200]}")
         return resp.json()
 
     # ── Endpoints de cuenta ────────────────────────────────────────────────────

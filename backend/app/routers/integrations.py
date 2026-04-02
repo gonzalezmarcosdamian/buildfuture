@@ -665,14 +665,28 @@ def connect_ppi(
     integration.last_error = ""
     db.flush()
 
-    result = _sync_ppi(client, body.account_number, db, current_user)
+    sync_error = ""
+    positions_synced = 0
+    try:
+        result = _sync_ppi(client, body.account_number, db, current_user)
+        positions_synced = result["positions_synced"]
+    except Exception as e:
+        sync_error = str(e)[:200]
+        _log_error(db, current_user, "PPI", "sync", e)
+        logger.warning("connect_ppi: sync inicial falló (conexión guardada igual): %s", sync_error)
+
     integration.last_synced_at = datetime.utcnow()
+    if sync_error:
+        integration.last_error = f"Sync inicial: {sync_error}"
     db.commit()
 
+    msg = f"PPI conectado. {positions_synced} posiciones sincronizadas."
+    if sync_error:
+        msg += " El portafolio no pudo sincronizarse aún — intentá sincronizar manualmente en unos minutos."
     return {
         "connected": True,
-        "positions_synced": result["positions_synced"],
-        "message": f"PPI conectado. {result['positions_synced']} posiciones sincronizadas.",
+        "positions_synced": positions_synced,
+        "message": msg,
     }
 
 
