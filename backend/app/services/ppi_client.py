@@ -161,8 +161,13 @@ class PPIClient:
     def _headers(self) -> dict:
         if not self._access_token:
             self.authenticate()
+        # PPI requiere los headers de API Key en TODOS los requests, no solo en el de auth.
         return {
             "Authorization": f"Bearer {self._access_token}",
+            "ApiKey": self.public_key,
+            "ApiSecret": self.private_key,
+            "AuthorizedClient": "API_CLI_PYTHON",
+            "ClientKey": "pp19PythonApp12",
             "Content-Type": "application/json",
         }
 
@@ -327,14 +332,35 @@ class PPIClient:
         cash_ars = Decimal("0")
         cash_usd = Decimal("0")
 
-        for group in data.get("groupedAvailability", []):
-            for item in group.get("availability", []):
-                name   = str(item.get("name", "")).upper()
-                amount = Decimal(str(item.get("amount", 0)))
-                if "USD" in name or "U$S" in name or "DOLAR" in name:
-                    cash_usd += amount
-                else:
-                    cash_ars += amount
+        # PPI devuelve dos formatos posibles:
+        # - AvailableBalance: lista plana [{name, symbol, amount, settlement}, ...]
+        # - BalancesAndPositions: {groupedAvailability: [{currency, availability: [...]}, ...]}
+        if isinstance(data, list):
+            items = data
+        else:
+            items = [
+                item
+                for group in data.get("groupedAvailability", [])
+                for item in group.get("availability", [])
+            ]
+
+        seen_settlements: set[str] = set()
+        for item in items:
+            name       = str(item.get("name", "")).upper()
+            symbol     = str(item.get("symbol", "")).upper()
+            amount     = Decimal(str(item.get("amount", 0)))
+            settlement = str(item.get("settlement", ""))
+            # Contar solo INMEDIATA para no triplicar el saldo
+            if settlement and settlement != "INMEDIATA":
+                continue
+            key = f"{symbol}:{settlement}"
+            if key in seen_settlements:
+                continue
+            seen_settlements.add(key)
+            if "USD" in symbol or "USD" in name or "U$S" in name or "DOLAR" in name:
+                cash_usd += amount
+            else:
+                cash_ars += amount
 
         logger.info("PPI cash: ARS=%.2f USD=%.2f", float(cash_ars), float(cash_usd))
         return {"ars": cash_ars, "usd": cash_usd}
