@@ -260,6 +260,8 @@ def _yield_lecap(pos, today: date) -> Decimal | None:
       1. Decodifica vencimiento desde el ticker.
       2. Calcula precio por 100 nominales usando current_value_ars / quantity.
       3. Devuelve TNA = (100/precio - 1) × (365/días).
+    Nota: IOL reporta "precio técnico" (valor acumulado desde emisión) que puede superar 100.
+    En ese caso devuelve None para preservar el yield del último sync (68% TNA por defecto).
     """
     maturity = _parse_lecap_maturity(pos.ticker)
     if maturity is None:
@@ -277,6 +279,18 @@ def _yield_lecap(pos, today: date) -> Decimal | None:
     # IOL valora LECAPs por nominal; current_value_ars = cantidad_nominales × precio_ars_por_nominal
     # precio por 100 nominales = (current_value_ars / quantity) × 100
     price_per_100 = (pos.current_value_ars / pos.quantity) * Decimal("100")
+
+    # Las LECAPs argentinas capitalizan diariamente: el "precio técnico" en el portafolio de
+    # IOL incluye los intereses acumulados desde la emisión y puede superar 100.
+    # La fórmula (100/precio - 1) asume madurez = 100, lo que da TIR negativa → 0 (incorrecto).
+    # Cuando precio >= 100 la TIR real solo se puede calcular desde el precio de cotización
+    # (endpoint IOL distinto, VN=1000). Devolvemos None para preservar el yield del último sync.
+    if price_per_100 >= Decimal("100"):
+        logger.info(
+            "LECAP %s: precio/100=%.2f >= par (precio técnico acumulado) — sin actualización",
+            pos.ticker, float(price_per_100),
+        )
+        return None
 
     tir = _lecap_tir(price_per_100, days)
     logger.info(

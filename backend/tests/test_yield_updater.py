@@ -130,6 +130,19 @@ class TestYieldLecap:
         result = _yield_lecap(pos, date(2026, 4, 1))
         assert result is None
 
+    def test_precio_tecnico_acumulado_retorna_none(self):
+        # IOL muestra "precio técnico" acumulado > 100 para LECAPs en cartera.
+        # quantity=349344, value_ars=400348 → price_per_100=114.6 > 100 → None (no tocar yield)
+        pos = self._make_pos("S31G6", 349_344, 400_348)
+        result = _yield_lecap(pos, date(2026, 4, 2))
+        assert result is None
+
+    def test_precio_exactamente_100_retorna_none(self):
+        # precio = 100 exacto → TIR = 0 → interpretamos como acumulado → None
+        pos = self._make_pos("S31G6", 10_000, 10_000)
+        result = _yield_lecap(pos, date(2026, 4, 2))
+        assert result is None
+
 
 # ── _yield_bond ───────────────────────────────────────────────────────────────
 
