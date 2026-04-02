@@ -12,6 +12,7 @@ from app.models import Integration, Position, InvestmentMonth
 from app.services.iol_client import IOLClient, IOLAuthError
 from app.services.nexo_client import NexoClient, NexoAuthError
 from app.services.ppi_client import PPIClient, PPIAuthError
+from app.services.cocos_client import CocosClient, CocosAuthError
 
 router = APIRouter(prefix="/integrations", tags=["integrations"])
 
@@ -55,18 +56,26 @@ def get_integrations(
             Integration.user_id == current_user
         ).all()
 
-    return [
-        {
-            "id": i.id,
-            "provider": i.provider,
-            "provider_type": i.provider_type,
-            "is_active": i.is_active,
-            "is_connected": i.is_connected,
-            "last_synced_at": i.last_synced_at.isoformat() if i.last_synced_at else None,
-            "last_error": i.last_error,
-        }
-        for i in integrations
-    ]
+    return [_integration_response(i) for i in integrations]
+
+
+def _integration_response(i: Integration) -> dict:
+    """Serializa una Integration. auto_sync_enabled indica si el scheduler puede sincronizar."""
+    auto_sync_enabled = True
+    if i.provider == "COCOS" and i.is_connected:
+        parts = (i.encrypted_credentials or "").split(":", 2)
+        totp_secret = parts[2] if len(parts) == 3 else ""
+        auto_sync_enabled = bool(totp_secret)
+    return {
+        "id": i.id,
+        "provider": i.provider,
+        "provider_type": i.provider_type,
+        "is_active": i.is_active,
+        "is_connected": i.is_connected,
+        "auto_sync_enabled": auto_sync_enabled,
+        "last_synced_at": i.last_synced_at.isoformat() if i.last_synced_at else None,
+        "last_error": i.last_error,
+    }
 
 
 @router.post("/iol/connect")
@@ -936,3 +945,247 @@ def _sync_investment_months_ppi(
             synced += 1
 
     return synced
+
+
+# ── Cocos Capital ─────────────────────────────────────────────────────────────
+
+class ConnectCocosRequest(BaseModel):
+    email: str
+    password: str
+    code: str
+    totp_secret: str = ""
+
+
+class SyncCocosRequest(BaseModel):
+    code: str = ""
+
+
+class UpdateCocosTotp(BaseModel):
+    totp_secret: str
+
+
+@router.post("/cocos/connect")
+def connect_cocos(
+    body: ConnectCocosRequest,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    """
+    Conecta Cocos Capital. Requiere email + password + código 2FA del momento.
+    totp_secret BASE32 es opcional — si se provee, habilita auto-sync via scheduler.
+    """
+    client = CocosClient(body.email, body.password, totp_secret=body.totp_secret)
+    try:
+        client.authenticate(code=body.code)
+    except CocosAuthError as e:
+        raise HTTPException(status_code=401, detail=f"Error autenticando con Cocos: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Error conectando con Cocos: {str(e)}")
+
+    integration = db.query(Integration).filter(
+        Integration.provider == "COCOS",
+        Integration.user_id == current_user,
+    ).first()
+    if not integration:
+        integration = Integration(
+            user_id=current_user,
+            provider="COCOS",
+            provider_type="ALYC",
+        )
+        db.add(integration)
+
+    integration.encrypted_credentials = f"{body.email}:{body.password}:{body.totp_secret}"
+    integration.is_connected = True
+    integration.last_error = ""
+    db.flush()
+
+    result = _sync_cocos(client, db, current_user)
+    integration.last_synced_at = datetime.utcnow()
+    db.commit()
+
+    auto_sync = bool(body.totp_secret)
+    return {
+        "connected": True,
+        "auto_sync_enabled": auto_sync,
+        "positions_synced": result["positions_synced"],
+        "message": (
+            f"Cocos conectado. {result['positions_synced']} posiciones sincronizadas. "
+            + ("Auto-sync habilitado." if auto_sync else "Sync manual — agregá el TOTP secret para auto-sync.")
+        ),
+    }
+
+
+@router.post("/cocos/sync")
+def sync_cocos(
+    body: SyncCocosRequest = SyncCocosRequest(),
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    """
+    Re-sincroniza Cocos. Si tiene TOTP secret → auto. Si no → requiere código en body.
+    """
+    integration = db.query(Integration).filter(
+        Integration.provider == "COCOS",
+        Integration.user_id == current_user,
+    ).first()
+    if not integration or not integration.is_connected:
+        raise HTTPException(status_code=400, detail="Cocos no está conectado")
+
+    try:
+        parts = (integration.encrypted_credentials or "").split(":", 2)
+        if len(parts) < 2:
+            raise CocosAuthError("Credenciales Cocos inválidas en DB")
+        email, password = parts[0], parts[1]
+        totp_secret = parts[2] if len(parts) == 3 else ""
+
+        if not totp_secret and not body.code:
+            raise HTTPException(
+                status_code=400,
+                detail="Cocos requiere código 2FA. Pasá 'code' en el body o configurá el TOTP secret.",
+            )
+
+        client = CocosClient(email, password, totp_secret=totp_secret)
+        client.authenticate(code=body.code)
+        result = _sync_cocos(client, db, current_user)
+        integration.last_synced_at = datetime.utcnow()
+        integration.last_error = ""
+        db.commit()
+        return {"positions_synced": result["positions_synced"]}
+    except HTTPException:
+        raise
+    except CocosAuthError as e:
+        integration.last_error = str(e)[:200]
+        db.commit()
+        raise HTTPException(status_code=401, detail=str(e))
+    except Exception as e:
+        integration.last_error = str(e)[:200]
+        db.commit()
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@router.post("/cocos/update-totp")
+def update_cocos_totp(
+    body: UpdateCocosTotp,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    """Agrega el TOTP secret sin reconectar. Habilita auto-sync."""
+    integration = db.query(Integration).filter(
+        Integration.provider == "COCOS",
+        Integration.user_id == current_user,
+        Integration.is_connected == True,
+    ).first()
+    if not integration:
+        raise HTTPException(status_code=400, detail="Cocos no está conectado")
+
+    try:
+        import pyotp
+        pyotp.TOTP(body.totp_secret).now()
+    except Exception:
+        raise HTTPException(status_code=400, detail="TOTP secret inválido. Debe ser un código BASE32.")
+
+    parts = (integration.encrypted_credentials or "").split(":", 2)
+    email = parts[0] if len(parts) > 0 else ""
+    password = parts[1] if len(parts) > 1 else ""
+    integration.encrypted_credentials = f"{email}:{password}:{body.totp_secret}"
+    db.commit()
+    return {"auto_sync_enabled": True, "message": "TOTP secret guardado. Auto-sync habilitado."}
+
+
+@router.post("/cocos/disconnect")
+def disconnect_cocos(
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    """Desconecta Cocos: borra credenciales y desactiva posiciones."""
+    integration = db.query(Integration).filter(
+        Integration.provider == "COCOS",
+        Integration.user_id == current_user,
+    ).first()
+    if not integration:
+        raise HTTPException(status_code=404, detail="Integración Cocos no encontrada")
+
+    integration.encrypted_credentials = ""
+    integration.is_connected = False
+    integration.last_error = ""
+
+    db.query(Position).filter(
+        Position.user_id == current_user,
+        Position.source == "COCOS",
+        Position.is_active == True,
+    ).update({"is_active": False})
+
+    db.commit()
+    return {"disconnected": True}
+
+
+def _sync_cocos(client: CocosClient, db: Session, user_id: str) -> dict:
+    """Trae posiciones y cash de Cocos y los upserta en la DB."""
+    positions = client.get_positions()
+    cash = client.get_cash()
+
+    db.query(Position).filter(
+        Position.source == "COCOS",
+        Position.is_active == True,
+        Position.user_id == user_id,
+    ).update({"is_active": False})
+
+    today = date.today()
+    synced = 0
+
+    for p in positions:
+        db.add(Position(
+            user_id=user_id,
+            ticker=p.ticker,
+            description=p.description,
+            asset_type=p.asset_type,
+            source="COCOS",
+            quantity=p.quantity,
+            avg_purchase_price_usd=p.avg_purchase_price_usd,
+            current_price_usd=p.current_price_usd,
+            annual_yield_pct=p.annual_yield_pct,
+            snapshot_date=today,
+            is_active=True,
+            ppc_ars=p.ppc_ars,
+            purchase_fx_rate=Decimal("0"),
+            current_value_ars=p.current_value_ars,
+        ))
+        synced += 1
+
+    if cash["ars"] > 0:
+        mep = client._get_mep()
+        mep_dec = Decimal(str(mep))
+        cash_usd = cash["ars"] / mep_dec if mep_dec > 0 else Decimal("0")
+        db.add(Position(
+            user_id=user_id, ticker="CASH_COCOS",
+            description="Saldo disponible en pesos · Cocos",
+            asset_type="CASH", source="COCOS",
+            quantity=Decimal("1"), avg_purchase_price_usd=cash_usd,
+            current_price_usd=cash_usd, annual_yield_pct=Decimal("0"),
+            snapshot_date=today, is_active=True,
+            ppc_ars=cash["ars"], purchase_fx_rate=mep_dec,
+            current_value_ars=cash["ars"],
+        ))
+        synced += 1
+
+    if cash["usd"] > 0:
+        db.add(Position(
+            user_id=user_id, ticker="CASH_COCOS_USD",
+            description="Saldo disponible en dólares · Cocos",
+            asset_type="CASH", source="COCOS",
+            quantity=Decimal("1"), avg_purchase_price_usd=cash["usd"],
+            current_price_usd=cash["usd"], annual_yield_pct=Decimal("0"),
+            snapshot_date=today, is_active=True,
+            ppc_ars=Decimal("0"), purchase_fx_rate=Decimal("0"),
+            current_value_ars=Decimal("0"),
+        ))
+        synced += 1
+
+    try:
+        from app.routers.portfolio import _invalidate_score_cache
+        _invalidate_score_cache(user_id)
+    except Exception:
+        pass
+
+    db.flush()
+    return {"positions_synced": synced}
