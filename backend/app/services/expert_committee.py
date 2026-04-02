@@ -44,6 +44,8 @@ class Instrument:
     affinity_dolar: float = 0.5
     affinity_renta_fija: float = 0.5
     tags: list[str] = field(default_factory=list)
+    # Propósito del instrumento: renta (flujo mensual) | capital (apreciación) | ambos
+    job: str = "renta"
 
 
 # Universo base — yields se actualizan con datos reales de IOL cuando disponible
@@ -55,6 +57,7 @@ UNIVERSE: list[Instrument] = [
         base_yield_pct=0.64, risk_level="bajo", min_capital_ars=1_000,
         affinity_carry=0.9, affinity_dolar=0.05, affinity_renta_fija=0.2,
         tags=["money_market", "liquidez_diaria", "capital_garantizado", "fci"],
+        job="renta",
     ),
     # LECAPs vigentes al Q1-2026 — tickers confirmados en IOL
     Instrument(
@@ -63,6 +66,7 @@ UNIVERSE: list[Instrument] = [
         base_yield_pct=0.68, risk_level="bajo", min_capital_ars=10_000,
         affinity_carry=1.0, affinity_dolar=0.1, affinity_renta_fija=0.4,
         tags=["carry", "capital_garantizado", "corto_plazo"],
+        job="renta",
     ),
     Instrument(
         ticker="S31G6", name="LECAP Ago-26",
@@ -70,6 +74,7 @@ UNIVERSE: list[Instrument] = [
         base_yield_pct=0.66, risk_level="bajo", min_capital_ars=10_000,
         affinity_carry=0.9, affinity_dolar=0.1, affinity_renta_fija=0.4,
         tags=["carry", "capital_garantizado", "mediano_plazo"],
+        job="renta",
     ),
     Instrument(
         ticker="QQQ", name="CEDEAR Nasdaq 100",
@@ -77,6 +82,7 @@ UNIVERSE: list[Instrument] = [
         base_yield_pct=0.15, risk_level="medio", min_capital_ars=20_000,
         affinity_carry=0.1, affinity_dolar=1.0, affinity_renta_fija=0.0,
         tags=["dolarizacion", "tech_usa", "largo_plazo"],
+        job="capital",
     ),
     Instrument(
         ticker="SPY", name="CEDEAR S&P 500",
@@ -84,6 +90,7 @@ UNIVERSE: list[Instrument] = [
         base_yield_pct=0.12, risk_level="medio", min_capital_ars=15_000,
         affinity_carry=0.1, affinity_dolar=0.9, affinity_renta_fija=0.0,
         tags=["dolarizacion", "mercado_usa", "largo_plazo"],
+        job="capital",
     ),
     Instrument(
         ticker="AL30", name="Bono Soberano AL30",
@@ -91,6 +98,7 @@ UNIVERSE: list[Instrument] = [
         base_yield_pct=0.16, risk_level="alto", min_capital_ars=30_000,
         affinity_carry=0.2, affinity_dolar=0.8, affinity_renta_fija=0.9,
         tags=["high_yield", "soberano", "spread_compression"],
+        job="ambos",
     ),
     Instrument(
         ticker="GD30", name="Bono Soberano GD30 (ley NY)",
@@ -98,6 +106,7 @@ UNIVERSE: list[Instrument] = [
         base_yield_pct=0.14, risk_level="alto", min_capital_ars=30_000,
         affinity_carry=0.2, affinity_dolar=0.8, affinity_renta_fija=0.9,
         tags=["high_yield", "ley_ny", "soberano"],
+        job="ambos",
     ),
     Instrument(
         ticker="GGAL", name="CEDEAR Galicia",
@@ -105,6 +114,7 @@ UNIVERSE: list[Instrument] = [
         base_yield_pct=0.20, risk_level="alto", min_capital_ars=10_000,
         affinity_carry=0.1, affinity_dolar=0.7, affinity_renta_fija=0.0,
         tags=["bancos_ar", "beta_alto", "ciclo_credito"],
+        job="capital",
     ),
     Instrument(
         ticker="XLE", name="CEDEAR XLE Energy ETF",
@@ -112,6 +122,7 @@ UNIVERSE: list[Instrument] = [
         base_yield_pct=0.115, risk_level="medio", min_capital_ars=15_000,
         affinity_carry=0.1, affinity_dolar=0.8, affinity_renta_fija=0.0,
         tags=["energia", "vaca_muerta", "commodities"],
+        job="capital",
     ),
     # YPF ON hard dollar — renta fija privada con respaldo en exportaciones
     Instrument(
@@ -120,6 +131,7 @@ UNIVERSE: list[Instrument] = [
         base_yield_pct=0.085, risk_level="medio", min_capital_ars=50_000,
         affinity_carry=0.1, affinity_dolar=0.6, affinity_renta_fija=0.95,
         tags=["on", "hard_dollar", "ypf", "vaca_muerta", "flujo_fijo"],
+        job="renta",
     ),
     # VIST — CEDEAR Vista Energy, beta alto a Vaca Muerta
     Instrument(
@@ -128,6 +140,7 @@ UNIVERSE: list[Instrument] = [
         base_yield_pct=0.22, risk_level="alto", min_capital_ars=10_000,
         affinity_carry=0.05, affinity_dolar=0.7, affinity_renta_fija=0.0,
         tags=["energia", "vaca_muerta", "beta_alto", "crecimiento"],
+        job="capital",
     ),
 ]
 
@@ -790,6 +803,7 @@ def get_committee_recommendations(
             "ticker": inst.ticker,
             "name": inst.name,
             "asset_type": inst.asset_type,
+            "job": inst.job,
             "rationale": rationale,
             "why_now": why_now,
             "annual_yield_pct": inst.base_yield_pct,

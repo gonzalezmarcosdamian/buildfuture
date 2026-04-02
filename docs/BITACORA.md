@@ -2,6 +2,92 @@
 
 ---
 
+## Sesión v0.11.0 — 2026-04-02 (rama: feat/capital-goals-gamification)
+
+### Objetivo
+Completar el journey de metas de capital: gamificación del ahorro mensual (DCA, interés compuesto, racha), ABM de objetivos de capital (casa/auto/viaje), proyección a largo plazo con visualización educativa, y separación conceptual de recomendaciones por propósito (renta vs capital).
+
+### Cambios backend
+
+**Nuevos endpoints:**
+- `GET /portfolio/goal` — retorna `monthly_savings_usd` + `target_annual_return_pct` del FreedomGoal activo
+- `PUT /portfolio/goal` — crea o actualiza FreedomGoal (upsert)
+- `GET /portfolio/projection` — curva de proyección a 10 años: `with_savings_usd` vs `without_savings_usd`, puntos anuales con yield real del portfolio capeado a 6–15% USD
+- `GET /portfolio/capital-goals` — lista capital goals con progreso calculado: `progress_pct`, `months_to_goal` (iteración numérica), `portfolio_usd`, `monthly_savings_usd`
+- `POST /portfolio/capital-goals` — crea meta
+- `PUT /portfolio/capital-goals/{id}` — edita meta
+- `DELETE /portfolio/capital-goals/{id}` — borra meta
+
+**Modelo nuevo:**
+- `CapitalGoal`: `id`, `user_id`, `name`, `emoji`, `target_usd`, `target_years`, `created_at`
+- Migración automática en startup: `CREATE TABLE IF NOT EXISTS capital_goals` + índice `idx_capital_goals_user`
+
+**Cambios a endpoints existentes:**
+- `GET /portfolio/gamification`: agrega campo `current_month_invested` (bool — si el mes actual tiene fila en `investment_months`)
+- `GET /portfolio/projection`: usa `FreedomGoal.target_annual_return_pct` si existe, sino yield calculado del portfolio **capeado a máx 15% USD** (evita que rendimiento nominal ARS de LECAPs infle la proyección)
+- `GET /portfolio/capital-goals`: cap de yield en 6–15% también en cálculo de `months_to_goal`
+
+**Expert committee:**
+- Campo `job: str` en dataclass `Instrument`: `"renta"` | `"capital"` | `"ambos"`
+- Todo el UNIVERSE taggeado: renta (IOLCAMA, S15Y6, S31G6, YCA6O), capital (QQQ, SPY, GGAL, XLE, VIST), ambos (AL30, GD30)
+- `"job"` incluido en el dict de respuesta de recomendaciones
+
+**Fix:**
+- `fetchPortfolioHistory` retorna `null` en error en lugar de lanzar excepción (evitaba crash en `/portfolio` page)
+
+### Cambios frontend
+
+**Nuevos componentes:**
+- `components/goals/ProjectionCard.tsx` — gráfico Recharts de dos curvas (con/sin aportes), selector horizonte 1/3/5/10a, líneas de referencia horizontales por capital goal visible en rango, bottom sheet educativo (3 secciones: rendimiento, DCA, interés compuesto) con datos reales del usuario
+- `components/goals/CapitalGoals.tsx` — ABM completo: list vacía con CTA, GoalForm (emoji picker, nombre, objetivo USD, horizonte años), GoalCard con barra de progreso, tiempo estimado, confirmación borrado con auto-cancel 3s
+- `components/goals/GoalCompliance.tsx` — card por meta con estado tipado (achieved/on_track/delayed/no_savings), fecha proyectada ("Llegás en diciembre 2028"), delay en meses, barra de progreso coloreada, empty state con CTA a /goals (solo en dashboard via `showEmptyState` prop), link a /settings cuando falta presupuesto
+- `components/goals/GoalEditor.tsx` — form colapsable para editar `monthly_savings_usd` y `target_annual_return_pct` (4 opciones de perfil de yield). Construido pero **removido de la UI** — el sistema usa el presupuesto directamente como fuente de verdad (mismo comportamiento que el dashboard). Backend endpoints se mantienen para uso futuro.
+
+**Componentes modificados:**
+- `components/goals/InvestmentStreak.tsx` — card de estado del mes actual (✅/⏳) al tope, mes actual resaltado en el calendario con `ring-1 ring-slate-400`
+- `components/recommendations/RecommendationList.tsx` — split en dos secciones: 💰 Renta (job=renta) y 📈 Capital (job=capital/ambos). Cards de capital muestran `+X%/año` en azul en lugar de `+$/mes` en verde. Modal diferencia "Apreciación estimada X% USD/año"
+- `app/goals/page.tsx` — integra `GoalCompliance` (silencioso cuando vacío, CapitalGoals lo maneja) + `CapitalGoals` + baja `budgetSavingsUSD` del server component al `CapitalGoals` client component
+- `app/dashboard/page.tsx` — agrega `ProjectionCard`, `GoalCompliance` (con `showEmptyState`), pasa `currentMonthInvested` a `InvestmentStreak`
+
+**Fixes UX:**
+- Empty state `GoalCompliance` en dashboard cuando no hay metas: card dashed con CTA
+- `ProjectionCard` null state cuando el endpoint falla
+- Delete en `CapitalGoals`: timer 3s auto-cancel en lugar de `onBlur` (frágil en mobile)
+- Barra de progreso en `CapitalGoals`: ancho mínimo 2% para que 0% sea visible
+- Texto "Sin presupuesto" → link a /settings
+
+### Decisiones técnicas
+
+**¿Por qué cap 15% en projection?**
+El yield calculado del portfolio mezcla rendimiento nominal ARS (LECAPs ~50-60%) con activos USD. La proyección es en USD, así que un LECAP no contribuye al 50% sino a ~0-5% real en USD. El cap asegura que la proyección sea educativamente honesta.
+
+**¿Por qué no mostrar GoalEditor en UI?**
+El usuario tiene su presupuesto configurado con ingreso + categorías. `savings_monthly_ars / fx_rate` ya es la fuente de verdad de "cuánto invertís por mes". Pedir otro input sería redundante y confuso. El `FreedomGoal.target_annual_return_pct` se puede setear en el futuro desde el perfil de riesgo.
+
+**Próxima iteración planeada: Bucket split renta/capital**
+Separar el portfolio en dos carriles en toda la app:
+- Bucket 🔵 Renta: LETRA, FCI, BOND cupón → alimenta freedom bar y monthly return
+- Bucket 🟢 Capital: CEDEAR, ETF → alimenta ProjectionCard y CapitalGoals
+- DashboardHero con dos métricas: `$X/mes generados` (renta) + `$Y acumulado` (capital)
+- Cálculos más precisos: yield de renta = ARS→USD real; yield de capital = USD histórico
+
+Clasificación por `asset_type`:
+| asset_type | bucket |
+|-----------|--------|
+| LETRA, FCI | renta |
+| BOND | ambos (cupón → renta, valor → capital) |
+| CEDEAR, ETF | capital |
+| CASH | neutral |
+| CRYPTO | capital |
+
+### Estado al cierre
+- Backend: corriendo local en puerto 8008 con todos los endpoints nuevos ✅
+- Frontend: corriendo local en puerto 3001 apuntando a 8008 ✅
+- Rama: `feat/capital-goals-gamification` — sin commit aún, cambios unstaged
+- Pendiente: commit + versionar + deploy a producción
+
+---
+
 ## Sesión v0.10.0 — 2026-04-01
 
 ### Objetivo
