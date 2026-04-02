@@ -93,6 +93,9 @@ def _daily_close_job() -> None:
             _maybe_sync_ppi(db)
             _maybe_sync_cocos(db)
             _refresh_manual_prices(db)
+            from app.services.mep import get_mep as _get_mep
+            _daily_mep = float(_get_mep())
+            _update_yields(db, mep=_daily_mep)
             _save_portfolio_snapshot(db)
         finally:
             db.close()
@@ -261,6 +264,19 @@ def _refresh_manual_prices(db) -> None:
                            pos.asset_type, pos.ticker, e)
 
     db.commit()
+
+
+def _update_yields(db, mep=None) -> None:
+    """Actualiza annual_yield_pct real para posiciones LETRA, BOND, ON y FCI.
+    Si se provee mep, también recalcula current_price_usd para posiciones ARS."""
+    from app.services.yield_updater import update_yields
+    from decimal import Decimal
+    try:
+        mep_dec = Decimal(str(mep)) if mep else None
+        n = update_yields(db, mep=mep_dec)
+        logger.info("yield_updater: %d posiciones actualizadas", n)
+    except Exception as e:
+        logger.warning("yield_updater falló: %s", e)
 
 
 def _save_portfolio_snapshot(db) -> None:

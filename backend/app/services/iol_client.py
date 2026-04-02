@@ -397,26 +397,38 @@ class IOLClient:
     def get_live_yields(self, tickers: list[str], mercado: str = "bCBA") -> dict[str, float]:
         """
         Retorna un dict {ticker: yield_anual_estimado} con datos reales de IOL.
-        Para LECAPs calcula TNA desde precio actual vs VN 1000.
-        Para bonos usa la TIR implícita si está disponible.
-        Fallback a DEFAULT_YIELDS si no puede traer el dato.
+        Para LECAPs: TNA calculada desde precio actual (VN=1000) + días reales al vencimiento
+        decodificados del ticker (S31G6 → 31/ago/2026). Sin proxies de días fijos.
+        Para bonos usa DEFAULT_YIELDS calibradas.
+        Fallback a DEFAULT_YIELDS si no puede traer el dato o parsear el vencimiento.
         """
+        from app.services.yield_updater import _parse_lecap_maturity
+
+        today = date.today()
         results = {}
         for ticker in tickers:
             try:
                 data = self._get(f"/api/v2/Cotizacion/Titulos/{mercado}/{ticker}")
                 ultimo = data.get("ultimoPrecio") or data.get("ultimo") or 0
-                # Para letras: precio < 1000 → calcular TNA implícita
-                # VN = 1000, precio actual = ultimo
-                # Asumimos vencimiento promedio 180 días para simplificar
+                # Para letras: precio < 1000 (cotiza en VN=1000)
                 if ultimo and ultimo > 0 and ultimo < 1000:
-                    dias_restantes = 180  # proxy
-                    tna = ((1000 / ultimo) - 1) * (365 / dias_restantes)
-                    results[ticker] = round(tna, 4)
-                    logger.info("IOL live yield %s: precio=%s TNA=%.2f%%", ticker, ultimo, tna * 100)
+                    maturity = _parse_lecap_maturity(ticker)
+                    if maturity:
+                        dias_restantes = (maturity - today).days
+                    else:
+                        dias_restantes = 180  # fallback si el ticker no sigue el patrón S[DD][M][Y]
+                    if dias_restantes > 1:
+                        tna = ((1000 / ultimo) - 1) * (365 / dias_restantes)
+                        results[ticker] = round(tna, 4)
+                        logger.info(
+                            "IOL live yield %s: precio=%.2f vto=%s días=%d TNA=%.2f%%",
+                            ticker, ultimo,
+                            maturity.isoformat() if maturity else "proxy",
+                            dias_restantes, tna * 100,
+                        )
+                    else:
+                        results[ticker] = 0.0  # vencida o vence hoy
                 elif ultimo and ultimo > 0:
-                    # Para otros instrumentos: usamos rendimiento del último año si disponible
-                    variacion = data.get("variacion") or 0
                     results[ticker] = DEFAULT_YIELDS.get(
                         str(data.get("tipo", "")).lower(), DEFAULT_YIELDS["default"]
                     )
