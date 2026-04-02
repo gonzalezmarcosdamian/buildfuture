@@ -113,15 +113,22 @@ def _build_reliable_timeline(
 
     Para cada operacion (de mas reciente a mas antigua):
     - compra/suscripcion: deshacer restando qty del estado.
-      Si el resultado seria negativo, hay ventas invisibles fuera de la ventana.
-      Se marca el ticker como no confiable y se descarta.
+      Si el resultado seria negativo hay ventas invisibles fuera de la ventana:
+      se deja de procesar ops mas antiguas para ese ticker pero se conservan
+      los eventos ya registrados (historia reciente verificable).
     - venta/rescate: deshacer sumando qty al estado.
+
+    El evento registrado en cada fecha es la cantidad POST-operacion (EOD),
+    que es lo que el usuario tenia al cierre de ese dia.
 
     Solo se preservan tickers activos en current_pos (los que el usuario tiene hoy).
     Tickers ya vendidos no tienen historia relevante para el grafico.
+
+    Nota sobre acentos: IOL devuelve tipo="suscripcion" o "suscripcion fci" (puede
+    incluir la o acentuada). Se usa "suscripci" para capturar ambas variantes.
     """
     state: dict[str, float] = dict(current_pos)
-    unreliable: set[str] = set()
+    stop_older: set[str] = set()  # dejar de procesar ops mas antiguas para este ticker
     events_rev: dict[str, list[tuple[date, float]]] = defaultdict(list)
 
     for op in reversed(parsed_ops):
@@ -131,36 +138,36 @@ def _build_reliable_timeline(
 
         if ticker not in current_pos:
             continue
-        if ticker in unreliable:
+        if ticker in stop_older:
             continue
 
         current_qty = state.get(ticker, 0.0)
 
-        if "compra" in tipo or "suscripcion" in tipo:
+        if "compra" in tipo or "suscripci" in tipo:
             new_qty = current_qty - qty
             if new_qty < -0.5:
-                unreliable.add(ticker)
+                stop_older.add(ticker)
                 logger.info(
-                    "Reconstructor: %s ventas invisibles detectadas "
-                    "(state=%.4f, op_qty=%.4f) historia descartada desde esta op",
+                    "Reconstructor: %s ventas invisibles fuera de ventana "
+                    "(state=%.4f, op_qty=%.4f) — historia anterior a esta op descartada",
                     ticker, current_qty, qty,
                 )
                 continue
             state[ticker] = max(0.0, new_qty)
+            # Evento: qty POST-compra en esa fecha (current_qty antes de restar)
+            events_rev[ticker].append((op["date"], current_qty))
 
         elif "venta" in tipo or "rescate" in tipo:
             state[ticker] = current_qty + qty
+            # Evento: qty POST-venta en esa fecha (current_qty antes de sumar)
+            events_rev[ticker].append((op["date"], current_qty))
 
         else:
             continue
 
-        events_rev[ticker].append((op["date"], state[ticker]))
-
     today = date.today()
     result: dict[str, list[tuple[date, float]]] = {}
     for ticker in current_pos:
-        if ticker in unreliable:
-            continue
         ev = sorted(events_rev.get(ticker, []), key=lambda x: x[0])
         if not ev:
             continue
