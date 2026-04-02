@@ -29,8 +29,9 @@ class ConnectNexoRequest(BaseModel):
 
 
 _DEFAULT_INTEGRATIONS = [
-    {"provider": "IOL", "provider_type": "ALYC"},
-    {"provider": "PPI", "provider_type": "ALYC"},
+    {"provider": "IOL",   "provider_type": "ALYC"},
+    {"provider": "PPI",   "provider_type": "ALYC"},
+    {"provider": "COCOS", "provider_type": "ALYC"},
 ]
 
 @router.get("/")
@@ -56,6 +57,25 @@ def get_integrations(
         integrations = db.query(Integration).filter(
             Integration.user_id == current_user
         ).all()
+    else:
+        # Backfill: agregar providers nuevos que no tenga el usuario todavía
+        existing_providers = {i.provider for i in integrations}
+        added = False
+        for spec in _DEFAULT_INTEGRATIONS:
+            if spec["provider"] not in existing_providers:
+                db.add(Integration(
+                    user_id=current_user,
+                    provider=spec["provider"],
+                    provider_type=spec["provider_type"],
+                    is_active=True,
+                    is_connected=False,
+                ))
+                added = True
+        if added:
+            db.commit()
+            integrations = db.query(Integration).filter(
+                Integration.user_id == current_user
+            ).all()
 
     return [_integration_response(i) for i in integrations]
 
