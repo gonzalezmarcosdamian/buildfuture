@@ -970,11 +970,14 @@ def _sync_investment_months_ppi(
 
 # ── Cocos Capital ─────────────────────────────────────────────────────────────
 
-class ConnectCocosRequest(BaseModel):
+class SaveCocosCredentialsRequest(BaseModel):
     email: str
     password: str
-    code: str
     totp_secret: str = ""
+
+
+class ConnectCocosRequest(BaseModel):
+    code: str
 
 
 class SyncCocosRequest(BaseModel):
@@ -985,24 +988,16 @@ class UpdateCocosTotp(BaseModel):
     totp_secret: str
 
 
-@router.post("/cocos/connect")
-def connect_cocos(
-    body: ConnectCocosRequest,
+@router.post("/cocos/save-credentials")
+def save_cocos_credentials(
+    body: SaveCocosCredentialsRequest,
     db: Session = Depends(get_db),
     current_user: str = Depends(get_current_user),
 ):
     """
-    Conecta Cocos Capital. Requiere email + password + código 2FA del momento.
-    totp_secret BASE32 es opcional — si se provee, habilita auto-sync via scheduler.
+    Guarda email + password + TOTP secret sin autenticar todavía.
+    Permite que el paso de 2FA solo necesite el código de 6 dígitos.
     """
-    client = CocosClient(body.email, body.password, totp_secret=body.totp_secret)
-    try:
-        client.authenticate(code=body.code)
-    except CocosAuthError as e:
-        raise HTTPException(status_code=401, detail=f"Error autenticando con Cocos: {str(e)}")
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Error conectando con Cocos: {str(e)}")
-
     integration = db.query(Integration).filter(
         Integration.provider == "COCOS",
         Integration.user_id == current_user,
@@ -1016,6 +1011,42 @@ def connect_cocos(
         db.add(integration)
 
     integration.encrypted_credentials = f"{body.email}:{body.password}:{body.totp_secret}"
+    integration.is_connected = False
+    db.commit()
+    return {"saved": True}
+
+
+@router.post("/cocos/connect")
+def connect_cocos(
+    body: ConnectCocosRequest,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    """
+    Conecta Cocos usando las credenciales ya guardadas + el código 2FA del momento.
+    Llamar save-credentials primero.
+    """
+    integration = db.query(Integration).filter(
+        Integration.provider == "COCOS",
+        Integration.user_id == current_user,
+    ).first()
+    if not integration or not integration.encrypted_credentials:
+        raise HTTPException(status_code=400, detail="Primero guardá tus credenciales de Cocos.")
+
+    parts = integration.encrypted_credentials.split(":", 2)
+    if len(parts) < 2:
+        raise HTTPException(status_code=400, detail="Credenciales incompletas. Volvé al paso 1.")
+    email, password = parts[0], parts[1]
+    totp_secret = parts[2] if len(parts) == 3 else ""
+
+    client = CocosClient(email, password, totp_secret=totp_secret)
+    try:
+        client.authenticate(code=body.code)
+    except CocosAuthError as e:
+        raise HTTPException(status_code=401, detail=f"Error autenticando con Cocos: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Error conectando con Cocos: {str(e)}")
+
     integration.is_connected = True
     integration.last_error = ""
     db.flush()
@@ -1031,7 +1062,7 @@ def connect_cocos(
         logger.warning("connect_cocos: snapshot upsert falló (no crítico): %s", e)
         db.rollback()
 
-    auto_sync = bool(body.totp_secret)
+    auto_sync = bool(totp_secret)
     return {
         "connected": True,
         "auto_sync_enabled": auto_sync,
