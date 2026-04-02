@@ -1,6 +1,6 @@
 # Integración Cocos Capital — Bitácora
 
-## Estado actual: Iter 1 IMPLEMENTADA — pendiente smoke test local
+## Estado actual: Iter 1 EN PRODUCCIÓN ✅
 
 ---
 
@@ -144,7 +144,7 @@ almacenado como campo opcional en `encrypted_credentials[2]`.
 - `portfolio/page.tsx` + `dashboard/page.tsx` — SyncButton filtra por `auto_sync_enabled`
 - `settings/page.tsx` — type annotation actualizado
 
-**Rama:** `feature/cocos-iter1` (backend + frontend). No mergeado a main/master.
+**Rama:** `feature/cocos-iter1` — mergeada a `main` (backend) y `master` (frontend). **En producción desde 2026-04-02.**
 
 ### Arquitectura de credenciales
 
@@ -266,8 +266,15 @@ La tarjeta vuelve al estado inicial con botón "Conectar".
 
 ## Plan de iteraciones
 
-### Iter 1 — COMPLETA ✅
+### Iter 1 — EN PRODUCCIÓN ✅
 MVP: FCIs + CASH + 2FA manual con TOTP opcional para auto-sync.
+
+**Fixes post-deploy (2026-04-02):**
+- `GET /integrations` ahora incluye backfill automático de providers nuevos para usuarios existentes.
+  Antes: COCOS no aparecía en Settings si el usuario ya tenía IOL/PPI.
+  Ahora: al primer request después del deploy, se crea la fila faltante sin intervención manual.
+  Patrón generalizable: agregar un provider a `_DEFAULT_INTEGRATIONS` es suficiente para que
+  todos los usuarios lo vean en el próximo load de Settings.
 
 ### Iter 2 — Pendiente
 - CEDEARs/BONDs — requiere cuenta con esos instrumentos para validar mapper

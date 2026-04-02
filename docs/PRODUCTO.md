@@ -78,6 +78,20 @@ Usuario target: Marcos González — PM Ualá, Córdoba, ahorro USD 1000-1500/me
 - ✅ IOL: sync de operaciones → `InvestmentMonth` (racha real por mes)
 - ✅ Scheduler: sync + snapshot automático L-V 17:30 ART (APScheduler)
 - ✅ Error handling en sync con feedback diferenciado
+- ✅ **PPI**: connect + sync posiciones + scheduler auto-sync
+- ✅ **Cocos Capital (Iter 1)** — en producción desde 2026-04-02:
+  - FCIs + CASH (ARS y USD disponible)
+  - Auth: email + password + 2FA manual (código 6 dígitos) + TOTP secret opcional (habilita auto-sync)
+  - `ConnectCocosForm` multi-paso: credenciales → 2FA + sección colapsable TOTP
+  - `CocosSyncModal`: sync manual con código fresco cuando no hay TOTP
+  - Badge ⚡ auto-sync (amarillo) / ⚡ manual (gris) según TOTP configurado
+  - Rendimientos en moneda nativa: FCIs/LETRAs/ONs muestran `performance_ars_pct` (ARS) — no depende de MEP histórico
+  - `purchase_fx_rate` preservado en resync — el costo base no cambia al re-sincronizar
+  - `IntegrationDiscovery`: instrument_types desconocidos se guardan para iterar el mapper en Iter 2
+  - `mep.py`: helper compartido para MEP — nunca retorna 0 — usado en scheduler + portfolio + sync
+  - Snapshot garantizado al día del primer sync (no espera el scheduler de las 17:30)
+  - `InvestmentMonth` marcado al sync si hay posiciones con costo > 0
+  - Backfill automático: usuarios existentes ven COCOS en Settings sin intervención manual
 
 ### Portfolio UI (v3–v4)
 - ✅ Switch unificado Composición / Rendimientos: un control que afecta gráfico + listado de activos
@@ -126,6 +140,8 @@ Usuario target: Marcos González — PM Ualá, Córdoba, ahorro USD 1000-1500/me
 | API | Uso | Auth | Rate limit |
 |-----|-----|------|------------|
 | IOL (InvertirOnline) | Posiciones, precios, operaciones | OAuth2 password grant | — |
+| PPI | Posiciones, operaciones | API key pública + privada | — |
+| Cocos Capital | Posiciones (FCI), cash disponible | email + password + 2FA/TOTP (pycocos, API no oficial) | — |
 | dolarapi.com | MEP / tipo de cambio | Sin auth | — |
 | bluelytics.com.ar | Dólar blue | Sin auth | — |
 | Yahoo Finance (`query1.finance.yahoo.com`) | Precios CEDEARs, ETFs, acciones | Sin auth | — |
