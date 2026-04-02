@@ -212,9 +212,9 @@ def reconstruct_portfolio_history(
             price: float | None = None
 
             if at in ("CEDEAR", "ETF", "CRYPTO"):
+                # Solo precio histórico real — sin fallback al precio actual
+                # (usarlo inflaría la historia: un CEDEAR a $3 en 2023 aparecería a $10 hoy)
                 price = lookup_price(yahoo_prices.get(ticker, {}), target)
-                if price is None:
-                    price = info["current_usd"]   # fallback al precio actual
             elif at == "LETRA":
                 price = letra_price_usd_at(
                     ppc_ars=info["ppc_ars"],
@@ -232,7 +232,11 @@ def reconstruct_portfolio_history(
                     target_date=target,
                 )
             elif at == "FCI":
-                price = info["current_usd"]   # FCI money market ≈ estable en USD
+                # Aproximar con ppc_ars / mep histórico — más fiel que usar precio actual
+                if mep > 0 and info["ppc_ars"] > 0:
+                    price = info["ppc_ars"] / mep
+                else:
+                    price = None
 
             if price and price > 0:
                 total_usd += qty * price
