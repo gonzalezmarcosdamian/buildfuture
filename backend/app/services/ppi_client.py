@@ -136,10 +136,11 @@ class PPIClient:
 
         logger.info("PPI auth response: status=%s body=%s", resp.status_code, resp.text[:300])
 
-        if resp.status_code == 400 and "invalid" in resp.text.lower():
+        if resp.status_code in (400, 401):
+            ppi_msg = resp.text[:300]
             raise PPIAuthError(
-                "Credenciales inválidas. Verificá que el acceso API esté habilitado en tu cuenta PPI: "
-                "Mi cuenta → Seguridad → API → Generar credenciales."
+                f"Credenciales inválidas (PPI: {ppi_msg}). "
+                "Verificá Clave Pública Y Clave Privada en PPI → Mi cuenta → Seguridad → API."
             )
         if resp.status_code != 200:
             raise PPIAuthError(f"PPI respondió {resp.status_code}: {resp.text[:300]}")
