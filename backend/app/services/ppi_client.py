@@ -226,10 +226,18 @@ class PPIClient:
         mep = self._get_mep()
         mep_dec = Decimal(str(mep))
 
-        data = self._get(
-            "/api/1.0/Account/BalancesAndPositions",
-            params={"accountNumber": account_number},
-        )
+        try:
+            data = self._get(
+                "/api/1.0/Account/BalancesAndPositions",
+                params={"accountNumber": account_number},
+            )
+        except Exception as e:
+            if "500" in str(e) and "Internal Error" in str(e):
+                # PPI devuelve 500 "Internal Error" cuando la cuenta está vacía (sin posiciones).
+                # Es un bug del lado de PPI — lo tratamos como portafolio vacío.
+                logger.warning("PPI BalancesAndPositions 500 — cuenta posiblemente vacía, retornando []")
+                return []
+            raise
         logger.info("PPI portafolio recibido | MEP=%.0f", mep)
 
         positions: list[PPIPosition] = []
@@ -310,7 +318,10 @@ class PPIClient:
                 params={"accountNumber": account_number},
             )
         except Exception as e:
-            logger.warning("PPI: no se pudo traer saldo: %s", e)
+            if "500" in str(e) and "Internal Error" in str(e):
+                logger.warning("PPI AvailableBalance 500 — cuenta posiblemente vacía")
+            else:
+                logger.warning("PPI: no se pudo traer saldo: %s", e)
             return {"ars": Decimal("0"), "usd": Decimal("0")}
 
         cash_ars = Decimal("0")
