@@ -120,6 +120,50 @@ def snapshots_purge(
     }
 
 
+@router.get("/reconstruct/raw-ops")
+def reconstruct_raw_ops(
+    user_id: str = Query(...),
+    db: Session = Depends(get_db),
+    _: None = Depends(verify_admin),
+):
+    """Devuelve las operaciones IOL crudas para inspeccionar campos precio, titulo, tipo instrumento."""
+    from app.models import Integration
+    from app.services.iol_client import IOLClient
+    from app.services.historical_prices import HISTORY_DAYS
+    from datetime import timedelta
+
+    integration = db.query(Integration).filter(
+        Integration.user_id == user_id,
+        Integration.provider == "IOL",
+        Integration.is_connected == True,  # noqa: E712
+    ).first()
+    if not integration or not integration.encrypted_credentials:
+        raise HTTPException(status_code=404, detail="IOL no conectado")
+
+    creds = integration.encrypted_credentials.split(":", 1)
+    client = IOLClient(creds[0], creds[1])
+    fecha_desde = (date.today() - timedelta(days=HISTORY_DAYS)).strftime("%Y-%m-%d")
+    raw_ops = client.get_operations(fecha_desde=fecha_desde)
+
+    # Normalizar para exponer todos los campos relevantes
+    result = []
+    for op in raw_ops:
+        titulo = op.get("titulo") or {}
+        result.append({
+            "fechaOrden":   op.get("fechaOrden") or op.get("fecha"),
+            "simbolo":      op.get("simbolo") or op.get("ticker"),
+            "tipo":         op.get("tipo"),
+            "cantidad":     op.get("cantidad"),
+            "precio":       op.get("precio"),
+            "monto":        op.get("monto") or op.get("montoOperado"),
+            "inst_tipo":    titulo.get("tipo"),
+            "inst_mercado": titulo.get("mercado"),
+            "estado":       op.get("estado"),
+            "_raw_keys":    list(op.keys()),
+        })
+    return {"total": len(result), "ops": result}
+
+
 @router.get("/reconstruct/dry-run")
 def reconstruct_dry_run(
     user_id: str = Query(...),
