@@ -536,6 +536,92 @@ def mep_cache_info(
     }
 
 
+@router.get("/yields/diagnose")
+def yields_diagnose(
+    user_id: Optional[str] = Query(None, description="Filtrar por usuario (opcional)"),
+    db: Session = Depends(get_db),
+    _: None = Depends(verify_admin),
+):
+    """
+    Muestra el estado de cada posición LETRA/BOND/ON/FCI relevante para el yield_updater.
+    Indica si sería skipped (current_value_ars=0, quantity=0, ticker no parseble) y por qué.
+    """
+    from app.services.yield_updater import _parse_lecap_maturity, _BOND_YTM
+    from app.services.mep import get_mep
+
+    today = date.today()
+    mep = float(get_mep())
+
+    q = db.query(Position).filter(
+        Position.is_active == True,
+        Position.asset_type.in_(["LETRA", "BOND", "ON", "FCI"]),
+    )
+    if user_id:
+        q = q.filter(Position.user_id == user_id)
+    positions = q.all()
+
+    rows = []
+    for p in positions:
+        skip_reason = None
+        expected_yield = None
+
+        if p.asset_type == "LETRA":
+            maturity = _parse_lecap_maturity(p.ticker)
+            if maturity is None:
+                skip_reason = "ticker no parseble"
+            elif (maturity - today).days <= 1:
+                skip_reason = "vencida"
+                expected_yield = 0.0
+            elif p.quantity <= 0:
+                skip_reason = "quantity=0"
+            elif (p.current_value_ars is None or p.current_value_ars <= 0):
+                if p.current_price_usd > 0:
+                    synthetic_ars = float(p.quantity) * float(p.current_price_usd) * mep
+                    price_per_100 = (synthetic_ars / float(p.quantity)) * 100
+                    days = (maturity - today).days
+                    skip_reason = "current_value_ars=0 (reconstruible desde price_usd×mep)"
+                    from decimal import Decimal as D
+                    from app.services.yield_updater import _lecap_tir
+                    expected_yield = float(_lecap_tir(D(str(round(price_per_100, 4))), days))
+                else:
+                    skip_reason = "current_value_ars=0 y current_price_usd=0"
+
+        elif p.asset_type in ("BOND", "ON"):
+            ytm = _BOND_YTM.get(p.ticker.upper())
+            if ytm is None:
+                skip_reason = "ticker no en tabla _BOND_YTM"
+            else:
+                expected_yield = float(ytm)
+
+        elif p.asset_type == "FCI":
+            expected_yield = None  # se calcula en runtime desde ArgentinaDatos
+
+        rows.append({
+            "user_id": p.user_id,
+            "ticker": p.ticker,
+            "asset_type": p.asset_type,
+            "source": p.source,
+            "quantity": float(p.quantity),
+            "current_price_usd": float(p.current_price_usd),
+            "current_value_ars": float(p.current_value_ars) if p.current_value_ars else 0,
+            "annual_yield_pct_now": float(p.annual_yield_pct),
+            "expected_yield": expected_yield,
+            "will_update": skip_reason is None and expected_yield is not None,
+            "skip_reason": skip_reason,
+        })
+
+    skipped = [r for r in rows if r["skip_reason"]]
+    updatable = [r for r in rows if r["will_update"]]
+
+    return {
+        "mep": mep,
+        "total": len(rows),
+        "updatable": len(updatable),
+        "skipped": len(skipped),
+        "positions": sorted(rows, key=lambda r: (r["skip_reason"] is None, r["asset_type"], r["ticker"])),
+    }
+
+
 @router.post("/yields/run")
 def yields_run(
     db: Session = Depends(get_db),

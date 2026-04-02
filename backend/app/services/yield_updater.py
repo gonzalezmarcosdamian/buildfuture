@@ -19,7 +19,7 @@ FCI:
 import logging
 import re
 import calendar
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 logger = logging.getLogger("buildfuture.yields")
@@ -131,7 +131,7 @@ def _fci_market_avg_yield() -> Decimal:
             return Decimal("0.38")
 
         # Calcular yield 30d para cada fondo — usar VCP hace 30 días
-        fecha_30d = (date.today() - __import__("datetime").timedelta(days=30)).strftime("%Y/%m/%d")
+        fecha_30d = (date.today() - timedelta(days=30)).strftime("%Y/%m/%d")
         try:
             r = httpx.get(
                 f"https://api.argentinadatos.com/v1/finanzas/fci/mercadoDinero/{fecha_30d}",
@@ -194,6 +194,20 @@ def update_yields(db, mep: Decimal | None = None) -> int:
     updated = 0
     for pos in positions:
         try:
+            # ── Reconstruir current_value_ars si es 0 y tenemos MEP ───────
+            # Posiciones antiguas (antes del campo) o syncs parciales pueden
+            # tener current_value_ars=0. Si tenemos MEP del día, lo estimamos.
+            if (mep and mep > 0
+                    and pos.asset_type in ("LETRA", "FCI")
+                    and (pos.current_value_ars is None or pos.current_value_ars <= 0)
+                    and pos.quantity > 0
+                    and pos.current_price_usd > 0):
+                pos.current_value_ars = pos.quantity * pos.current_price_usd * mep
+                logger.info(
+                    "yield_updater %s %s: current_value_ars reconstruido = %.2f ARS (desde price_usd × mep)",
+                    pos.asset_type, pos.ticker, float(pos.current_value_ars),
+                )
+
             # ── yield ──────────────────────────────────────────────────────
             if pos.asset_type == "FCI":
                 if _fci_avg is None:
