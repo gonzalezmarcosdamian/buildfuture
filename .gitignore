@@ -41,3 +41,12 @@ Thumbs.db
 
 # Claude Code (settings.local.json es personal, settings.json se commitea)
 .claude/settings.local.json
+# Scripts de exploración Cocos — datos reales, nunca commitear
+backend/scripts/cocos_creds.py
+backend/scripts/cocos_raw_response.json
+backend/scripts/cocos_session.json
+backend/scripts/cocos_run*.py
+backend/scripts/cocos_*.py
+
+# Respuestas raw de APIs — pueden contener datos personales
+backend/docs/integraciones/cocos/*.json
