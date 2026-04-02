@@ -55,36 +55,46 @@ def _query_budget(db: Session, user_id: str) -> BudgetConfig | None:
 def _auto_sync_iol(user_id: str) -> None:
     """
     Sincroniza IOL en background si los datos tienen más de AUTO_SYNC_MIN_AGE_MINUTES.
-    Usa lock optimista: actualiza last_synced_at ANTES de sincronizar para evitar
-    que múltiples requests concurrentes (dashboard llama 3 endpoints en paralelo)
-    disparen syncs simultáneos y dupliquen posiciones.
+    Usa lock atómico (UPDATE ... WHERE last_synced_at < threshold) para evitar
+    que múltiples requests concurrentes dupliquen posiciones.
     """
     from app.database import SessionLocal
     from app.models import Integration
     from app.routers.integrations import _sync_iol
     from app.services.iol_client import IOLClient
+    from sqlalchemy import update as sa_update, or_
 
     db = SessionLocal()
     try:
+        threshold = datetime.utcnow() - timedelta(minutes=AUTO_SYNC_MIN_AGE_MINUTES)
+        now = datetime.utcnow()
+
+        # Lock atómico: el UPDATE solo aplica si last_synced_at sigue siendo viejo.
+        # Si otro proceso ya tomó el lock, rowcount=0 y salimos sin sincronizar.
+        result = db.execute(
+            sa_update(Integration)
+            .where(
+                Integration.provider == "IOL",
+                Integration.user_id == user_id,
+                Integration.is_connected == True,
+                or_(Integration.last_synced_at == None, Integration.last_synced_at < threshold),
+            )
+            .values(last_synced_at=now)
+            .execution_options(synchronize_session=False)
+        )
+        db.commit()
+        if result.rowcount == 0:
+            logger.debug("Auto-sync IOL skipped — lock no adquirido para user %s", user_id)
+            return
+
         integration = db.query(Integration).filter(
             Integration.provider == "IOL",
             Integration.user_id == user_id,
-            Integration.is_connected == True,
         ).first()
         if not integration or not integration.encrypted_credentials:
             return
 
-        if integration.last_synced_at:
-            age = (datetime.utcnow() - integration.last_synced_at).total_seconds() / 60
-            if age < AUTO_SYNC_MIN_AGE_MINUTES:
-                logger.debug("Auto-sync IOL skipped — synced %.0f min ago", age)
-                return
-
-        # Lock optimista: marcar como "en sync" antes de empezar
-        # Evita que requests concurrentes del mismo usuario dupliquen posiciones
         prev_synced_at = integration.last_synced_at
-        integration.last_synced_at = datetime.utcnow()
-        db.commit()
 
         try:
             logger.info("Auto-sync IOL iniciando para user %s", user_id)
