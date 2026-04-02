@@ -529,6 +529,22 @@ def mep_cache_info(
     }
 
 
+@router.post("/yields/run")
+def yields_run(
+    db: Session = Depends(get_db),
+    _: None = Depends(verify_admin),
+):
+    """Dispara yield_updater manualmente para todas las posiciones activas.
+    Útil para verificar cambios sin esperar al cierre de mercado (17:30 ART)."""
+    from app.services.yield_updater import update_yields
+    from app.services.mep import get_mep
+    from decimal import Decimal
+
+    mep = get_mep()
+    updated = update_yields(db, mep=mep)
+    return {"updated": updated, "mep_used": float(mep)}
+
+
 @router.delete("/cache/mep-purge")
 def mep_cache_purge(
     before_date: Optional[date] = Query(None, description="Borrar entradas de MEP anteriores a esta fecha"),
