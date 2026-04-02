@@ -120,6 +120,132 @@ def snapshots_purge(
     }
 
 
+@router.get("/reconstruct/dry-run")
+def reconstruct_dry_run(
+    user_id: str = Query(...),
+    target_date: date = Query(..., description="Fecha a simular (YYYY-MM-DD)"),
+    db: Session = Depends(get_db),
+    _: None = Depends(verify_admin),
+):
+    """
+    Simula la reconstrucción para una fecha dada sin escribir nada en DB.
+    Muestra operaciones parseadas, timeline de quantities y precios calculados por ticker.
+    """
+    from app.models import Integration, Position
+    from app.services.iol_client import IOLClient
+    from app.services.historical_reconstructor import (
+        _parse_operations, _build_holdings_timeline, _qty_at, _yahoo_ticker_for,
+    )
+    from app.services.historical_prices import (
+        get_prices_batch_cached, get_mep_cached, lookup_price,
+        letra_price_usd_at, bond_price_usd_at, HISTORY_DAYS,
+    )
+    from datetime import timedelta
+
+    integration = db.query(Integration).filter(
+        Integration.user_id == user_id,
+        Integration.provider == "IOL",
+        Integration.is_connected == True,  # noqa: E712
+    ).first()
+    if not integration or not integration.encrypted_credentials:
+        raise HTTPException(status_code=404, detail="IOL no conectado para este usuario")
+
+    creds = integration.encrypted_credentials.split(":", 1)
+    client = IOLClient(creds[0], creds[1])
+    current_mep = float(client._get_mep())
+
+    fecha_desde = (date.today() - timedelta(days=HISTORY_DAYS)).strftime("%Y-%m-%d")
+    raw_ops = client.get_operations(fecha_desde=fecha_desde)
+
+    parsed = _parse_operations(raw_ops)
+    holdings_tl = _build_holdings_timeline(parsed)
+
+    current_positions = db.query(Position).filter(
+        Position.is_active == True,  # noqa: E712
+        Position.user_id == user_id,
+        Position.source == "IOL",
+    ).all()
+
+    pos_info = {
+        p.ticker.upper(): {
+            "asset_type": p.asset_type.upper(),
+            "ppc_ars": float(p.ppc_ars or 0),
+            "ppc_usd": float(p.avg_purchase_price_usd or 0),
+            "current_usd": float(p.current_price_usd or 0),
+            "annual_yield": float(p.annual_yield_pct or 0),
+            "purchase_date": p.snapshot_date or date.today(),
+        }
+        for p in current_positions
+    }
+
+    yahoo_map = {}
+    for ticker in holdings_tl:
+        info = pos_info.get(ticker)
+        if not info:
+            continue
+        yt = _yahoo_ticker_for(ticker, info["asset_type"])
+        if yt:
+            yahoo_map[ticker] = yt
+
+    yahoo_prices = {}
+    if yahoo_map:
+        unique_yahoo = list(set(yahoo_map.values()))
+        raw = get_prices_batch_cached(db, unique_yahoo, target_date, target_date)
+        for iol_t, yah_t in yahoo_map.items():
+            yahoo_prices[iol_t] = raw.get(yah_t, {})
+
+    mep_by_date = get_mep_cached(db, target_date, target_date, fallback_mep=current_mep)
+    mep = mep_by_date.get(target_date, current_mep)
+
+    breakdown = []
+    total_usd = 0.0
+    for ticker, tl in holdings_tl.items():
+        qty = _qty_at(tl, target_date)
+        info = pos_info.get(ticker)
+        at = info["asset_type"] if info else "UNKNOWN"
+        price = None
+        price_method = "no_info"
+
+        if info:
+            if at in ("CEDEAR", "ETF", "CRYPTO"):
+                price = lookup_price(yahoo_prices.get(ticker, {}), target_date)
+                price_method = "yahoo"
+            elif at == "LETRA":
+                price = letra_price_usd_at(info["ppc_ars"], info["annual_yield"], info["purchase_date"], target_date, mep)
+                price_method = "letra_capitalize"
+            elif at in ("BOND", "ON"):
+                price = bond_price_usd_at(info["ppc_usd"], info["current_usd"], info["purchase_date"], date.today(), target_date)
+                price_method = "bond_interpolate"
+            elif at == "FCI":
+                if mep > 0 and info["ppc_ars"] > 0:
+                    price = info["ppc_ars"] / mep
+                price_method = "ppc_ars/mep"
+
+        contrib = (qty * price) if (price and price > 0 and qty > 0) else 0.0
+        total_usd += contrib
+        breakdown.append({
+            "ticker": ticker,
+            "asset_type": at,
+            "qty_at_date": qty,
+            "price_usd": round(price, 6) if price else None,
+            "price_method": price_method,
+            "contribution_usd": round(contrib, 2),
+        })
+
+    return {
+        "target_date": target_date.isoformat(),
+        "mep": round(mep, 2),
+        "total_usd_computed": round(total_usd, 2),
+        "tickers_in_timeline": list(holdings_tl.keys()),
+        "breakdown": sorted(breakdown, key=lambda x: -x["contribution_usd"]),
+        "raw_ops_count": len(raw_ops),
+        "parsed_ops": [
+            {"date": str(op[0]), "ticker": op[1], "qty": op[2], "tipo": op[3]}
+            for op in parsed[:50]  # primeras 50
+        ],
+    }
+
+
 @router.delete("/snapshots/purge-user-all")
 def snapshots_purge_all_for_user(
     user_id: str = Query(..., description="Usuario a limpiar completamente"),
