@@ -131,6 +131,7 @@ def get_portfolio(
     monthly_expenses_usd = budget.total_monthly_usd if budget else Decimal("2000")
 
     score = _get_freedom_score(current_user, positions, monthly_expenses_usd)
+    buckets = split_portfolio_buckets(positions)
 
     return {
         "positions": [
@@ -157,7 +158,10 @@ def get_portfolio(
         "summary": {
             "total_usd": float(score["portfolio_total_usd"]),
             "total_ars": float(sum(p.current_value_ars for p in positions if p.current_value_ars)) or None,
-            "monthly_return_usd": float(score["monthly_return_usd"]),
+            # Renta bucket: LETRA/FCI con yield capeado — consistente con gamification y dashboard
+            "monthly_return_usd": float(buckets["renta_monthly_usd"]),
+            "renta_monthly_usd": float(buckets["renta_monthly_usd"]),
+            "capital_total_usd": float(buckets["capital_total_usd"]),
             "freedom_pct": float(score["freedom_pct"]),
             "annual_return_pct": float(score["annual_return_pct"]),
         },
