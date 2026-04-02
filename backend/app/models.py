@@ -249,3 +249,33 @@ class Integration(Base):
     last_error: Mapped[str] = mapped_column(Text, default="")
     # credentials stored as encrypted JSON — empty until user connects
     encrypted_credentials: Mapped[str] = mapped_column(Text, default="")
+
+
+class PriceHistory(Base):
+    """
+    Caché compartido de precios históricos diarios por ticker.
+    Fuente: Yahoo Finance. Compartido entre todos los usuarios —
+    si GGAL ya fue descargado para un usuario, el siguiente lo lee de aquí.
+    """
+    __tablename__ = "price_history"
+    __table_args__ = (UniqueConstraint("ticker", "price_date", name="uq_price_ticker_date"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    ticker: Mapped[str] = mapped_column(String(20), index=True)
+    price_date: Mapped[date] = mapped_column(Date, index=True)
+    price_usd: Mapped[Decimal] = mapped_column(Numeric(14, 4))
+    source: Mapped[str] = mapped_column(String(20), default="YAHOO")  # YAHOO | IOL | MANUAL
+
+
+class MepHistory(Base):
+    """
+    Caché compartido del tipo de cambio MEP histórico.
+    Fuente: bluelytics.com.ar. Un solo registro por fecha, para todos los usuarios.
+    """
+    __tablename__ = "mep_history"
+    __table_args__ = (UniqueConstraint("price_date", name="uq_mep_date"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    price_date: Mapped[date] = mapped_column(Date, unique=True, index=True)
+    mep_rate: Mapped[Decimal] = mapped_column(Numeric(10, 2))
+    source: Mapped[str] = mapped_column(String(20), default="BLUELYTICS")

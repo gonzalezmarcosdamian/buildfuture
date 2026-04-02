@@ -87,6 +87,35 @@ def _run_migrations():
             "CREATE INDEX IF NOT EXISTS idx_capital_goals_user ON capital_goals(user_id)",
             "idx_capital_goals_user",
         ),
+        (
+            """CREATE TABLE IF NOT EXISTS price_history (
+                id SERIAL PRIMARY KEY,
+                ticker VARCHAR(20) NOT NULL,
+                price_date DATE NOT NULL,
+                price_usd NUMERIC(14,4) NOT NULL,
+                source VARCHAR(20) DEFAULT 'YAHOO',
+                CONSTRAINT uq_price_ticker_date UNIQUE (ticker, price_date)
+            )""",
+            "price_history table",
+        ),
+        (
+            "CREATE INDEX IF NOT EXISTS idx_price_history_ticker ON price_history(ticker, price_date)",
+            "idx_price_history_ticker",
+        ),
+        (
+            """CREATE TABLE IF NOT EXISTS mep_history (
+                id SERIAL PRIMARY KEY,
+                price_date DATE NOT NULL,
+                mep_rate NUMERIC(10,2) NOT NULL,
+                source VARCHAR(20) DEFAULT 'BLUELYTICS',
+                CONSTRAINT uq_mep_date UNIQUE (price_date)
+            )""",
+            "mep_history table",
+        ),
+        (
+            "CREATE INDEX IF NOT EXISTS idx_mep_history_date ON mep_history(price_date)",
+            "idx_mep_history_date",
+        ),
     ]
     try:
         with engine.connect() as conn:
