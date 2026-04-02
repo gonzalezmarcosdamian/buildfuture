@@ -148,6 +148,7 @@ def get_portfolio(
                 "current_value_ars": float(p.current_value_ars) if p.current_value_ars else None,
                 "cost_basis_usd": float(p.cost_basis_usd),
                 "performance_pct": float(p.performance_pct),
+                "performance_ars_pct": float(p.performance_ars_pct),
                 "purchase_fx_rate": float(p.purchase_fx_rate),
                 "ppc_ars": float(p.ppc_ars),
                 "annual_yield_pct": float(p.annual_yield_pct),

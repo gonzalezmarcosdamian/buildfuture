@@ -1191,6 +1191,18 @@ def _sync_cocos(client: CocosClient, db: Session, user_id: str) -> dict:
     positions = client.get_positions()
     cash = client.get_cash()
 
+    # Capturar purchase_fx_rate de las posiciones actuales ANTES de desactivarlas.
+    # Así lo preservamos entre syncs — no perdemos el MEP histórico en cada resync.
+    existing_fx: dict[str, Decimal] = {
+        row.ticker: row.purchase_fx_rate
+        for row in db.query(Position.ticker, Position.purchase_fx_rate).filter(
+            Position.source == "COCOS",
+            Position.user_id == user_id,
+            Position.is_active == True,
+            Position.purchase_fx_rate > 0,
+        ).all()
+    }
+
     db.query(Position).filter(
         Position.source == "COCOS",
         Position.is_active == True,
@@ -1207,6 +1219,16 @@ def _sync_cocos(client: CocosClient, db: Session, user_id: str) -> dict:
             discovered += 1
             continue
 
+        # Preservar MEP histórico si ya conocíamos esta posición.
+        # Si es nueva: derivar MEP del sync actual (ppc_ars / avg_purchase_price_usd = MEP usado).
+        # Esto evita que cada resync sobreescriba el MEP de compra real.
+        if p.ticker in existing_fx:
+            purchase_fx_rate = existing_fx[p.ticker]
+        elif p.ppc_ars > 0 and p.avg_purchase_price_usd > 0:
+            purchase_fx_rate = p.ppc_ars / p.avg_purchase_price_usd  # = MEP del sync
+        else:
+            purchase_fx_rate = Decimal("0")
+
         db.add(Position(
             user_id=user_id,
             ticker=p.ticker,
@@ -1220,7 +1242,7 @@ def _sync_cocos(client: CocosClient, db: Session, user_id: str) -> dict:
             snapshot_date=today,
             is_active=True,
             ppc_ars=p.ppc_ars,
-            purchase_fx_rate=Decimal("0"),
+            purchase_fx_rate=purchase_fx_rate,
             current_value_ars=p.current_value_ars,
         ))
         synced += 1

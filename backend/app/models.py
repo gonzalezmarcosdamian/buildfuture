@@ -54,12 +54,14 @@ class Position(Base):
 
     @property
     def performance_ars_pct(self) -> Decimal:
-        """Rendimiento puramente en ARS (precio ARS actual vs PPC ARS)."""
-        if self.ppc_ars == 0:
+        """
+        Rendimiento en ARS puro: precio_ars_actual vs VCP_ars.
+        No depende del MEP histórico — siempre preciso para instrumentos ARS (FCI, LETRA).
+        """
+        if self.ppc_ars == 0 or self.quantity == 0:
             return Decimal("0")
-        if self.avg_purchase_price_usd == 0:
-            return Decimal("0")
-        return (self.current_price_usd - self.avg_purchase_price_usd) / self.avg_purchase_price_usd
+        current_price_ars = self.current_value_ars / self.quantity
+        return (current_price_ars - self.ppc_ars) / self.ppc_ars
 
 
 class BudgetConfig(Base):
