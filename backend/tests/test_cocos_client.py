@@ -146,7 +146,7 @@ class TestCocosGetPositions:
         assert p.ticker == "COCOSPPA"
         assert p.description == "Cocos Pesos Plus"
         assert p.asset_type == "FCI"
-        assert p.quantity == Decimal("4862074.52")
+        assert p.quantity == Decimal("4862074.52") / Decimal("1000")
         assert p.ppc_ars == Decimal("1234.839")
         # current_price_usd = last / mep
         expected_price = Decimal("1320.813") / Decimal(str(MEP))

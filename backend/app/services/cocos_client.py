@@ -132,7 +132,9 @@ class CocosClient:
         for item in raw:
             ticker = item.get("short_ticker", "")
             quantity_raw = item.get("quantity", 0)
-            quantity = Decimal(str(quantity_raw))
+            # La API devuelve quantity en milicuotapartes (× 1000).
+            # Confirmado: result/gain_per_cuota = cuotapartes reales ≈ quantity/1000.
+            quantity = Decimal(str(quantity_raw)) / Decimal("1000")
 
             if quantity <= 0:
                 continue
