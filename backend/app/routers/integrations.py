@@ -396,6 +396,30 @@ def _sync_nexo(client: NexoClient, db: Session, user_id: str) -> dict:
     return {"positions_synced": synced}
 
 
+def _fci_external_id(description: str) -> tuple[str | None, str | None]:
+    """
+    Intenta resolver external_id + fci_categoria para un FCI desde su descripción.
+    Busca el nombre del fondo en ArgentinaDatos por coincidencia parcial.
+    Retorna (fondo_name, categoria) o (None, None) si no hay match.
+    """
+    if not description:
+        return None, None
+    try:
+        from app.services.fci_prices import _fetch_categoria, CATEGORIAS
+        desc_lower = description.lower()
+        for cat in CATEGORIAS:
+            fondos = _fetch_categoria(cat)
+            for f in fondos:
+                nombre = f.get("fondo", "")
+                # Match si al menos 3 palabras de la descripción aparecen en el nombre del fondo
+                words = [w for w in desc_lower.split() if len(w) > 3]
+                if words and sum(1 for w in words if w in nombre.lower()) >= min(2, len(words)):
+                    return nombre, cat
+    except Exception:
+        pass
+    return None, None
+
+
 def _sync_iol(client: IOLClient, db: Session, user_id: str) -> dict:
     """Trae posiciones y operaciones de IOL, upserta en la DB."""
     # En modo mock, las posiciones ya están en la DB desde seed_mock — no sobreescribir
@@ -430,6 +454,10 @@ def _sync_iol(client: IOLClient, db: Session, user_id: str) -> dict:
         if not purchase_fx:
             purchase_fx = client._get_mep()
 
+        fci_ext_id, fci_cat = (
+            _fci_external_id(p.description)
+            if p.asset_type == "FCI" else (None, None)
+        )
         pos = Position(
             user_id=user_id,
             ticker=p.ticker,
@@ -445,6 +473,8 @@ def _sync_iol(client: IOLClient, db: Session, user_id: str) -> dict:
             ppc_ars=p.ppc_ars,
             purchase_fx_rate=Decimal(str(round(purchase_fx, 2))),
             current_value_ars=p.valorizado_ars,
+            external_id=fci_ext_id,
+            fci_categoria=fci_cat,
         )
         db.add(pos)
         synced += 1
@@ -868,6 +898,10 @@ def _sync_ppi(client: PPIClient, account_number: str, db: Session, user_id: str)
         if not purchase_fx:
             purchase_fx = current_mep
 
+        fci_ext_id, fci_cat = (
+            _fci_external_id(p.description)
+            if p.asset_type == "FCI" else (None, None)
+        )
         db.add(Position(
             user_id=user_id,
             ticker=p.ticker,
@@ -883,6 +917,8 @@ def _sync_ppi(client: PPIClient, account_number: str, db: Session, user_id: str)
             ppc_ars=p.ppc_ars,
             purchase_fx_rate=Decimal(str(round(purchase_fx, 2))),
             current_value_ars=p.current_value_ars,
+            external_id=fci_ext_id,
+            fci_categoria=fci_cat,
         ))
         synced += 1
 

@@ -904,6 +904,16 @@ def get_instrument_detail(
         "liquidity": "Variable.",
     })
 
+    # LECAP: fecha de vencimiento decodificada del ticker
+    maturity_date = None
+    days_to_maturity = None
+    if position.asset_type == "LETRA":
+        from app.services.yield_updater import _parse_lecap_maturity
+        mat = _parse_lecap_maturity(position.ticker)
+        if mat:
+            maturity_date = mat.isoformat()
+            days_to_maturity = (mat - date.today()).days
+
     return {
         "ticker": position.ticker,
         "description": position.description,
@@ -923,4 +933,6 @@ def get_instrument_detail(
         "last_updated": position.snapshot_date.isoformat() if position.snapshot_date else None,
         "mep": round(mep, 2),
         "context": context,
+        "maturity_date": maturity_date,
+        "days_to_maturity": days_to_maturity,
     }
