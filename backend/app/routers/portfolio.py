@@ -10,7 +10,7 @@ from app.database import get_db
 from app.auth import get_current_user
 from pydantic import BaseModel
 from app.models import Position, BudgetConfig, BudgetCategory, FreedomGoal, InvestmentMonth, PortfolioSnapshot, CapitalGoal
-from app.services.freedom_calculator import calculate_freedom_score, calculate_milestone_projections
+from app.services.freedom_calculator import calculate_freedom_score, calculate_milestone_projections, split_portfolio_buckets
 from app.services.ai_recommendations import get_ai_recommendations
 from app.services.market_data import fetch_market_snapshot
 from app.services.smart_recommendations import get_smart_recommendations
@@ -219,9 +219,10 @@ def get_gamification(
     budget = _query_budget(db, current_user)
 
     # ── 1. ¿Qué paga tu portafolio? ──────────────────────────────────────────
-    monthly_return_usd = float(sum(
-        p.current_value_usd * p.annual_yield_pct / 12 for p in positions
-    ))
+    # Usar solo el bucket renta (LETRA, FCI, BOND parcial) con yield capeado.
+    # Evita que el 68% nominal ARS de las LECAPs infle el monthly return en USD.
+    buckets = split_portfolio_buckets(positions)
+    monthly_return_usd = float(buckets["renta_monthly_usd"])
 
     portfolio_covers = []
     if budget and budget.income_monthly_ars > 0:
@@ -524,6 +525,7 @@ def get_freedom_score(
     annual_return_pct = goal.target_annual_return_pct if goal else Decimal("0.08")
 
     score = _get_freedom_score(current_user, positions, monthly_expenses_usd)
+    buckets = split_portfolio_buckets(positions)
 
     milestones = calculate_milestone_projections(
         current_portfolio_usd=score["portfolio_total_usd"],
@@ -537,6 +539,8 @@ def get_freedom_score(
         "portfolio_total_usd": float(score["portfolio_total_usd"]),
         "monthly_return_usd": float(score["monthly_return_usd"]),
         "monthly_expenses_usd": float(score["monthly_expenses_usd"]),
+        "renta_monthly_usd": float(buckets["renta_monthly_usd"]),
+        "capital_total_usd": float(buckets["capital_total_usd"]),
         "milestones": milestones,
     }
 
@@ -785,7 +789,11 @@ def get_portfolio_projection(
     )
 
     # Parámetros base
-    current_usd = float(sum(p.current_value_usd for p in positions))
+    # Proyección sobre el bucket capital (CEDEAR, ETF, CRYPTO + 50% BOND).
+    # Excluir LETRA/FCI: su rendimiento nominal ARS no es comparable con USD compuesto.
+    proj_buckets = split_portfolio_buckets(positions)
+    capital_usd = float(proj_buckets["capital_total_usd"])
+    current_usd = capital_usd if capital_usd > 0 else float(sum(p.current_value_usd for p in positions))
     monthly_savings_usd = float(goal.monthly_savings_usd) if goal else 1250.0
     if budget:
         ars = float(budget.savings_monthly_ars)
@@ -793,16 +801,22 @@ def get_portfolio_projection(
         if mep > 0:
             monthly_savings_usd = ars / mep
 
-    # Yield anual: prioridad → goal configurado, luego portafolio calculado (cap 15%)
-    # El portafolio mezcla rendimientos nominales ARS (LECAPs 50%+) con activos USD,
-    # por lo que el calculado puede inflar el número. Cap realista para proyección en USD.
+    # Yield anual: prioridad → goal configurado, luego yield del bucket capital (cap 15%)
     MAX_REALISTIC_YIELD = 0.15  # 15% anual USD — muy agresivo, rara vez superado
     MIN_YIELD = 0.06            # 6% — piso conservador
     if goal and goal.target_annual_return_pct and goal.target_annual_return_pct > 0:
         annual_return_pct = float(goal.target_annual_return_pct)
     else:
-        score = _get_freedom_score(current_user, positions, Decimal("2000"))
-        raw_yield = float(score.get("annual_return_pct", 0.08))
+        # Yield del bucket capital: weighted average solo sobre posiciones de crecimiento
+        cap_positions = [p for p in positions if getattr(p, "asset_type", "").upper() in {"CEDEAR", "ETF", "CRYPTO", "BOND"}]
+        if cap_positions:
+            cap_total = sum(float(p.current_value_usd) for p in cap_positions)
+            if cap_total > 0:
+                raw_yield = sum(float(p.current_value_usd) * float(p.annual_yield_pct) for p in cap_positions) / cap_total
+            else:
+                raw_yield = 0.08
+        else:
+            raw_yield = 0.08
         annual_return_pct = max(MIN_YIELD, min(raw_yield, MAX_REALISTIC_YIELD))
     monthly_rate = annual_return_pct / 12
 
@@ -827,6 +841,7 @@ def get_portfolio_projection(
 
     return {
         "current_usd": round(current_usd, 2),
+        "capital_total_usd": round(current_usd, 2),
         "monthly_savings_usd": round(monthly_savings_usd, 2),
         "annual_return_pct": round(annual_return_pct, 4),
         "extra_usd_10y": round(extra_usd, 0),
