@@ -506,7 +506,28 @@ def _sync_iol(client: IOLClient, db: Session, user_id: str) -> dict:
         pass
 
     db.flush()
-    return {"positions_synced": synced, "months_synced": months_synced, "mep": round(current_mep, 2)}
+
+    # ── Reconstrucción histórica de snapshots (best-effort) ──────────────────
+    snapshots_created = 0
+    try:
+        from app.services.historical_reconstructor import reconstruct_portfolio_history
+        active_positions = db.query(Position).filter(
+            Position.is_active == True,
+            Position.user_id == user_id,
+            Position.source == "IOL",
+        ).all()
+        snapshots_created = reconstruct_portfolio_history(client, db, user_id, active_positions)
+        if snapshots_created > 0:
+            db.flush()
+    except Exception as e:
+        logger.warning("Reconstruct histórico falló (no crítico): %s", e, exc_info=True)
+
+    return {
+        "positions_synced": synced,
+        "months_synced": months_synced,
+        "mep": round(current_mep, 2),
+        "snapshots_reconstructed": snapshots_created,
+    }
 
 
 def _get_purchase_mep_from_operations(client: IOLClient) -> dict[str, float]:
