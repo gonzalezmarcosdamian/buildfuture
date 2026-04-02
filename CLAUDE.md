@@ -1,5 +1,30 @@
 # BuildFuture — Reglas de trabajo (Claude Code)
 
+## REGLA ABSOLUTA — LEER ANTES DE CUALQUIER ACCIÓN
+
+**NUNCA** hacer ninguna de estas acciones sin que el usuario diga explícitamente "mandá a prod", "deployá", "mergea", "push a main/master":
+
+- Push a `main` (backend) o `master` (frontend submodule)
+- `railway up` o cualquier deploy a Railway
+- Mergear PRs
+- `npx vercel` o cualquier comando que dispare Vercel
+
+Esto incluye: fixes de una línea, bugfixes urgentes, "es solo un cambio pequeño". **Sin excepción.**
+
+### El submodule frontend es especialmente peligroso
+El directorio `frontend/` es un submodule que apunta a `buildfuture-frontend` en GitHub.
+Cualquier `git push` dentro de `frontend/` a `master` **dispara Vercel automáticamente**.
+Por eso: **todo trabajo en frontend va en una branch**, nunca directo en `master` del submodule.
+
+### Flujo correcto para cada iteración
+1. `git checkout -b feat/nombre` — tanto en el repo principal como en el submodule si aplica
+2. Hacer cambios y commits en la branch
+3. `gh pr create` → compartir URL al usuario
+4. Esperar "ok mergea" antes de mergear
+5. Esperar "deployá a Railway" antes de disparar deploy del backend
+
+---
+
 ## Flujo obligatorio
 
 ### Nunca hacer directamente
