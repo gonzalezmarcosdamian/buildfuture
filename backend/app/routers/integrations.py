@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.auth import get_current_user
 import json
-from app.models import Integration, IntegrationDiscovery, Position, InvestmentMonth
+from app.models import Integration, IntegrationDiscovery, Position, InvestmentMonth, PortfolioSnapshot, BudgetConfig
 from app.services.iol_client import IOLClient, IOLAuthError
 from app.services.nexo_client import NexoClient, NexoAuthError
 from app.services.ppi_client import PPIClient, PPIAuthError
@@ -1004,6 +1004,13 @@ def connect_cocos(
     integration.last_synced_at = datetime.utcnow()
     db.commit()
 
+    try:
+        _upsert_today_snapshot(db, current_user)
+        db.commit()
+    except Exception as e:
+        logger.warning("connect_cocos: snapshot upsert falló (no crítico): %s", e)
+        db.rollback()
+
     auto_sync = bool(body.totp_secret)
     return {
         "connected": True,
@@ -1051,6 +1058,14 @@ def sync_cocos(
         integration.last_synced_at = datetime.utcnow()
         integration.last_error = ""
         db.commit()
+
+        try:
+            _upsert_today_snapshot(db, current_user)
+            db.commit()
+        except Exception as snap_err:
+            logger.warning("sync_cocos: snapshot upsert falló (no crítico): %s", snap_err)
+            db.rollback()
+
         return {"positions_synced": result["positions_synced"]}
     except HTTPException:
         raise
@@ -1151,6 +1166,61 @@ def get_discovery(
         }
         for i in items
     ]
+
+
+def _upsert_today_snapshot(db: Session, user_id: str) -> None:
+    """
+    Crea o actualiza el snapshot de hoy para un usuario específico.
+    Se llama al final de connect/sync para garantizar que el gráfico
+    incluye las posiciones recién sincronizadas sin esperar al scheduler.
+    """
+    from app.services.freedom_calculator import calculate_freedom_score
+
+    positions = db.query(Position).filter(
+        Position.is_active == True,
+        Position.user_id == user_id,
+    ).all()
+    if not positions:
+        return
+
+    budget = db.query(BudgetConfig).filter(
+        BudgetConfig.user_id == user_id,
+    ).order_by(BudgetConfig.effective_month.desc()).first()
+
+    monthly_expenses = budget.total_monthly_usd if budget else Decimal("2000")
+    fx_mep = Decimal(str(budget.fx_rate)) if budget and budget.fx_rate else Decimal("0")
+
+    score = calculate_freedom_score(positions, monthly_expenses)
+    cost_basis = sum(p.cost_basis_usd for p in positions)
+    today = date.today()
+
+    existing = db.query(PortfolioSnapshot).filter(
+        PortfolioSnapshot.user_id == user_id,
+        PortfolioSnapshot.snapshot_date == today,
+    ).first()
+
+    if existing:
+        existing.total_usd = score["portfolio_total_usd"]
+        existing.monthly_return_usd = score["monthly_return_usd"]
+        existing.positions_count = len(positions)
+        existing.cost_basis_usd = cost_basis
+        if fx_mep > 0:
+            existing.fx_mep = fx_mep
+    else:
+        db.add(PortfolioSnapshot(
+            user_id=user_id,
+            snapshot_date=today,
+            total_usd=score["portfolio_total_usd"],
+            monthly_return_usd=score["monthly_return_usd"],
+            positions_count=len(positions),
+            fx_mep=fx_mep,
+            cost_basis_usd=cost_basis,
+        ))
+
+    logger.info(
+        "_upsert_today_snapshot: snapshot %s actualizado para user=%s — USD %.2f",
+        today, user_id, float(score["portfolio_total_usd"]),
+    )
 
 
 def _record_discovery(db: Session, provider: str, pos, user_id: str) -> None:
