@@ -284,12 +284,16 @@ def _yield_lecap(pos, today: date) -> Decimal | None:
     # IOL incluye los intereses acumulados desde la emisión y puede superar 100.
     # La fórmula (100/precio - 1) asume madurez = 100, lo que da TIR negativa → 0 (incorrecto).
     # Cuando precio >= 100 la TIR real solo se puede calcular desde el precio de cotización
-    # (endpoint IOL distinto, VN=1000). Devolvemos None para preservar el yield del último sync.
+    # (endpoint IOL distinto, VN=1000). Devolvemos el DEFAULT TNA conocido de mercado (~68%)
+    # para que la posición no quede en 0% si el updater corrió antes de esta corrección.
+    _LECAP_DEFAULT_TNA = Decimal("0.68")
     if price_per_100 >= Decimal("100"):
-        logger.info(
-            "LECAP %s: precio/100=%.2f >= par (precio técnico acumulado) — sin actualización",
-            pos.ticker, float(price_per_100),
-        )
+        if pos.annual_yield_pct != _LECAP_DEFAULT_TNA:
+            logger.info(
+                "LECAP %s: precio/100=%.2f >= par (técnico acumulado) → restaurando TNA default %.0f%%",
+                pos.ticker, float(price_per_100), float(_LECAP_DEFAULT_TNA) * 100,
+            )
+            return _LECAP_DEFAULT_TNA
         return None
 
     tir = _lecap_tir(price_per_100, days)
@@ -318,10 +322,14 @@ def _yield_fci(pos, market_avg: Decimal) -> Decimal | None:
         try:
             from app.services.fci_prices import get_yield_30d
             y = get_yield_30d(pos.external_id, pos.fci_categoria)
-            if y > 0:
+            # Sanity: TNA > 150% sugiere match incorrecto o dato corrupto en ArgentinaDatos.
+            # Los fondos mercadoDinero ARS nunca superan ~80% TNA real; 150% es el límite extremo.
+            if 0 < y < 1.5:
                 result = Decimal(str(round(y, 4)))
                 logger.info("FCI %s: TNA=%.2f%% (ArgentinaDatos)", pos.ticker, float(result) * 100)
                 return result
+            if y >= 1.5:
+                logger.warning("FCI %s: TNA=%.2f%% fuera de rango → usando promedio", pos.ticker, y * 100)
         except Exception as e:
             logger.debug("FCI %s: ArgentinaDatos falló (%s) → usando promedio", pos.ticker, e)
 

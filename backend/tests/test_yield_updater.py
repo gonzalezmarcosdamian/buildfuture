@@ -130,18 +130,27 @@ class TestYieldLecap:
         result = _yield_lecap(pos, date(2026, 4, 1))
         assert result is None
 
-    def test_precio_tecnico_acumulado_retorna_none(self):
+    def test_precio_tecnico_acumulado_restaura_default(self):
         # IOL muestra "precio técnico" acumulado > 100 para LECAPs en cartera.
-        # quantity=349344, value_ars=400348 → price_per_100=114.6 > 100 → None (no tocar yield)
+        # Si el yield actual ≠ 0.68, restaura al default (ej: venía de 0% por bug anterior).
         pos = self._make_pos("S31G6", 349_344, 400_348)
+        pos.annual_yield_pct = Decimal("0.00")  # yield incorrecto por bug previo
+        result = _yield_lecap(pos, date(2026, 4, 2))
+        assert result == Decimal("0.68")
+
+    def test_precio_tecnico_acumulado_ya_en_default_no_toca(self):
+        # Si el yield ya está en el default 68%, retorna None (sin cambio en DB).
+        pos = self._make_pos("S31G6", 349_344, 400_348)
+        pos.annual_yield_pct = Decimal("0.68")
         result = _yield_lecap(pos, date(2026, 4, 2))
         assert result is None
 
-    def test_precio_exactamente_100_retorna_none(self):
-        # precio = 100 exacto → TIR = 0 → interpretamos como acumulado → None
+    def test_precio_exactamente_100_restaura_default(self):
+        # precio = 100 exacto → interpretamos como acumulado → restaurar si no está en default
         pos = self._make_pos("S31G6", 10_000, 10_000)
+        pos.annual_yield_pct = Decimal("0.00")
         result = _yield_lecap(pos, date(2026, 4, 2))
-        assert result is None
+        assert result == Decimal("0.68")
 
 
 # ── _yield_bond ───────────────────────────────────────────────────────────────
@@ -338,5 +347,13 @@ class TestYieldFci:
         pos = self._make_pos("IOLMMA", "Fondo Inexistente", "mercadoDinero")
         market_avg = Decimal("0.38")
         with patch("app.services.fci_prices.get_yield_30d", return_value=0.0):
+            result = _yield_fci(pos, market_avg)
+        assert result == market_avg
+
+    def test_external_id_yield_outlier_cae_a_promedio(self):
+        # Si ArgentinaDatos devuelve TNA > 200% (match incorrecto), cae a promedio.
+        pos = self._make_pos("IOLCAMA", "Fondo Erróneo", "mercadoDinero")
+        market_avg = Decimal("0.38")
+        with patch("app.services.fci_prices.get_yield_30d", return_value=1.988):  # 198.8% TNA
             result = _yield_fci(pos, market_avg)
         assert result == market_avg
