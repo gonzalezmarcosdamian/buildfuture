@@ -7,7 +7,7 @@ import os
 import logging
 import httpx
 from dotenv import load_dotenv
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
 
@@ -17,6 +17,16 @@ logger = logging.getLogger("buildfuture.auth")
 
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 DEV_USER_ID  = os.getenv("SEED_USER_ID", "00000000-0000-0000-0000-000000000001")
+
+# Mapa de alias → UUID para dev local multi-usuario (X-Mock-User header)
+MOCK_USER_MAP: dict[str, str] = {
+    "marcos":       "00000000-0000-0000-0000-000000000001",
+    "matiasmoron":  "00000000-0000-0000-0000-000000000010",
+    "nuevo":        "00000000-0000-0000-0000-000000000020",
+    "renta":        "00000000-0000-0000-0000-000000000030",
+    "capital":      "00000000-0000-0000-0000-000000000040",
+    "mixto":        "00000000-0000-0000-0000-000000000050",
+}
 
 _bearer = HTTPBearer(auto_error=False)
 _jwks_cache: list | None = None
@@ -38,16 +48,20 @@ def _get_jwks() -> list[dict]:
 
 
 def get_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
 ) -> str:
     """
     Returns the user_id (Supabase UUID).
     - Production: verifies JWT via Supabase JWKS (ES256), returns sub claim.
-    - Dev (no SUPABASE_URL): returns DEV_USER_ID without any check.
+    - Dev (no SUPABASE_URL): reads X-Mock-User header to select persona,
+      falls back to DEV_USER_ID (marcos).
     """
     if not SUPABASE_URL:
-        logger.debug("Auth: dev mode, user=%s", DEV_USER_ID)
-        return DEV_USER_ID
+        alias = request.headers.get("X-Mock-User", "")
+        user_id = MOCK_USER_MAP.get(alias, DEV_USER_ID)
+        logger.debug("Auth: dev mode, alias=%r → user=%s", alias or "default", user_id)
+        return user_id
 
     if not credentials:
         raise HTTPException(

@@ -45,6 +45,9 @@ def startup():
     _run_migrations()
     db = SessionLocal()
     seed(db)
+    if os.getenv("MOCK_SEED") == "true":
+        from app.seed_mock import seed_mock
+        seed_mock(db)
     _purge_bad_manual_positions(db)
     _dedup_positions(db)
     _backfill_integrations(db)

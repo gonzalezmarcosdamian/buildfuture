@@ -109,14 +109,15 @@ def connect_iol(
     Testea credenciales IOL, guarda en DB (plain text para dev local),
     y hace el primer sync del portafolio.
     """
-    # 1. Testear credenciales
+    # 1. Testear credenciales (skip en modo mock)
     client = IOLClient(body.username, body.password)
-    try:
-        client.authenticate()
-    except IOLAuthError as e:
-        raise HTTPException(status_code=401, detail=f"Credenciales incorrectas: {str(e)}")
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Error conectando con IOL: {str(e)}")
+    if not (os.getenv("MOCK_INTEGRATIONS") == "true" and body.username == "mock"):
+        try:
+            client.authenticate()
+        except IOLAuthError as e:
+            raise HTTPException(status_code=401, detail=f"Credenciales incorrectas: {str(e)}")
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"Error conectando con IOL: {str(e)}")
 
     # 2. Guardar credenciales (dev: plain text — prod: AES-256)
     integration = db.query(Integration).filter(
@@ -374,6 +375,11 @@ def _sync_nexo(client: NexoClient, db: Session, user_id: str) -> dict:
 
 def _sync_iol(client: IOLClient, db: Session, user_id: str) -> dict:
     """Trae posiciones y operaciones de IOL, upserta en la DB."""
+    # En modo mock, las posiciones ya están en la DB desde seed_mock — no sobreescribir
+    if os.getenv("MOCK_INTEGRATIONS") == "true":
+        logger.info("_sync_iol: MOCK_INTEGRATIONS=true — skip sync real para user=%s", user_id)
+        return {"positions_synced": 0, "months_synced": 0, "mep": 1430}
+
     # Obtener MEP actual UNA vez — se usa para conversión ARS→USD y para actualizar budget
     current_mep = client._get_mep()
 
