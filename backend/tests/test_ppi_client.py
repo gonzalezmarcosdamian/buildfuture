@@ -154,7 +154,7 @@ class TestPPIAuthentication:
     def test_authenticate_401_raises_ppi_auth_error(self):
         client = PPIClient("bad-key", "bad-secret")
         with patch("httpx.post", return_value=_mock_response(401, {"error": "Unauthorized"})):
-            with pytest.raises(PPIAuthError, match="Status 401"):
+            with pytest.raises(PPIAuthError, match="401"):
                 client.authenticate()
 
     def test_authenticate_connect_error_raises(self):
@@ -353,7 +353,7 @@ class TestPPIOperations:
             client.get_operations("12345", fecha_desde="2026-01-01", fecha_hasta="2026-03-31")
 
         mock_get.assert_called_once_with(
-            "/api/v1/Account/GetMovements",
+            "/api/1.0/Account/Movements",
             params={"accountNumber": "12345", "dateFrom": "2026-01-01", "dateTo": "2026-03-31"},
         )
 

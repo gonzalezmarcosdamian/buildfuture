@@ -223,6 +223,19 @@ class IntegrationDiscovery(Base):
     user_id: Mapped[str] = mapped_column(String(36), index=True)
 
 
+class IntegrationErrorLog(Base):
+    """Historial de errores de integraciones para diagnóstico multi-usuario."""
+    __tablename__ = "integration_error_logs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(36), index=True)
+    provider: Mapped[str] = mapped_column(String(20), index=True)
+    operation: Mapped[str] = mapped_column(String(30))   # connect | sync | refresh
+    error_code: Mapped[str] = mapped_column(String(20), default="")   # 400 | 401 | 502 | timeout
+    error_message: Mapped[str] = mapped_column(Text, default="")
+    occurred_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
 class Integration(Base):
     __tablename__ = "integrations"
 

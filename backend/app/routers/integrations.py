@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.auth import get_current_user
 import json
-from app.models import Integration, IntegrationDiscovery, Position, InvestmentMonth, PortfolioSnapshot, BudgetConfig
+from app.models import Integration, IntegrationDiscovery, IntegrationErrorLog, Position, InvestmentMonth, PortfolioSnapshot, BudgetConfig
 from app.services.iol_client import IOLClient, IOLAuthError
 from app.services.nexo_client import NexoClient, NexoAuthError
 from app.services.ppi_client import PPIClient, PPIAuthError
@@ -26,6 +26,28 @@ class ConnectRequest(BaseModel):
 class ConnectNexoRequest(BaseModel):
     api_key: str
     api_secret: str
+
+
+def _log_error(db: Session, user_id: str, provider: str, operation: str, error: Exception) -> None:
+    """Persiste un error de integración para diagnóstico multi-usuario."""
+    code = ""
+    msg = str(error)
+    # Extraer código HTTP si está en el mensaje
+    import re as _re
+    m = _re.search(r"(?:status|Status|PPI respondió|respondió)\s*(\d{3})", msg)
+    if m:
+        code = m.group(1)
+    try:
+        db.add(IntegrationErrorLog(
+            user_id=user_id,
+            provider=provider,
+            operation=operation,
+            error_code=code,
+            error_message=msg[:500],
+        ))
+        db.flush()
+    except Exception:
+        pass  # logging nunca debe romper el flujo principal
 
 
 _DEFAULT_INTEGRATIONS = [
@@ -109,14 +131,15 @@ def connect_iol(
     Testea credenciales IOL, guarda en DB (plain text para dev local),
     y hace el primer sync del portafolio.
     """
-    # 1. Testear credenciales
+    # 1. Testear credenciales (skip en modo mock)
     client = IOLClient(body.username, body.password)
-    try:
-        client.authenticate()
-    except IOLAuthError as e:
-        raise HTTPException(status_code=401, detail=f"Credenciales incorrectas: {str(e)}")
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Error conectando con IOL: {str(e)}")
+    if not (os.getenv("MOCK_INTEGRATIONS") == "true" and body.username == "mock"):
+        try:
+            client.authenticate()
+        except IOLAuthError as e:
+            raise HTTPException(status_code=401, detail=f"Credenciales incorrectas: {str(e)}")
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"Error conectando con IOL: {str(e)}")
 
     # 2. Guardar credenciales (dev: plain text — prod: AES-256)
     integration = db.query(Integration).filter(
@@ -374,6 +397,11 @@ def _sync_nexo(client: NexoClient, db: Session, user_id: str) -> dict:
 
 def _sync_iol(client: IOLClient, db: Session, user_id: str) -> dict:
     """Trae posiciones y operaciones de IOL, upserta en la DB."""
+    # En modo mock, las posiciones ya están en la DB desde seed_mock — no sobreescribir
+    if os.getenv("MOCK_INTEGRATIONS") == "true":
+        logger.info("_sync_iol: MOCK_INTEGRATIONS=true — skip sync real para user=%s", user_id)
+        return {"positions_synced": 0, "months_synced": 0, "mep": 1430}
+
     # Obtener MEP actual UNA vez — se usa para conversión ARS→USD y para actualizar budget
     current_mep = client._get_mep()
 
@@ -611,8 +639,12 @@ def connect_ppi(
     try:
         client.authenticate()
     except PPIAuthError as e:
-        raise HTTPException(status_code=401, detail=f"Credenciales PPI incorrectas: {str(e)}")
+        _log_error(db, current_user, "PPI", "connect", e)
+        db.commit()
+        raise HTTPException(status_code=401, detail=str(e))
     except Exception as e:
+        _log_error(db, current_user, "PPI", "connect", e)
+        db.commit()
         raise HTTPException(status_code=502, detail=f"Error conectando con PPI: {str(e)}")
 
     integration = db.query(Integration).filter(
@@ -1461,3 +1493,34 @@ def _mark_cocos_investment_month(db: Session, positions, user_id: str, today: da
             "_mark_cocos_investment_month: mes %s marcado como invertido (ARS %.0f)",
             month_key, float(total_ars),
         )
+
+
+# ── Diagnóstico de errores multi-usuario ─────────────────────────────────────
+
+@router.get("/errors")
+def get_integration_errors(
+    provider: str | None = None,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    """
+    Retorna los últimos errores de integraciones del usuario actual.
+    Útil para auto-diagnóstico y para que soporte identifique qué falló.
+    """
+    q = db.query(IntegrationErrorLog).filter(
+        IntegrationErrorLog.user_id == current_user,
+    )
+    if provider:
+        q = q.filter(IntegrationErrorLog.provider == provider.upper())
+    errors = q.order_by(IntegrationErrorLog.occurred_at.desc()).limit(limit).all()
+    return [
+        {
+            "provider": e.provider,
+            "operation": e.operation,
+            "error_code": e.error_code,
+            "error_message": e.error_message,
+            "occurred_at": e.occurred_at.isoformat(),
+        }
+        for e in errors
+    ]

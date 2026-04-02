@@ -118,12 +118,12 @@ class PPIClient:
         logger.info("PPI auth — public_key: %s...", self.public_key[:8])
         try:
             resp = httpx.post(
-                f"{self._base}/api/v1/Account/LoginApi",
+                f"{self._base}/api/1.0/Account/LoginApi",
                 headers={
                     "ApiKey": self.public_key,
                     "ApiSecret": self.private_key,
-                    "AuthorizedClient": "API_CLI",
-                    "ClientKey": self.public_key,
+                    "AuthorizedClient": "API_CLI_PYTHON",
+                    "ClientKey": "pp19PythonApp12",
                     "Content-Type": "application/json",
                 },
                 json={},
@@ -136,8 +136,13 @@ class PPIClient:
 
         logger.info("PPI auth response: status=%s body=%s", resp.status_code, resp.text[:300])
 
+        if resp.status_code == 400 and "invalid" in resp.text.lower():
+            raise PPIAuthError(
+                "Credenciales inválidas. Verificá que el acceso API esté habilitado en tu cuenta PPI: "
+                "Mi cuenta → Seguridad → API → Generar credenciales."
+            )
         if resp.status_code != 200:
-            raise PPIAuthError(f"Status {resp.status_code} — {resp.text[:500]}")
+            raise PPIAuthError(f"PPI respondió {resp.status_code}: {resp.text[:300]}")
 
         try:
             data = resp.json()
@@ -167,7 +172,7 @@ class PPIClient:
             return
         try:
             resp = httpx.post(
-                f"{self._base}/api/v1/Account/RefreshToken",
+                f"{self._base}/api/1.0/Account/RefreshToken",
                 json={"refreshToken": self._refresh_token},
                 headers={"Content-Type": "application/json"},
                 timeout=15,
@@ -202,7 +207,7 @@ class PPIClient:
         """Lista de cuentas disponibles del usuario."""
         if self._mock:
             return [{"accountNumber": "99999999", "name": "Cuenta Mock PPI", "type": "INVERSION"}]
-        data = self._get("/api/v1/Account/Accounts")
+        data = self._get("/api/1.0/Account/Accounts")
         if isinstance(data, list):
             return data
         return data.get("accounts", [])
@@ -221,7 +226,7 @@ class PPIClient:
         mep_dec = Decimal(str(mep))
 
         data = self._get(
-            "/api/v1/Account/GetBalanceAndPositions",
+            "/api/1.0/Account/BalancesAndPositions",
             params={"accountNumber": account_number},
         )
         logger.info("PPI portafolio recibido | MEP=%.0f", mep)
@@ -300,7 +305,7 @@ class PPIClient:
             return _mock_cash()
         try:
             data = self._get(
-                "/api/v1/Account/GetBalance",
+                "/api/1.0/Account/AvailableBalance",
                 params={"accountNumber": account_number},
             )
         except Exception as e:
@@ -341,7 +346,7 @@ class PPIClient:
         if fecha_hasta:
             params["dateTo"] = fecha_hasta
         try:
-            data = self._get("/api/v1/Account/GetMovements", params=params)
+            data = self._get("/api/1.0/Account/Movements", params=params)
             if isinstance(data, list):
                 return data
             return data.get("movements", data.get("operaciones", []))
