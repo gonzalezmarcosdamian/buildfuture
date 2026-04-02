@@ -8,7 +8,8 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.auth import get_current_user
-from app.models import Integration, Position, InvestmentMonth
+import json
+from app.models import Integration, IntegrationDiscovery, Position, InvestmentMonth
 from app.services.iol_client import IOLClient, IOLAuthError
 from app.services.nexo_client import NexoClient, NexoAuthError
 from app.services.ppi_client import PPIClient, PPIAuthError
@@ -1119,8 +1120,74 @@ def disconnect_cocos(
     return {"disconnected": True}
 
 
+@router.get("/discovery")
+def get_discovery(
+    provider: str | None = None,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    """
+    Lista instrument_types desconocidos capturados en syncs.
+    Útil para iterar el mapper sin perder información.
+    Filtrá por provider= para ver solo los de un ALYC específico.
+    """
+    q = db.query(IntegrationDiscovery)
+    if provider:
+        q = q.filter(IntegrationDiscovery.provider == provider.upper())
+    items = q.order_by(
+        IntegrationDiscovery.provider,
+        IntegrationDiscovery.seen_count.desc(),
+    ).all()
+    return [
+        {
+            "provider": i.provider,
+            "raw_instrument_type": i.raw_instrument_type,
+            "ticker": i.ticker,
+            "name": i.name,
+            "seen_count": i.seen_count,
+            "first_seen_at": i.first_seen_at,
+            "last_seen_at": i.last_seen_at,
+            "raw_data": json.loads(i.raw_data) if i.raw_data else {},
+        }
+        for i in items
+    ]
+
+
+def _record_discovery(db: Session, provider: str, pos, user_id: str) -> None:
+    """Upserta un instrumento desconocido en IntegrationDiscovery para iterar el mapper."""
+    existing = db.query(IntegrationDiscovery).filter(
+        IntegrationDiscovery.provider == provider,
+        IntegrationDiscovery.raw_instrument_type == pos.raw_instrument_type,
+        IntegrationDiscovery.ticker == pos.ticker,
+    ).first()
+
+    if existing:
+        existing.seen_count += 1
+        existing.last_seen_at = datetime.utcnow()
+        logger.info(
+            "Discovery: %s/%s ya registrado (seen=%d)", provider, pos.raw_instrument_type, existing.seen_count
+        )
+    else:
+        db.add(IntegrationDiscovery(
+            provider=provider,
+            raw_instrument_type=pos.raw_instrument_type,
+            ticker=pos.ticker,
+            name=pos.description,
+            raw_data=json.dumps(pos.raw_data, default=str),
+            user_id=user_id,
+        ))
+        logger.warning(
+            "Discovery: nuevo instrument_type '%s' ticker=%s — guardado para mapear",
+            pos.raw_instrument_type, pos.ticker,
+        )
+
+
 def _sync_cocos(client: CocosClient, db: Session, user_id: str) -> dict:
-    """Trae posiciones y cash de Cocos y los upserta en la DB."""
+    """
+    Trae posiciones y cash de Cocos.
+    - asset_type conocido → Position (portafolio visible).
+    - asset_type None (instrument_type desconocido) → IntegrationDiscovery (skip portafolio).
+    """
     positions = client.get_positions()
     cash = client.get_cash()
 
@@ -1132,8 +1199,14 @@ def _sync_cocos(client: CocosClient, db: Session, user_id: str) -> dict:
 
     today = date.today()
     synced = 0
+    discovered = 0
 
     for p in positions:
+        if p.asset_type is None:
+            _record_discovery(db, "COCOS", p, user_id)
+            discovered += 1
+            continue
+
         db.add(Position(
             user_id=user_id,
             ticker=p.ticker,
@@ -1181,11 +1254,10 @@ def _sync_cocos(client: CocosClient, db: Session, user_id: str) -> dict:
         ))
         synced += 1
 
-    try:
-        from app.routers.portfolio import _invalidate_score_cache
-        _invalidate_score_cache(user_id)
-    except Exception:
-        pass
-
     db.flush()
-    return {"positions_synced": synced}
+    if discovered:
+        logger.info(
+            "_sync_cocos: %d posiciones, %d instrument_types desconocidos → discovery",
+            synced, discovered,
+        )
+    return {"positions_synced": synced, "discovered": discovered}

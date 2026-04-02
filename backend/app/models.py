@@ -198,6 +198,29 @@ class UserProfile(Base):
     risk_profile: Mapped[str | None] = mapped_column(String(20), nullable=True)  # conservative | moderate | aggressive
 
 
+class IntegrationDiscovery(Base):
+    """
+    Instrumentos que el sync no pudo mapear a un asset_type conocido.
+    Persiste el raw data de la API para iterar el mapper sin perder información.
+    Provider-agnóstico: sirve para Cocos, IOL, PPI o cualquier ALYC futuro.
+    """
+    __tablename__ = "integration_discoveries"
+    __table_args__ = (
+        UniqueConstraint("provider", "raw_instrument_type", "ticker", name="uq_discovery"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    provider: Mapped[str] = mapped_column(String(20))           # COCOS | IOL | PPI
+    raw_instrument_type: Mapped[str] = mapped_column(String(50))
+    ticker: Mapped[str] = mapped_column(String(20))
+    name: Mapped[str] = mapped_column(String(200), default="")
+    raw_data: Mapped[str] = mapped_column(Text, default="")     # JSON del item crudo
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    seen_count: Mapped[int] = mapped_column(default=1)
+    user_id: Mapped[str] = mapped_column(String(36), index=True)
+
+
 class Integration(Base):
     __tablename__ = "integrations"
 

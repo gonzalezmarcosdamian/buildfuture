@@ -184,8 +184,9 @@ class TestCocosGetPositions:
 
         assert positions == []
 
-    def test_unknown_instrument_type_defaults_to_stock_with_warning(self, caplog):
-        """Tipo desconocido → asset_type='STOCK' + warning. Nunca skip silencioso."""
+    def test_unknown_instrument_type_returns_none_asset_type_with_warning(self, caplog):
+        """Tipo desconocido → asset_type=None + raw_instrument_type set + warning.
+        La posición NO se skipea en el cliente — el sync layer decide qué hacer."""
         import logging
         app = _make_cocos_app([_make_position(instrument_type="OPCION")])
         client = self._client_with_app(app)
@@ -194,7 +195,8 @@ class TestCocosGetPositions:
                 positions = client.get_positions()
 
         assert len(positions) == 1
-        assert positions[0].asset_type == "STOCK"
+        assert positions[0].asset_type is None
+        assert positions[0].raw_instrument_type == "OPCION"
         assert any("OPCION" in r.message for r in caplog.records)
 
     def test_annual_yield_from_default_yields_not_result_pct(self):
@@ -317,10 +319,10 @@ class TestNormalizeInstrumentType:
     def test_fci_maps_to_fci(self):
         assert _normalize_instrument_type("FCI") == "FCI"
 
-    def test_unknown_maps_to_stock(self):
-        assert _normalize_instrument_type("OPCION") == "STOCK"
-        assert _normalize_instrument_type("FUTURO") == "STOCK"
-        assert _normalize_instrument_type("") == "STOCK"
+    def test_unknown_maps_to_none(self):
+        assert _normalize_instrument_type("OPCION") is None
+        assert _normalize_instrument_type("FUTURO") is None
+        assert _normalize_instrument_type("") is None
 
     def test_case_insensitive(self):
         assert _normalize_instrument_type("fci") == "FCI"
