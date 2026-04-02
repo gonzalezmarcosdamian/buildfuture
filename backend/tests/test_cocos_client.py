@@ -4,7 +4,7 @@ Mockea pycocos.Cocos completo — sin llamadas reales a la API.
 Corre con: pytest backend/tests/test_cocos_client.py -v
 """
 from decimal import Decimal
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
