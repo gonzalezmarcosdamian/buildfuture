@@ -345,8 +345,8 @@ def get_portfolio_history(
             monthly_expenses = budget.total_monthly_usd if budget else Decimal("2000")
             score = _get_freedom_score(current_user, live_positions, monthly_expenses)
 
-            # MEP: reusar el del budget (ya disponible, sin llamada extra)
-            fx_mep = Decimal(str(budget.fx_rate)) if budget and budget.fx_rate else Decimal("0")
+            from app.services.mep import get_mep
+            fx_mep = get_mep(budget)  # budget → dolarapi.com → 1430, nunca 0
 
             snapshot_today = db.query(PortfolioSnapshot).filter(
                 PortfolioSnapshot.snapshot_date == today,
@@ -357,8 +357,7 @@ def get_portfolio_history(
                 snapshot_today.monthly_return_usd = score["monthly_return_usd"]
                 snapshot_today.positions_count = len(live_positions)
                 snapshot_today.cost_basis_usd = total_cost_basis_decimal
-                if fx_mep > 0:
-                    snapshot_today.fx_mep = fx_mep
+                snapshot_today.fx_mep = fx_mep
             else:
                 db.add(PortfolioSnapshot(
                     user_id=current_user,

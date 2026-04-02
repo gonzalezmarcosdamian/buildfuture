@@ -1171,10 +1171,10 @@ def get_discovery(
 def _upsert_today_snapshot(db: Session, user_id: str) -> None:
     """
     Crea o actualiza el snapshot de hoy para un usuario específico.
-    Se llama al final de connect/sync para garantizar que el gráfico
-    incluye las posiciones recién sincronizadas sin esperar al scheduler.
+    Siempre guarda fx_mep: budget → dolarapi.com → 1430.
     """
     from app.services.freedom_calculator import calculate_freedom_score
+    from app.services.mep import get_mep
 
     positions = db.query(Position).filter(
         Position.is_active == True,
@@ -1188,7 +1188,7 @@ def _upsert_today_snapshot(db: Session, user_id: str) -> None:
     ).order_by(BudgetConfig.effective_month.desc()).first()
 
     monthly_expenses = budget.total_monthly_usd if budget else Decimal("2000")
-    fx_mep = Decimal(str(budget.fx_rate)) if budget and budget.fx_rate else Decimal("0")
+    fx_mep = get_mep(budget)  # nunca retorna 0
 
     score = calculate_freedom_score(positions, monthly_expenses)
     cost_basis = sum(p.cost_basis_usd for p in positions)
@@ -1204,8 +1204,7 @@ def _upsert_today_snapshot(db: Session, user_id: str) -> None:
         existing.monthly_return_usd = score["monthly_return_usd"]
         existing.positions_count = len(positions)
         existing.cost_basis_usd = cost_basis
-        if fx_mep > 0:
-            existing.fx_mep = fx_mep
+        existing.fx_mep = fx_mep
     else:
         db.add(PortfolioSnapshot(
             user_id=user_id,
@@ -1218,8 +1217,8 @@ def _upsert_today_snapshot(db: Session, user_id: str) -> None:
         ))
 
     logger.info(
-        "_upsert_today_snapshot: snapshot %s actualizado para user=%s — USD %.2f",
-        today, user_id, float(score["portfolio_total_usd"]),
+        "_upsert_today_snapshot: snapshot %s user=%s USD=%.2f MEP=%.0f",
+        today, user_id, float(score["portfolio_total_usd"]), float(fx_mep),
     )
 
 
