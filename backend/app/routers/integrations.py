@@ -8,7 +8,8 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.auth import get_current_user
-from app.models import Integration, Position, InvestmentMonth
+import json
+from app.models import Integration, IntegrationDiscovery, Position, InvestmentMonth, PortfolioSnapshot, BudgetConfig
 from app.services.iol_client import IOLClient, IOLAuthError
 from app.services.nexo_client import NexoClient, NexoAuthError
 from app.services.ppi_client import PPIClient, PPIAuthError
@@ -1003,6 +1004,13 @@ def connect_cocos(
     integration.last_synced_at = datetime.utcnow()
     db.commit()
 
+    try:
+        _upsert_today_snapshot(db, current_user)
+        db.commit()
+    except Exception as e:
+        logger.warning("connect_cocos: snapshot upsert falló (no crítico): %s", e)
+        db.rollback()
+
     auto_sync = bool(body.totp_secret)
     return {
         "connected": True,
@@ -1050,6 +1058,14 @@ def sync_cocos(
         integration.last_synced_at = datetime.utcnow()
         integration.last_error = ""
         db.commit()
+
+        try:
+            _upsert_today_snapshot(db, current_user)
+            db.commit()
+        except Exception as snap_err:
+            logger.warning("sync_cocos: snapshot upsert falló (no crítico): %s", snap_err)
+            db.rollback()
+
         return {"positions_synced": result["positions_synced"]}
     except HTTPException:
         raise
@@ -1119,10 +1135,142 @@ def disconnect_cocos(
     return {"disconnected": True}
 
 
+@router.get("/discovery")
+def get_discovery(
+    provider: str | None = None,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    """
+    Lista instrument_types desconocidos capturados en syncs.
+    Útil para iterar el mapper sin perder información.
+    Filtrá por provider= para ver solo los de un ALYC específico.
+    """
+    q = db.query(IntegrationDiscovery)
+    if provider:
+        q = q.filter(IntegrationDiscovery.provider == provider.upper())
+    items = q.order_by(
+        IntegrationDiscovery.provider,
+        IntegrationDiscovery.seen_count.desc(),
+    ).all()
+    return [
+        {
+            "provider": i.provider,
+            "raw_instrument_type": i.raw_instrument_type,
+            "ticker": i.ticker,
+            "name": i.name,
+            "seen_count": i.seen_count,
+            "first_seen_at": i.first_seen_at,
+            "last_seen_at": i.last_seen_at,
+            "raw_data": json.loads(i.raw_data) if i.raw_data else {},
+        }
+        for i in items
+    ]
+
+
+def _upsert_today_snapshot(db: Session, user_id: str) -> None:
+    """
+    Crea o actualiza el snapshot de hoy para un usuario específico.
+    Siempre guarda fx_mep: budget → dolarapi.com → 1430.
+    """
+    from app.services.freedom_calculator import calculate_freedom_score
+    from app.services.mep import get_mep
+
+    positions = db.query(Position).filter(
+        Position.is_active == True,
+        Position.user_id == user_id,
+    ).all()
+    if not positions:
+        return
+
+    budget = db.query(BudgetConfig).filter(
+        BudgetConfig.user_id == user_id,
+    ).order_by(BudgetConfig.effective_month.desc()).first()
+
+    monthly_expenses = budget.total_monthly_usd if budget else Decimal("2000")
+    fx_mep = get_mep(budget)  # nunca retorna 0
+
+    score = calculate_freedom_score(positions, monthly_expenses)
+    cost_basis = sum(p.cost_basis_usd for p in positions)
+    today = date.today()
+
+    existing = db.query(PortfolioSnapshot).filter(
+        PortfolioSnapshot.user_id == user_id,
+        PortfolioSnapshot.snapshot_date == today,
+    ).first()
+
+    if existing:
+        existing.total_usd = score["portfolio_total_usd"]
+        existing.monthly_return_usd = score["monthly_return_usd"]
+        existing.positions_count = len(positions)
+        existing.cost_basis_usd = cost_basis
+        existing.fx_mep = fx_mep
+    else:
+        db.add(PortfolioSnapshot(
+            user_id=user_id,
+            snapshot_date=today,
+            total_usd=score["portfolio_total_usd"],
+            monthly_return_usd=score["monthly_return_usd"],
+            positions_count=len(positions),
+            fx_mep=fx_mep,
+            cost_basis_usd=cost_basis,
+        ))
+
+    logger.info(
+        "_upsert_today_snapshot: snapshot %s user=%s USD=%.2f MEP=%.0f",
+        today, user_id, float(score["portfolio_total_usd"]), float(fx_mep),
+    )
+
+
+def _record_discovery(db: Session, provider: str, pos, user_id: str) -> None:
+    """Upserta un instrumento desconocido en IntegrationDiscovery para iterar el mapper."""
+    existing = db.query(IntegrationDiscovery).filter(
+        IntegrationDiscovery.provider == provider,
+        IntegrationDiscovery.raw_instrument_type == pos.raw_instrument_type,
+        IntegrationDiscovery.ticker == pos.ticker,
+    ).first()
+
+    if existing:
+        existing.seen_count += 1
+        existing.last_seen_at = datetime.utcnow()
+        logger.info(
+            "Discovery: %s/%s ya registrado (seen=%d)", provider, pos.raw_instrument_type, existing.seen_count
+        )
+    else:
+        db.add(IntegrationDiscovery(
+            provider=provider,
+            raw_instrument_type=pos.raw_instrument_type,
+            ticker=pos.ticker,
+            name=pos.description,
+            raw_data=json.dumps(pos.raw_data, default=str),
+            user_id=user_id,
+        ))
+        logger.warning(
+            "Discovery: nuevo instrument_type '%s' ticker=%s — guardado para mapear",
+            pos.raw_instrument_type, pos.ticker,
+        )
+
+
 def _sync_cocos(client: CocosClient, db: Session, user_id: str) -> dict:
-    """Trae posiciones y cash de Cocos y los upserta en la DB."""
+    """
+    Trae posiciones y cash de Cocos.
+    - asset_type conocido → Position (portafolio visible).
+    - asset_type None (instrument_type desconocido) → IntegrationDiscovery (skip portafolio).
+    """
     positions = client.get_positions()
     cash = client.get_cash()
+
+    # Capturar purchase_fx_rate de las posiciones actuales ANTES de desactivarlas.
+    # Así lo preservamos entre syncs — no perdemos el MEP histórico en cada resync.
+    existing_fx: dict[str, Decimal] = {
+        row.ticker: row.purchase_fx_rate
+        for row in db.query(Position.ticker, Position.purchase_fx_rate).filter(
+            Position.source == "COCOS",
+            Position.user_id == user_id,
+            Position.is_active == True,
+            Position.purchase_fx_rate > 0,
+        ).all()
+    }
 
     db.query(Position).filter(
         Position.source == "COCOS",
@@ -1132,8 +1280,24 @@ def _sync_cocos(client: CocosClient, db: Session, user_id: str) -> dict:
 
     today = date.today()
     synced = 0
+    discovered = 0
 
     for p in positions:
+        if p.asset_type is None:
+            _record_discovery(db, "COCOS", p, user_id)
+            discovered += 1
+            continue
+
+        # Preservar MEP histórico si ya conocíamos esta posición.
+        # Si es nueva: derivar MEP del sync actual (ppc_ars / avg_purchase_price_usd = MEP usado).
+        # Esto evita que cada resync sobreescriba el MEP de compra real.
+        if p.ticker in existing_fx:
+            purchase_fx_rate = existing_fx[p.ticker]
+        elif p.ppc_ars > 0 and p.avg_purchase_price_usd > 0:
+            purchase_fx_rate = p.ppc_ars / p.avg_purchase_price_usd  # = MEP del sync
+        else:
+            purchase_fx_rate = Decimal("0")
+
         db.add(Position(
             user_id=user_id,
             ticker=p.ticker,
@@ -1147,7 +1311,7 @@ def _sync_cocos(client: CocosClient, db: Session, user_id: str) -> dict:
             snapshot_date=today,
             is_active=True,
             ppc_ars=p.ppc_ars,
-            purchase_fx_rate=Decimal("0"),
+            purchase_fx_rate=purchase_fx_rate,
             current_value_ars=p.current_value_ars,
         ))
         synced += 1
@@ -1181,11 +1345,58 @@ def _sync_cocos(client: CocosClient, db: Session, user_id: str) -> dict:
         ))
         synced += 1
 
-    try:
-        from app.routers.portfolio import _invalidate_score_cache
-        _invalidate_score_cache(user_id)
-    except Exception:
-        pass
+    # Marcar el mes actual como invertido si hay posiciones con valor real.
+    # No podemos reconstruir meses históricos (Cocos no expone operaciones),
+    # pero sí podemos confirmar que el usuario está invertido este mes.
+    _mark_cocos_investment_month(db, positions, user_id, today)
 
     db.flush()
-    return {"positions_synced": synced}
+    if discovered:
+        logger.info(
+            "_sync_cocos: %d posiciones, %d instrument_types desconocidos → discovery",
+            synced, discovered,
+        )
+    return {"positions_synced": synced, "discovered": discovered}
+
+
+def _mark_cocos_investment_month(db: Session, positions, user_id: str, today: date) -> None:
+    """
+    Registra el mes actual como mes de inversión si el usuario tiene posiciones
+    Cocos con valor real (ppc_ars > 0).
+    No es historial — es confirmación de que está invertido en el mes del sync.
+    Cocos no expone operaciones históricas, así que meses anteriores quedan sin datos.
+    """
+    has_real_positions = any(
+        p.asset_type is not None and p.ppc_ars > 0
+        for p in positions
+    )
+    if not has_real_positions:
+        return
+
+    month_key = today.replace(day=1)
+    existing = db.query(InvestmentMonth).filter(
+        InvestmentMonth.user_id == user_id,
+        InvestmentMonth.month == month_key,
+    ).first()
+
+    total_ars = sum(p.ppc_ars * p.quantity for p in positions if p.asset_type is not None)
+
+    if existing:
+        # Si ya existe (posiblemente de IOL/PPI), no sobreescribir — solo log
+        logger.info(
+            "_mark_cocos_investment_month: mes %s ya registrado (source=%s) — skip",
+            month_key, existing.source,
+        )
+    else:
+        db.add(InvestmentMonth(
+            user_id=user_id,
+            month=month_key,
+            amount_ars=total_ars,
+            amount_usd=Decimal("0"),  # sin MEP confiable para el mes histórico
+            source="COCOS",
+            note="Sync automático Cocos — posiciones activas al momento del sync",
+        ))
+        logger.info(
+            "_mark_cocos_investment_month: mes %s marcado como invertido (ARS %.0f)",
+            month_key, float(total_ars),
+        )

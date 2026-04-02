@@ -54,12 +54,14 @@ class Position(Base):
 
     @property
     def performance_ars_pct(self) -> Decimal:
-        """Rendimiento puramente en ARS (precio ARS actual vs PPC ARS)."""
-        if self.ppc_ars == 0:
+        """
+        Rendimiento en ARS puro: precio_ars_actual vs VCP_ars.
+        No depende del MEP histórico — siempre preciso para instrumentos ARS (FCI, LETRA).
+        """
+        if self.ppc_ars == 0 or self.quantity == 0:
             return Decimal("0")
-        if self.avg_purchase_price_usd == 0:
-            return Decimal("0")
-        return (self.current_price_usd - self.avg_purchase_price_usd) / self.avg_purchase_price_usd
+        current_price_ars = self.current_value_ars / self.quantity
+        return (current_price_ars - self.ppc_ars) / self.ppc_ars
 
 
 class BudgetConfig(Base):
@@ -196,6 +198,29 @@ class UserProfile(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[str] = mapped_column(String(36), unique=True, index=True)
     risk_profile: Mapped[str | None] = mapped_column(String(20), nullable=True)  # conservative | moderate | aggressive
+
+
+class IntegrationDiscovery(Base):
+    """
+    Instrumentos que el sync no pudo mapear a un asset_type conocido.
+    Persiste el raw data de la API para iterar el mapper sin perder información.
+    Provider-agnóstico: sirve para Cocos, IOL, PPI o cualquier ALYC futuro.
+    """
+    __tablename__ = "integration_discoveries"
+    __table_args__ = (
+        UniqueConstraint("provider", "raw_instrument_type", "ticker", name="uq_discovery"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    provider: Mapped[str] = mapped_column(String(20))           # COCOS | IOL | PPI
+    raw_instrument_type: Mapped[str] = mapped_column(String(50))
+    ticker: Mapped[str] = mapped_column(String(20))
+    name: Mapped[str] = mapped_column(String(200), default="")
+    raw_data: Mapped[str] = mapped_column(Text, default="")     # JSON del item crudo
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    seen_count: Mapped[int] = mapped_column(default=1)
+    user_id: Mapped[str] = mapped_column(String(36), index=True)
 
 
 class Integration(Base):

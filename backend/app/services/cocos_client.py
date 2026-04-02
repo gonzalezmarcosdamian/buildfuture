@@ -4,8 +4,9 @@ Auth: email + password + 2FA (TOTP code o TOTP secret BASE32).
 API: reverse-engineered, no oficial. Usa pycocos + cloudscraper (Cloudflare bypass).
 """
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
+from typing import Optional
 
 import httpx
 
@@ -36,31 +37,35 @@ _INSTRUMENT_TYPE_MAP: dict[str, str] = {
 class CocosPosition:
     ticker: str
     description: str
-    asset_type: str
+    asset_type: Optional[str]        # None si instrument_type desconocido — ver raw_instrument_type
     quantity: Decimal
     current_price_usd: Decimal
     avg_purchase_price_usd: Decimal
     ppc_ars: Decimal
     annual_yield_pct: Decimal
     current_value_ars: Decimal
+    raw_instrument_type: str = ""    # tipo original de Cocos, siempre presente
+    raw_data: dict = field(default_factory=dict)  # item crudo para discovery
 
 
 class CocosAuthError(Exception):
     pass
 
 
-def _normalize_instrument_type(instrument_type: str) -> str:
-    """Mapea instrument_type de Cocos a asset_type BuildFuture. Fallback: STOCK + warning."""
+def _normalize_instrument_type(instrument_type: str) -> Optional[str]:
+    """
+    Mapea instrument_type de Cocos a asset_type BuildFuture.
+    Retorna None para tipos desconocidos — el sync layer los envía a IntegrationDiscovery.
+    """
     normalized = _INSTRUMENT_TYPE_MAP.get(instrument_type.upper() if instrument_type else "")
     if normalized:
         return normalized
-    if instrument_type:
-        logger.warning(
-            "CocosClient: instrument_type desconocido '%s' → asset_type='STOCK'. "
-            "Agregar a _INSTRUMENT_TYPE_MAP cuando se confirme el mapping.",
-            instrument_type,
-        )
-    return "STOCK"
+    logger.warning(
+        "CocosClient: instrument_type desconocido '%s' → asset_type=None. "
+        "Posición enviada a discovery para iterar el mapper.",
+        instrument_type,
+    )
+    return None
 
 
 class CocosClient:
@@ -149,15 +154,15 @@ class CocosClient:
             ppc_ars = Decimal(str(average_price))
             avg_purchase_price_usd = ppc_ars / mep_dec if ppc_ars > 0 else current_price_usd
 
-            instrument_type = item.get("instrument_type", "")
-            asset_type = _normalize_instrument_type(instrument_type)
-            annual_yield_pct = DEFAULT_YIELDS.get(asset_type, DEFAULT_YIELDS["default"])
+            raw_instrument_type = item.get("instrument_type", "")
+            asset_type = _normalize_instrument_type(raw_instrument_type)
+            annual_yield_pct = DEFAULT_YIELDS.get(asset_type or "", DEFAULT_YIELDS["default"])
 
             logger.info(
                 "  %s (%s) cant=%.2f last=%.4f ARS → USD %.4f | yield=%.0f%%",
-                ticker, asset_type, float(quantity),
-                float(price_ars_dec), float(current_price_usd),
-                float(annual_yield_pct) * 100,
+                ticker, asset_type or f"?{raw_instrument_type}",
+                float(quantity), float(price_ars_dec),
+                float(current_price_usd), float(annual_yield_pct) * 100,
             )
 
             positions.append(CocosPosition(
@@ -170,6 +175,8 @@ class CocosClient:
                 ppc_ars=ppc_ars,
                 annual_yield_pct=annual_yield_pct,
                 current_value_ars=current_value_ars,
+                raw_instrument_type=raw_instrument_type,
+                raw_data=item,
             ))
 
         logger.info("CocosClient: %d posiciones obtenidas", len(positions))

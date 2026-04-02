@@ -227,15 +227,8 @@ def _refresh_manual_prices(db) -> None:
     if not manual:
         return
 
-    # MEP actual para convertir VCP de FCI (ARS) a USD
-    fx_mep = 1430.0
-    try:
-        import httpx
-        r = httpx.get("https://dolarapi.com/v1/dolares/bolsa", timeout=5)
-        if r.status_code == 200:
-            fx_mep = float(r.json().get("venta", fx_mep))
-    except Exception:
-        pass
+    from app.services.mep import get_mep
+    fx_mep = float(get_mep())  # nunca 0
 
     for pos in manual:
         try:
@@ -274,6 +267,7 @@ def _save_portfolio_snapshot(db) -> None:
     """Guarda snapshot diario para cada usuario con posiciones activas."""
     from app.models import Position, PortfolioSnapshot
     from app.services.freedom_calculator import calculate_freedom_score
+    from app.services.mep import get_mep
 
     today = date.today()
 
@@ -289,15 +283,9 @@ def _save_portfolio_snapshot(db) -> None:
         logger.info("Sin posiciones activas — skip snapshot")
         return
 
-    # Intentar traer MEP actual una sola vez
-    fx_mep = Decimal("0")
-    try:
-        import httpx
-        r = httpx.get("https://dolarapi.com/v1/dolares/bolsa", timeout=5)
-        if r.status_code == 200:
-            fx_mep = Decimal(str(r.json().get("venta", 0)))
-    except Exception:
-        pass
+    # MEP actual una sola vez para todos los usuarios del ciclo
+    fx_mep = get_mep()  # dolarapi.com → fallback 1430, nunca 0
+    logger.info("_save_portfolio_snapshot: MEP=%.0f para %d usuarios", float(fx_mep), len(user_ids))
 
     for (user_id,) in user_ids:
         existing = db.query(PortfolioSnapshot).filter(
