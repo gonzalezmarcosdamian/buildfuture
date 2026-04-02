@@ -1,6 +1,55 @@
 from decimal import Decimal
 from typing import TypedDict
 
+# ── Bucket classification ──────────────────────────────────────────────────────
+# Renta: instrumentos que generan ingreso periódico en ARS (LECAPs, FCIs)
+# Capital: instrumentos de crecimiento en USD (CEDEARs, ETFs, crypto)
+# Ambos: bonos que pagan cupón (renta) y tienen apreciación de precio (capital)
+RENTA_ASSET_TYPES = {"LETRA", "FCI"}
+CAPITAL_ASSET_TYPES = {"CEDEAR", "ETF", "CRYPTO"}
+AMBOS_ASSET_TYPES = {"BOND"}
+MAX_RENTA_USD_YIELD = Decimal("0.15")   # cap para evitar que el 68% nominal ARS infle el monthly return
+
+
+def split_portfolio_buckets(positions: list) -> dict:
+    """
+    Separa el portfolio en dos carriles:
+    - renta_monthly_usd: ingreso mensual del bucket renta (LETRA/FCI con yield capeado)
+    - renta_total_usd: valor total del bucket renta
+    - capital_total_usd: valor total del bucket capital (CEDEAR/ETF/CRYPTO + 50% BOND)
+
+    LETRA y FCI tienen yields nominales en ARS (68% para LECAPs).
+    Capear a MAX_RENTA_USD_YIELD convierte a rendimiento real aproximado en USD.
+    BOND (AL30, GD30): split 50/50 — el cupón va a renta, la apreciación va a capital.
+    CASH → neutral (no computa en ningún bucket).
+    """
+    renta_monthly = Decimal("0")
+    renta_total = Decimal("0")
+    capital_total = Decimal("0")
+
+    for p in positions:
+        asset_type = getattr(p, "asset_type", "").upper()
+        value = p.current_value_usd
+        raw_yield = p.annual_yield_pct
+
+        if asset_type in RENTA_ASSET_TYPES:
+            capped_yield = min(raw_yield, MAX_RENTA_USD_YIELD)
+            renta_monthly += value * capped_yield / 12
+            renta_total += value
+        elif asset_type in CAPITAL_ASSET_TYPES:
+            capital_total += value
+        elif asset_type in AMBOS_ASSET_TYPES:
+            bond_yield = min(raw_yield, Decimal("0.12"))
+            renta_monthly += value * bond_yield / 12 * Decimal("0.5")
+            capital_total += value * Decimal("0.5")
+        # CASH, OTHER → neutral
+
+    return {
+        "renta_monthly_usd": renta_monthly,
+        "renta_total_usd": renta_total,
+        "capital_total_usd": capital_total,
+    }
+
 
 class FreedomScore(TypedDict):
     portfolio_total_usd: Decimal

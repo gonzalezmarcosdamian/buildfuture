@@ -142,6 +142,19 @@ class FreedomGoal(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class CapitalGoal(Base):
+    """Meta de capital: ahorro para un objetivo concreto (casa, auto, viaje, etc.)"""
+    __tablename__ = "capital_goals"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(36), index=True)
+    name: Mapped[str] = mapped_column(String(100))
+    emoji: Mapped[str] = mapped_column(String(10), default="🎯")
+    target_usd: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    target_years: Mapped[int] = mapped_column(default=5)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class PortfolioSnapshot(Base):
     """
     Snapshot diario del portafolio al cierre de mercado.

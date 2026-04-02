@@ -68,6 +68,22 @@ def _run_migrations():
             "ALTER TABLE portfolio_snapshots ADD COLUMN IF NOT EXISTS cost_basis_usd NUMERIC(12,2) DEFAULT 0",
             "portfolio_snapshots.cost_basis_usd",
         ),
+        (
+            """CREATE TABLE IF NOT EXISTS capital_goals (
+                id SERIAL PRIMARY KEY,
+                user_id VARCHAR(36) NOT NULL,
+                name VARCHAR(100) NOT NULL,
+                emoji VARCHAR(10) DEFAULT '🎯',
+                target_usd NUMERIC(12,2) NOT NULL,
+                target_years INTEGER DEFAULT 5,
+                created_at TIMESTAMP DEFAULT NOW()
+            )""",
+            "capital_goals table",
+        ),
+        (
+            "CREATE INDEX IF NOT EXISTS idx_capital_goals_user ON capital_goals(user_id)",
+            "idx_capital_goals_user",
+        ),
     ]
     try:
         with engine.connect() as conn:

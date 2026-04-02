@@ -46,6 +46,23 @@ Usuario target: Marcos González — PM Ualá, Córdoba, ahorro USD 1000-1500/me
 - ✅ `NextGoalCard` en dashboard: próxima categoría, capital ARS/USD, meses de ahorro, ticker recomendado
 - ✅ Freedom % abstracto eliminado del hero — reemplazado por portafolio total USD
 
+### Metas de capital e interés compuesto (v0.11 — rama feat/capital-goals-gamification)
+- ✅ **Campo `job` en UNIVERSE**: cada instrumento taggeado como `renta` | `capital` | `ambos`
+- ✅ **Recomendaciones split**: sección 💰 Renta (LECAP, FCI, bonos) y 📈 Capital (CEDEAR, ETF) en `RecommendationList`
+- ✅ **`current_month_invested`** en `/portfolio/gamification`: booleano si el mes actual tiene inversión registrada
+- ✅ **InvestmentStreak mejorado**: card de estado del mes (✅ invertiste / ⏳ todavía no) al tope de la sección
+- ✅ **`GET /portfolio/projection`**: curva de proyección a 10 años — `with_savings_usd` vs `without_savings_usd`
+- ✅ **`ProjectionCard`**: gráfico de dos curvas (Recharts AreaChart), selector de horizonte 1/3/5/10 años, líneas de referencia de metas de capital, insight interactivo
+- ✅ **Modal educativo DCA/interés compuesto**: bottom sheet con 3 secciones dinámicas usando datos reales del usuario — rendimiento del portfolio vs benchmarks, impacto DCA año 1/5/10, desglose interés compuesto (inicial + aportes + rendimientos)
+- ✅ **`GET /portfolio/goal` + `PUT /portfolio/goal`**: endpoints para leer/guardar `monthly_savings_usd` y `target_annual_return_pct`
+- ✅ **Modelo `CapitalGoal`** + migración `capital_goals` table
+- ✅ **CRUD `/portfolio/capital-goals`**: GET (con cálculo de progreso y meses estimados), POST, PUT, DELETE
+- ✅ **`CapitalGoals` ABM**: lista de metas con barra de progreso, emoji picker, horizonte en años, confirmación borrado con timer 3s
+- ✅ **`GoalCompliance`**: card por meta con estado (En camino / Con retraso / Llegaste / Sin datos), fecha proyectada de llegada, delay en meses, barra de progreso coloreada por estado
+- ✅ **Empty state dashboard**: cuando no hay metas, card con CTA "Agregar primera meta →" a /goals
+- ✅ **Cap yield realista**: `annual_return_pct` capeado a 6–15% USD — evita que rendimiento nominal ARS de LECAPs infle la proyección
+- ✅ **`ProjectionCard` con capital goals overlay**: líneas de referencia horizontales en el chart para cada meta dentro del rango visible
+
 ### Recomendaciones
 - ✅ Comité de 4 agentes expertos: Carry ARS, Dolarización, Renta Fija, Diversificación
 - ✅ Slot system: conservador/moderado/agresivo siempre con instrumentos distintos garantizados
@@ -134,18 +151,18 @@ Usuario target: Marcos González — PM Ualá, Córdoba, ahorro USD 1000-1500/me
 ## Pendiente 🔲
 
 ### Alta prioridad
-- 🔲 **Deploy ingreso manual a producción**: testear local completo → bump v0.10.0 → Railway + Vercel
+- 🔲 **Bucket split renta/capital**: separar portfolio en dos carriles en DashboardHero, ProjectionCard y cálculos — ver diseño en BITACORA v0.11.0
+- 🔲 **Deploy v0.11 a producción**: bump versión → Railway + Vercel
+- 🔲 **Deploy ingreso manual a producción**: testear local completo → Railway + Vercel
 - 🔲 **Editar posición manual desde detalle**: botón "Editar" en `/portfolio/[ticker]` para posiciones `source=MANUAL`
-- 🔲 **FreedomGoal editable**: target_annual_return_pct y monthly_savings_usd desde UI
 
 ### Media prioridad
 - 🔲 **Claude API recommendations**: preparado en `ai_recommendations.py`, falta `ANTHROPIC_API_KEY`
-- 🔲 **PPI integration**: `ppi-client` PyPI disponible, siguiente ALYC a integrar
+- 🔲 **PPI integration**: mock mode funcionando, credenciales reales pendientes
 - 🔲 **Flujo "invertir ahora"**: presupuesto → recomendaciones → confirmar → registrar inversión del mes
 - 🔲 **Port management**: startup script que mata procesos viejos antes de levantar
 
 ### Baja prioridad
 - 🔲 Notificaciones: alerta cuando la racha está en riesgo
-- 🔲 Metas custom del usuario (vacaciones, seña depto, fondo emergencia)
 - 🔲 Multi-tenant onboarding: admin panel para crear nuevos usuarios
 - 🔲 Historial retropolado desde fecha de compra (posiciones manuales)

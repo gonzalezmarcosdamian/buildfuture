@@ -8,8 +8,9 @@ logger = logging.getLogger("buildfuture.portfolio")
 from sqlalchemy.orm import Session, selectinload
 from app.database import get_db
 from app.auth import get_current_user
-from app.models import Position, BudgetConfig, BudgetCategory, FreedomGoal, InvestmentMonth, PortfolioSnapshot
-from app.services.freedom_calculator import calculate_freedom_score, calculate_milestone_projections
+from pydantic import BaseModel
+from app.models import Position, BudgetConfig, BudgetCategory, FreedomGoal, InvestmentMonth, PortfolioSnapshot, CapitalGoal
+from app.services.freedom_calculator import calculate_freedom_score, calculate_milestone_projections, split_portfolio_buckets
 from app.services.ai_recommendations import get_ai_recommendations
 from app.services.market_data import fetch_market_snapshot
 from app.services.smart_recommendations import get_smart_recommendations
@@ -218,9 +219,10 @@ def get_gamification(
     budget = _query_budget(db, current_user)
 
     # ── 1. ¿Qué paga tu portafolio? ──────────────────────────────────────────
-    monthly_return_usd = float(sum(
-        p.current_value_usd * p.annual_yield_pct / 12 for p in positions
-    ))
+    # Usar solo el bucket renta (LETRA, FCI, BOND parcial) con yield capeado.
+    # Evita que el 68% nominal ARS de las LECAPs infle el monthly return en USD.
+    buckets = split_portfolio_buckets(positions)
+    monthly_return_usd = float(buckets["renta_monthly_usd"])
 
     portfolio_covers = []
     if budget and budget.income_monthly_ars > 0:
@@ -289,9 +291,13 @@ def get_gamification(
         else:
             cur = 0
 
+    current_month = date(today.year, today.month, 1)
+    current_month_invested = current_month in invested_months
+
     return {
         "monthly_return_usd": round(monthly_return_usd, 2),
         "portfolio_covers": portfolio_covers,
+        "current_month_invested": current_month_invested,
         "streak": {
             "current": current_streak,
             "longest": longest_streak,
@@ -519,6 +525,7 @@ def get_freedom_score(
     annual_return_pct = goal.target_annual_return_pct if goal else Decimal("0.08")
 
     score = _get_freedom_score(current_user, positions, monthly_expenses_usd)
+    buckets = split_portfolio_buckets(positions)
 
     milestones = calculate_milestone_projections(
         current_portfolio_usd=score["portfolio_total_usd"],
@@ -532,6 +539,8 @@ def get_freedom_score(
         "portfolio_total_usd": float(score["portfolio_total_usd"]),
         "monthly_return_usd": float(score["monthly_return_usd"]),
         "monthly_expenses_usd": float(score["monthly_expenses_usd"]),
+        "renta_monthly_usd": float(buckets["renta_monthly_usd"]),
+        "capital_total_usd": float(buckets["capital_total_usd"]),
         "milestones": milestones,
     }
 
@@ -573,6 +582,271 @@ _ASSET_CONTEXT = {
         "liquidity": "Muy alta — mercado 24/7.",
     },
 }
+
+
+class GoalIn(BaseModel):
+    monthly_savings_usd: float
+    target_annual_return_pct: float = 0.08
+
+
+class CapitalGoalIn(BaseModel):
+    name: str
+    emoji: str = "🎯"
+    target_usd: float
+    target_years: int = 5
+
+
+@router.get("/goal")
+def get_goal(
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    goal = (
+        db.query(FreedomGoal)
+        .filter(FreedomGoal.user_id == current_user)
+        .order_by(FreedomGoal.id.desc())
+        .first()
+    )
+    if not goal:
+        return {"monthly_savings_usd": None, "target_annual_return_pct": 0.08}
+    return {
+        "monthly_savings_usd": float(goal.monthly_savings_usd),
+        "target_annual_return_pct": float(goal.target_annual_return_pct),
+    }
+
+
+@router.put("/goal")
+def save_goal(
+    body: GoalIn,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    goal = (
+        db.query(FreedomGoal)
+        .filter(FreedomGoal.user_id == current_user)
+        .order_by(FreedomGoal.id.desc())
+        .first()
+    )
+    if goal:
+        goal.monthly_savings_usd = Decimal(str(round(body.monthly_savings_usd, 2)))
+        goal.target_annual_return_pct = Decimal(str(round(body.target_annual_return_pct, 4)))
+    else:
+        goal = FreedomGoal(
+            user_id=current_user,
+            monthly_savings_usd=Decimal(str(round(body.monthly_savings_usd, 2))),
+            target_annual_return_pct=Decimal(str(round(body.target_annual_return_pct, 4))),
+        )
+        db.add(goal)
+    db.commit()
+    return {"ok": True, "monthly_savings_usd": float(goal.monthly_savings_usd)}
+
+
+@router.get("/capital-goals")
+def list_capital_goals(
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    goals = (
+        db.query(CapitalGoal)
+        .filter(CapitalGoal.user_id == current_user)
+        .order_by(CapitalGoal.created_at)
+        .all()
+    )
+    positions = db.query(Position).filter(
+        Position.is_active == True,
+        Position.user_id == current_user,
+    ).all()
+    portfolio_usd = float(sum(p.current_value_usd for p in positions))
+    budget = _query_budget(db, current_user)
+    freedom_goal = (
+        db.query(FreedomGoal)
+        .filter(FreedomGoal.user_id == current_user)
+        .order_by(FreedomGoal.id.desc())
+        .first()
+    )
+    # monthly savings: from budget or from freedom_goal
+    if budget:
+        mep = float(budget.fx_rate)
+        monthly_savings_usd = float(budget.savings_monthly_ars) / mep if mep > 0 else 0
+    elif freedom_goal:
+        monthly_savings_usd = float(freedom_goal.monthly_savings_usd)
+    else:
+        monthly_savings_usd = 0
+    raw_return = float(freedom_goal.target_annual_return_pct) if freedom_goal else 0.08
+    annual_return = max(0.06, min(raw_return, 0.15))  # cap realista 6–15% USD
+    monthly_rate = annual_return / 12
+
+    result = []
+    for g in goals:
+        target = float(g.target_usd)
+        # Months to reach target from current portfolio + savings
+        if monthly_savings_usd > 0 and monthly_rate > 0:
+            # Solve: target = portfolio*(1+r)^n + savings*((1+r)^n - 1)/r
+            # Approximate with iteration
+            bal = portfolio_usd
+            months = 0
+            while bal < target and months < 600:
+                bal = bal * (1 + monthly_rate) + monthly_savings_usd
+                months += 1
+            months_to_goal = months if bal >= target else None
+        elif monthly_savings_usd > 0:
+            months_to_goal = max(0, round((target - portfolio_usd) / monthly_savings_usd))
+        else:
+            months_to_goal = None
+
+        result.append({
+            "id": g.id,
+            "name": g.name,
+            "emoji": g.emoji,
+            "target_usd": target,
+            "target_years": g.target_years,
+            "portfolio_usd": portfolio_usd,
+            "progress_pct": min(100, round(portfolio_usd / target * 100, 1)) if target > 0 else 0,
+            "months_to_goal": months_to_goal,
+            "monthly_savings_usd": round(monthly_savings_usd, 2),
+        })
+    return result
+
+
+@router.post("/capital-goals")
+def create_capital_goal(
+    body: CapitalGoalIn,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    goal = CapitalGoal(
+        user_id=current_user,
+        name=body.name,
+        emoji=body.emoji,
+        target_usd=Decimal(str(round(body.target_usd, 2))),
+        target_years=body.target_years,
+    )
+    db.add(goal)
+    db.commit()
+    db.refresh(goal)
+    return {"id": goal.id, "name": goal.name, "emoji": goal.emoji}
+
+
+@router.put("/capital-goals/{goal_id}")
+def update_capital_goal(
+    goal_id: int,
+    body: CapitalGoalIn,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    goal = db.query(CapitalGoal).filter(
+        CapitalGoal.id == goal_id,
+        CapitalGoal.user_id == current_user,
+    ).first()
+    if not goal:
+        raise HTTPException(status_code=404, detail="Goal not found")
+    goal.name = body.name
+    goal.emoji = body.emoji
+    goal.target_usd = Decimal(str(round(body.target_usd, 2)))
+    goal.target_years = body.target_years
+    db.commit()
+    return {"ok": True}
+
+
+@router.delete("/capital-goals/{goal_id}")
+def delete_capital_goal(
+    goal_id: int,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    goal = db.query(CapitalGoal).filter(
+        CapitalGoal.id == goal_id,
+        CapitalGoal.user_id == current_user,
+    ).first()
+    if not goal:
+        raise HTTPException(status_code=404, detail="Goal not found")
+    db.delete(goal)
+    db.commit()
+    return {"ok": True}
+
+
+@router.get("/projection")
+def get_portfolio_projection(
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    """
+    Proyección compuesta a 10 años con dos curvas:
+    - 'with_savings': portafolio actual + aportes mensuales + rendimiento
+    - 'without_savings': solo portafolio actual + rendimiento, sin nuevos aportes
+    Permite visualizar el impacto del DCA y el interés compuesto.
+    """
+    positions = db.query(Position).filter(
+        Position.is_active == True,
+        Position.user_id == current_user,
+    ).all()
+    budget = _query_budget(db, current_user)
+    goal = (
+        db.query(FreedomGoal)
+        .filter(FreedomGoal.user_id == current_user)
+        .order_by(FreedomGoal.id.desc())
+        .first()
+    )
+
+    # Parámetros base
+    # Proyección sobre el bucket capital (CEDEAR, ETF, CRYPTO + 50% BOND).
+    # Excluir LETRA/FCI: su rendimiento nominal ARS no es comparable con USD compuesto.
+    proj_buckets = split_portfolio_buckets(positions)
+    capital_usd = float(proj_buckets["capital_total_usd"])
+    current_usd = capital_usd if capital_usd > 0 else float(sum(p.current_value_usd for p in positions))
+    monthly_savings_usd = float(goal.monthly_savings_usd) if goal else 1250.0
+    if budget:
+        ars = float(budget.savings_monthly_ars)
+        mep = float(budget.fx_rate)
+        if mep > 0:
+            monthly_savings_usd = ars / mep
+
+    # Yield anual: prioridad → goal configurado, luego yield del bucket capital (cap 15%)
+    MAX_REALISTIC_YIELD = 0.15  # 15% anual USD — muy agresivo, rara vez superado
+    MIN_YIELD = 0.06            # 6% — piso conservador
+    if goal and goal.target_annual_return_pct and goal.target_annual_return_pct > 0:
+        annual_return_pct = float(goal.target_annual_return_pct)
+    else:
+        # Yield del bucket capital: weighted average solo sobre posiciones de crecimiento
+        cap_positions = [p for p in positions if getattr(p, "asset_type", "").upper() in {"CEDEAR", "ETF", "CRYPTO", "BOND"}]
+        if cap_positions:
+            cap_total = sum(float(p.current_value_usd) for p in cap_positions)
+            if cap_total > 0:
+                raw_yield = sum(float(p.current_value_usd) * float(p.annual_yield_pct) for p in cap_positions) / cap_total
+            else:
+                raw_yield = 0.08
+        else:
+            raw_yield = 0.08
+        annual_return_pct = max(MIN_YIELD, min(raw_yield, MAX_REALISTIC_YIELD))
+    monthly_rate = annual_return_pct / 12
+
+    # Generar puntos: año 0 al 10 (anual)
+    points = []
+    bal_with    = current_usd
+    bal_without = current_usd
+
+    for year in range(0, 11):
+        points.append({
+            "year": year,
+            "with_savings_usd":    round(bal_with,    0),
+            "without_savings_usd": round(bal_without,  0),
+            "label": f"Año {year}" if year > 0 else "Hoy",
+        })
+        # Proyectar 12 meses hacia adelante
+        for _ in range(12):
+            bal_with    = bal_with    * (1 + monthly_rate) + monthly_savings_usd
+            bal_without = bal_without * (1 + monthly_rate)
+
+    extra_usd = points[-1]["with_savings_usd"] - points[-1]["without_savings_usd"]
+
+    return {
+        "current_usd": round(current_usd, 2),
+        "capital_total_usd": round(current_usd, 2),
+        "monthly_savings_usd": round(monthly_savings_usd, 2),
+        "annual_return_pct": round(annual_return_pct, 4),
+        "extra_usd_10y": round(extra_usd, 0),
+        "points": points,
+    }
 
 
 @router.get("/instrument/{ticker}")
