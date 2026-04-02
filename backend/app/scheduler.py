@@ -91,6 +91,7 @@ def _daily_close_job() -> None:
         try:
             _maybe_sync_iol(db)
             _maybe_sync_ppi(db)
+            _maybe_sync_cocos(db)
             _refresh_manual_prices(db)
             _save_portfolio_snapshot(db)
         finally:
@@ -167,6 +168,47 @@ def _maybe_sync_ppi(db) -> None:
                         result.get("months_synced", 0))
         except Exception as e:
             logger.warning("PPI sync falló en scheduler user=%s: %s", integration.user_id, e)
+            integration.last_error = str(e)[:200]
+            db.commit()
+
+
+def _maybe_sync_cocos(db) -> None:
+    """Sync Cocos para usuarios con TOTP secret configurado (auto-sync habilitado)."""
+    from app.models import Integration
+    from app.services.cocos_client import CocosClient
+    from app.routers.integrations import _sync_cocos
+
+    integrations = db.query(Integration).filter(
+        Integration.provider == "COCOS",
+        Integration.is_connected == True,
+    ).all()
+
+    if not integrations:
+        logger.info("Cocos no conectado — skip sync")
+        return
+
+    for integration in integrations:
+        parts = (integration.encrypted_credentials or "").split(":", 2)
+        if len(parts) < 3:
+            continue
+        email, password, totp_secret = parts[0], parts[1], parts[2]
+
+        if not totp_secret:
+            logger.info("Cocos user=%s sin TOTP secret — skip auto-sync", integration.user_id)
+            continue
+
+        try:
+            client = CocosClient(email, password, totp_secret=totp_secret)
+            client.authenticate()
+            result = _sync_cocos(client, db, integration.user_id)
+            from datetime import datetime as _dt
+            integration.last_synced_at = _dt.utcnow()
+            integration.last_error = ""
+            db.commit()
+            logger.info("Cocos sync OK user=%s — posiciones: %d",
+                        integration.user_id, result.get("positions_synced", 0))
+        except Exception as e:
+            logger.warning("Cocos sync falló en scheduler user=%s: %s", integration.user_id, e)
             integration.last_error = str(e)[:200]
             db.commit()
 
