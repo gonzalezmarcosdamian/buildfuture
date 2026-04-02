@@ -225,6 +225,40 @@ def price_cache_purge(
     return {"deleted": deleted, "ticker": ticker or "ALL"}
 
 
+@router.get("/positions/inspect")
+def positions_inspect(
+    user_id: str = Query(...),
+    source: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    _: None = Depends(verify_admin),
+):
+    """Muestra las posiciones activas de un usuario con todos los campos relevantes para debug."""
+    q = db.query(Position).filter(Position.user_id == user_id, Position.is_active == True)  # noqa: E712
+    if source:
+        q = q.filter(Position.source == source.upper())
+    rows = q.all()
+    return {
+        "count": len(rows),
+        "positions": [
+            {
+                "id": r.id,
+                "ticker": r.ticker,
+                "asset_type": r.asset_type,
+                "source": r.source,
+                "quantity": float(r.quantity),
+                "ppc_ars": float(r.ppc_ars or 0),
+                "avg_purchase_price_usd": float(r.avg_purchase_price_usd or 0),
+                "current_price_usd": float(r.current_price_usd or 0),
+                "current_value_ars": float(r.current_value_ars or 0),
+                "annual_yield_pct": float(r.annual_yield_pct or 0),
+                "implied_total_usd": round(float(r.quantity) * float(r.current_price_usd or 0), 2),
+                "implied_ppc_total_usd": round(float(r.ppc_ars or 0) / 1436, 4),
+            }
+            for r in rows
+        ],
+    }
+
+
 @router.get("/positions/dupes")
 def positions_dupes(
     user_id: Optional[str] = Query(None),
