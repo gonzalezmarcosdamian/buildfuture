@@ -150,16 +150,22 @@ def reconstruct_raw_ops(
     for op in raw_ops:
         titulo = op.get("titulo") or {}
         result.append({
-            "fechaOrden":   op.get("fechaOrden") or op.get("fecha"),
-            "simbolo":      op.get("simbolo") or op.get("ticker"),
-            "tipo":         op.get("tipo"),
-            "cantidad":     op.get("cantidad"),
-            "precio":       op.get("precio"),
-            "monto":        op.get("monto") or op.get("montoOperado"),
-            "inst_tipo":    titulo.get("tipo"),
-            "inst_mercado": titulo.get("mercado"),
-            "estado":       op.get("estado"),
-            "_raw_keys":    list(op.keys()),
+            "fechaOrden":       op.get("fechaOrden") or op.get("fecha"),
+            "simbolo":          op.get("simbolo") or op.get("ticker"),
+            "tipo":             op.get("tipo"),
+            "estado":           op.get("estado"),
+            # Orden
+            "cantidad":         op.get("cantidad"),
+            "precio":           op.get("precio"),
+            "monto":            op.get("monto"),
+            # Fill real (lo que se ejecutó)
+            "cantidadOperada":  op.get("cantidadOperada"),
+            "precioOperado":    op.get("precioOperado"),
+            "montoOperado":     op.get("montoOperado"),
+            # Instrumento
+            "inst_tipo":        titulo.get("tipo"),
+            "inst_mercado":     titulo.get("mercado"),
+            "_raw_keys":        list(op.keys()),
         })
     return {"total": len(result), "ops": result}
 
