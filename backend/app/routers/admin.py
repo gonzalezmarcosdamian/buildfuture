@@ -140,6 +140,36 @@ def snapshots_purge_all_for_user(
     return {"deleted": deleted, "user_id": user_id}
 
 
+@router.get("/snapshots/values")
+def snapshots_values(
+    user_id: str = Query(..., description="Usuario a inspeccionar"),
+    limit: int = Query(30, description="Últimos N snapshots"),
+    db: Session = Depends(get_db),
+    _: None = Depends(verify_admin),
+):
+    """Muestra los valores reales de los últimos N snapshots de un usuario."""
+    rows = (
+        db.query(PortfolioSnapshot)
+        .filter(PortfolioSnapshot.user_id == user_id)
+        .order_by(PortfolioSnapshot.snapshot_date.desc())
+        .limit(limit)
+        .all()
+    )
+    return {
+        "user_id": user_id,
+        "count": len(rows),
+        "snapshots": [
+            {
+                "date": r.snapshot_date.isoformat(),
+                "total_usd": float(r.total_usd),
+                "positions_count": r.positions_count,
+                "fx_mep": float(r.fx_mep),
+            }
+            for r in rows
+        ],
+    }
+
+
 # ── Price / MEP cache ─────────────────────────────────────────────────────────
 
 @router.get("/cache/price-info")
