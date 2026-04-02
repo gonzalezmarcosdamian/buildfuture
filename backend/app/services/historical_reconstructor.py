@@ -1,13 +1,15 @@
 """
 Reconstrucción histórica de portfolio desde operaciones IOL.
-Usa price_history y mep_history como caché compartido entre usuarios.
+Solo reconstruye LETRA, FCI, ON y BOND — activos cuyas cantidades en las
+operaciones IOL son confiables (VN nominal o cuotapartes).
+CEDEAR/ETF/CRYPTO se excluyen: IOL devuelve `cantidad` en ARS para esos tipos,
+lo que inflaría las cantidades del timeline de forma masiva.
 
 Flujo:
 1. Traer operaciones IOL (hasta 2 años atrás)
 2. Construir timeline de holdings: {ticker: [(date, qty_acumulada)]}
-3. Precios desde caché DB (Yahoo solo para lo que falta)
-4. MEP desde caché DB (bluelytics solo para meses faltantes)
-5. Crear PortfolioSnapshot para cada día lunes-viernes faltante
+3. MEP desde caché DB (bluelytics para meses faltantes)
+4. Crear PortfolioSnapshot para cada día lunes-viernes faltante
 """
 import logging
 from collections import defaultdict
@@ -16,11 +18,9 @@ from decimal import Decimal
 
 from sqlalchemy.orm import Session
 
-from app.models import Position, PortfolioSnapshot
+from app.models import PortfolioSnapshot
 from app.services.historical_prices import (
-    get_prices_batch_cached,
     get_mep_cached,
-    lookup_price,
     letra_price_usd_at,
     bond_price_usd_at,
     HISTORY_DAYS,
@@ -151,25 +151,18 @@ def reconstruct_portfolio_history(
         for p in current_positions
     }
 
-    # ── 3. Precios históricos desde caché DB (Yahoo para CEDEAR/CRYPTO) ───────
-    yahoo_map: dict[str, str] = {}
-    for ticker in holdings_tl:
-        info = pos_info.get(ticker)
-        if not info:
-            continue
-        yt = _yahoo_ticker_for(ticker, info["asset_type"])
-        if yt:
-            yahoo_map[ticker] = yt
-
-    # get_prices_batch_cached: lee DB primero, llama Yahoo solo para lo que falta
-    yahoo_prices: dict[str, dict[date, float]] = {}
-    if yahoo_map:
-        # Descargamos con el ticker de Yahoo, luego re-mapeamos al ticker de IOL
-        unique_yahoo = list(set(yahoo_map.values()))
-        logger.info("Reconstructor: %d tickers Yahoo (algunos desde caché DB)", len(unique_yahoo))
-        raw = get_prices_batch_cached(db, unique_yahoo, first_date, today)
-        for iol_t, yah_t in yahoo_map.items():
-            yahoo_prices[iol_t] = raw.get(yah_t, {})
+    # ── 3. Solo LETRA y FCI son reconstruibles desde operaciones ─────────────
+    # IOL devuelve `cantidad` en ARS para CEDEARs (no en acciones), por lo que
+    # las cantidades del timeline son infiables para CEDEAR/ETF/CRYPTO.
+    # Yahoo prices ya no se necesitan en el reconstructor.
+    RECONSTRUCTABLE = {"LETRA", "FCI", "ON", "BOND"}
+    has_reconstructable = any(
+        pos_info.get(t, {}).get("asset_type") in RECONSTRUCTABLE
+        for t in holdings_tl
+    )
+    if not has_reconstructable:
+        logger.info("Reconstructor: ningún ticker LETRA/FCI en el portfolio — skip")
+        return 0
 
     # ── 4. MEP histórico desde caché DB (bluelytics para meses faltantes) ────
     current_mep = float(client._get_mep())
@@ -212,9 +205,10 @@ def reconstruct_portfolio_history(
             price: float | None = None
 
             if at in ("CEDEAR", "ETF", "CRYPTO"):
-                # Solo precio histórico real — sin fallback al precio actual
-                # (usarlo inflaría la historia: un CEDEAR a $3 en 2023 aparecería a $10 hoy)
-                price = lookup_price(yahoo_prices.get(ticker, {}), target)
+                # IOL devuelve `cantidad` en ARS (no en acciones) para operaciones de CEDEAR.
+                # Las cantidades del timeline son infiables para estos tipos → skip reconstrucción.
+                # Su historia se acumula vía snapshots diarios a partir del primer sync.
+                continue
             elif at == "LETRA":
                 price = letra_price_usd_at(
                     ppc_ars=info["ppc_ars"],
