@@ -184,7 +184,7 @@ def reconstruct_dry_run(
     from app.models import Integration, Position
     from app.services.iol_client import IOLClient
     from app.services.historical_reconstructor import (
-        _parse_operations, _build_holdings_timeline, _qty_at, _yahoo_ticker_for,
+        _parse_operations_v2, _build_reliable_timeline, _qty_at, _yahoo_ticker_for,
     )
     from app.services.historical_prices import (
         get_prices_batch_cached, get_mep_cached, lookup_price,
@@ -207,14 +207,21 @@ def reconstruct_dry_run(
     fecha_desde = (date.today() - timedelta(days=HISTORY_DAYS)).strftime("%Y-%m-%d")
     raw_ops = client.get_operations(fecha_desde=fecha_desde)
 
-    parsed = _parse_operations(raw_ops)
-    holdings_tl = _build_holdings_timeline(parsed)
+    parsed = _parse_operations_v2(raw_ops)
 
     current_positions = db.query(Position).filter(
         Position.is_active == True,  # noqa: E712
         Position.user_id == user_id,
         Position.source == "IOL",
     ).all()
+
+    current_qty_map = {
+        p.ticker.upper(): float(p.quantity)
+        for p in current_positions
+        if float(p.quantity) > 0
+    }
+
+    holdings_tl = _build_reliable_timeline(parsed, current_qty_map)
 
     pos_info = {
         p.ticker.upper(): {
@@ -290,8 +297,8 @@ def reconstruct_dry_run(
         "breakdown": sorted(breakdown, key=lambda x: -x["contribution_usd"]),
         "raw_ops_count": len(raw_ops),
         "parsed_ops": [
-            {"date": str(op[0]), "ticker": op[1], "qty": op[2], "tipo": op[3]}
-            for op in parsed[:50]  # primeras 50
+            {"date": str(op["date"]), "ticker": op["ticker"], "qty": op["qty"], "tipo": op["tipo"]}
+            for op in parsed[:50]
         ],
     }
 
@@ -538,7 +545,6 @@ def yields_run(
     Útil para verificar cambios sin esperar al cierre de mercado (17:30 ART)."""
     from app.services.yield_updater import update_yields
     from app.services.mep import get_mep
-    from decimal import Decimal
 
     mep = get_mep()
     updated = update_yields(db, mep=mep)

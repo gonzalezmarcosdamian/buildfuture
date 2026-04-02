@@ -1,15 +1,20 @@
 """
-Reconstrucción histórica de portfolio desde operaciones IOL.
-Solo reconstruye LETRA, FCI, ON y BOND — activos cuyas cantidades en las
-operaciones IOL son confiables (VN nominal o cuotapartes).
-CEDEAR/ETF/CRYPTO se excluyen: IOL devuelve `cantidad` en ARS para esos tipos,
-lo que inflaría las cantidades del timeline de forma masiva.
+Reconstruccion historica de portfolio desde operaciones IOL - v2.
 
-Flujo:
-1. Traer operaciones IOL (hasta 2 años atrás)
-2. Construir timeline de holdings: {ticker: [(date, qty_acumulada)]}
-3. MEP desde caché DB (bluelytics para meses faltantes)
-4. Crear PortfolioSnapshot para cada día lunes-viernes faltante
+Algoritmo backwards-anchored:
+1. Traer operaciones IOL (hasta 2 anos), usar cantidadOperada (unidades reales).
+2. Reconstruir el timeline yendo hacia ATRAS desde las posiciones actuales.
+   Si deshacer una compra deja el estado negativo hay ventas invisibles fuera
+   de la ventana. Se descarta esa historia y solo se conserva la parte confiable.
+3. Calcular precios historicos por tipo:
+   - CEDEAR/ETF/CRYPTO : Yahoo Finance (cache DB)
+   - LETRA             : capitalizacion diaria desde ppc_ars/100 (por VN)
+   - FCI               : ppc_ars / MEP historico (por cuotaparte)
+   - BOND/ON           : interpolacion lineal ppc a current
+4. Crear PortfolioSnapshot para cada dia lunes-viernes faltante.
+
+Resultado: snapshots que reflejan solo la historia verificable, sin inflacion
+por operaciones fuera de la ventana o por importes ARS interpretados como unidades.
 """
 import logging
 from collections import defaultdict
@@ -20,7 +25,9 @@ from sqlalchemy.orm import Session
 
 from app.models import PortfolioSnapshot
 from app.services.historical_prices import (
+    get_prices_batch_cached,
     get_mep_cached,
+    lookup_price,
     letra_price_usd_at,
     bond_price_usd_at,
     HISTORY_DAYS,
@@ -31,8 +38,10 @@ logger = logging.getLogger("buildfuture.reconstructor")
 _CRYPTO_YAHOO_MAP: dict[str, str | None] = {
     "BTC": "BTC-USD", "ETH": "ETH-USD", "BNB": "BNB-USD",
     "SOL": "SOL-USD", "ADA": "ADA-USD", "XRP": "XRP-USD",
-    "USDT": None, "USDC": None,   # stablecoins — precio fijo $1
+    "USDT": None, "USDC": None,
 }
+
+_YAHOO_TYPES = {"CEDEAR", "ETF", "CRYPTO"}
 
 
 def _existing_snapshot_dates(db: Session, user_id: str) -> set[date]:
@@ -42,44 +51,124 @@ def _existing_snapshot_dates(db: Session, user_id: str) -> set[date]:
     return {r[0] for r in rows}
 
 
-def _parse_operations(ops: list[dict]) -> list[tuple[date, str, float, str]]:
+def _yahoo_ticker_for(iol_ticker: str, asset_type: str) -> str | None:
+    if asset_type == "CRYPTO":
+        return _CRYPTO_YAHOO_MAP.get(iol_ticker)
+    if asset_type in ("CEDEAR", "ETF"):
+        return iol_ticker
+    return None
+
+
+def _parse_operations_v2(ops: list[dict]) -> list[dict]:
+    """
+    Parsea operaciones IOL usando cantidadOperada (unidades reales del fill).
+    Solo incluye operaciones terminadas con cantidadOperada > 0.
+
+    cantidadOperada es el campo clave: da acciones reales para CEDEAR (no ARS),
+    VN nominal para LECAP, cuotapartes para FCI, independientemente del tipo
+    de orden (por monto o por cantidad).
+    """
     parsed = []
     for op in ops:
-        raw = op.get("fechaOrden") or op.get("fecha") or ""
-        if not raw:
+        estado = str(op.get("estado") or "").lower()
+        if "terminada" not in estado:
+            continue
+
+        raw_date = op.get("fechaOrden") or op.get("fecha") or ""
+        if not raw_date:
             continue
         try:
-            op_date = date.fromisoformat(raw[:10])
+            op_date = date.fromisoformat(str(raw_date)[:10])
         except ValueError:
             continue
-        ticker = (op.get("simbolo") or op.get("ticker") or "").upper()
-        qty = float(op.get("cantidad") or 0)
-        tipo = str(op.get("tipo", "")).lower()
-        if not ticker or qty <= 0:
+
+        ticker = (op.get("simbolo") or op.get("ticker") or "").upper().strip()
+        if not ticker:
             continue
-        parsed.append((op_date, ticker, qty, tipo))
-    return sorted(parsed, key=lambda x: x[0])
+
+        tipo = str(op.get("tipo") or "").lower()
+
+        qty_op = op.get("cantidadOperada")
+        if qty_op is None or float(qty_op) <= 0:
+            continue
+
+        parsed.append({
+            "date":      op_date,
+            "ticker":    ticker,
+            "qty":       float(qty_op),
+            "tipo":      tipo,
+            "precio_op": float(op.get("precioOperado") or 0),
+            "monto_op":  float(op.get("montoOperado") or 0),
+        })
+
+    return sorted(parsed, key=lambda x: x["date"])
 
 
-def _build_holdings_timeline(parsed: list[tuple[date, str, float, str]]) -> dict[str, list[tuple[date, float]]]:
-    current: dict[str, float] = defaultdict(float)
-    timeline: dict[str, list[tuple[date, float]]] = defaultdict(list)
+def _build_reliable_timeline(
+    parsed_ops: list[dict],
+    current_pos: dict[str, float],
+) -> dict[str, list[tuple[date, float]]]:
+    """
+    Construye un timeline confiable yendo hacia ATRAS desde las posiciones actuales.
 
-    for op_date, ticker, qty, tipo in parsed:
+    Para cada operacion (de mas reciente a mas antigua):
+    - compra/suscripcion: deshacer restando qty del estado.
+      Si el resultado seria negativo, hay ventas invisibles fuera de la ventana.
+      Se marca el ticker como no confiable y se descarta.
+    - venta/rescate: deshacer sumando qty al estado.
+
+    Solo se preservan tickers activos en current_pos (los que el usuario tiene hoy).
+    Tickers ya vendidos no tienen historia relevante para el grafico.
+    """
+    state: dict[str, float] = dict(current_pos)
+    unreliable: set[str] = set()
+    events_rev: dict[str, list[tuple[date, float]]] = defaultdict(list)
+
+    for op in reversed(parsed_ops):
+        ticker = op["ticker"]
+        qty    = op["qty"]
+        tipo   = op["tipo"]
+
+        if ticker not in current_pos:
+            continue
+        if ticker in unreliable:
+            continue
+
+        current_qty = state.get(ticker, 0.0)
+
         if "compra" in tipo or "suscripcion" in tipo:
-            current[ticker] += qty
+            new_qty = current_qty - qty
+            if new_qty < -0.5:
+                unreliable.add(ticker)
+                logger.info(
+                    "Reconstructor: %s ventas invisibles detectadas "
+                    "(state=%.4f, op_qty=%.4f) historia descartada desde esta op",
+                    ticker, current_qty, qty,
+                )
+                continue
+            state[ticker] = max(0.0, new_qty)
+
         elif "venta" in tipo or "rescate" in tipo:
-            current[ticker] = max(0.0, current[ticker] - qty)
-        else:
-            continue  # cauciones, opciones, etc.
+            state[ticker] = current_qty + qty
 
-        tl = timeline[ticker]
-        if tl and tl[-1][0] == op_date:
-            tl[-1] = (op_date, current[ticker])  # mismo día: actualizar
         else:
-            tl.append((op_date, current[ticker]))
+            continue
 
-    return dict(timeline)
+        events_rev[ticker].append((op["date"], state[ticker]))
+
+    today = date.today()
+    result: dict[str, list[tuple[date, float]]] = {}
+    for ticker in current_pos:
+        if ticker in unreliable:
+            continue
+        ev = sorted(events_rev.get(ticker, []), key=lambda x: x[0])
+        if not ev:
+            continue
+        if ev[-1][0] != today:
+            ev.append((today, current_pos[ticker]))
+        result[ticker] = ev
+
+    return result
 
 
 def _qty_at(tl: list[tuple[date, float]], target: date) -> float:
@@ -92,14 +181,6 @@ def _qty_at(tl: list[tuple[date, float]], target: date) -> float:
     return qty
 
 
-def _yahoo_ticker_for(iol_ticker: str, asset_type: str) -> str | None:
-    if asset_type == "CRYPTO":
-        return _CRYPTO_YAHOO_MAP.get(iol_ticker)   # puede ser None
-    if asset_type in ("CEDEAR", "ETF"):
-        return iol_ticker
-    return None  # LETRA, BOND, ON, FCI, CASH — sin Yahoo
-
-
 def reconstruct_portfolio_history(
     client,
     db: Session,
@@ -107,16 +188,14 @@ def reconstruct_portfolio_history(
     current_positions: list,
 ) -> int:
     """
-    Crea PortfolioSnapshots históricos desde operaciones IOL.
-    Los precios y MEP se leen desde caché DB (price_history / mep_history);
-    solo se llama a APIs externas para lo que realmente falta.
-    Idempotente: solo crea fechas que no existen en portfolio_snapshots.
+    Crea PortfolioSnapshots historicos desde operaciones IOL.
+    Usa el algoritmo backwards-anchored para garantizar consistencia con el
+    estado actual del portfolio. Idempotente.
     Retorna cantidad de snapshots creados.
     """
     if not current_positions:
         return 0
 
-    # ── 1. Operaciones IOL ────────────────────────────────────────────────────
     fecha_desde = (date.today() - timedelta(days=HISTORY_DAYS)).strftime("%Y-%m-%d")
     try:
         raw_ops = client.get_operations(fecha_desde=fecha_desde)
@@ -127,18 +206,13 @@ def reconstruct_portfolio_history(
     if not raw_ops:
         return 0
 
-    parsed = _parse_operations(raw_ops)
+    parsed = _parse_operations_v2(raw_ops)
     if not parsed:
         return 0
 
-    first_date = parsed[0][0]
+    logger.info("Reconstructor: %d ops terminadas con cantidadOperada", len(parsed))
+
     today = date.today()
-    logger.info("Reconstructor: %d ops desde %s", len(parsed), first_date)
-
-    # ── 2. Timeline de holdings ───────────────────────────────────────────────
-    holdings_tl = _build_holdings_timeline(parsed)
-
-    # Info por ticker desde posiciones actuales
     pos_info: dict[str, dict] = {
         p.ticker.upper(): {
             "asset_type":    p.asset_type.upper(),
@@ -151,30 +225,47 @@ def reconstruct_portfolio_history(
         for p in current_positions
     }
 
-    # ── 3. Solo LETRA y FCI son reconstruibles desde operaciones ─────────────
-    # IOL devuelve `cantidad` en ARS para CEDEARs (no en acciones), por lo que
-    # las cantidades del timeline son infiables para CEDEAR/ETF/CRYPTO.
-    # Yahoo prices ya no se necesitan en el reconstructor.
-    RECONSTRUCTABLE = {"LETRA", "FCI", "ON", "BOND"}
-    has_reconstructable = any(
-        pos_info.get(t, {}).get("asset_type") in RECONSTRUCTABLE
-        for t in holdings_tl
-    )
-    if not has_reconstructable:
-        logger.info("Reconstructor: ningún ticker LETRA/FCI en el portfolio — skip")
+    current_qty_map: dict[str, float] = {
+        p.ticker.upper(): float(p.quantity)
+        for p in current_positions
+        if float(p.quantity) > 0
+    }
+
+    holdings_tl = _build_reliable_timeline(parsed, current_qty_map)
+
+    if not holdings_tl:
+        logger.info("Reconstructor: sin timeline confiable para user=%s", user_id)
         return 0
 
-    # ── 4. MEP histórico desde caché DB (bluelytics para meses faltantes) ────
+    first_date = min(tl[0][0] for tl in holdings_tl.values())
+    logger.info("Reconstructor: timeline confiable para %d tickers desde %s",
+                len(holdings_tl), first_date)
+
+    yahoo_map: dict[str, str] = {}
+    for ticker in holdings_tl:
+        info = pos_info.get(ticker)
+        if not info:
+            continue
+        yt = _yahoo_ticker_for(ticker, info["asset_type"])
+        if yt:
+            yahoo_map[ticker] = yt
+
+    yahoo_prices: dict[str, dict[date, float]] = {}
+    if yahoo_map:
+        unique_yahoo = list(set(yahoo_map.values()))
+        logger.info("Reconstructor: %d tickers Yahoo (cache DB first)", len(unique_yahoo))
+        raw_yahoo = get_prices_batch_cached(db, unique_yahoo, first_date, today)
+        for iol_t, yah_t in yahoo_map.items():
+            yahoo_prices[iol_t] = raw_yahoo.get(yah_t, {})
+
     current_mep = float(client._get_mep())
-    logger.info("Reconstructor: cargando MEP histórico desde caché")
     mep_by_date = get_mep_cached(db, first_date, today, fallback_mep=current_mep)
 
-    # ── 5. Determinar fechas faltantes ────────────────────────────────────────
     existing = _existing_snapshot_dates(db, user_id)
     dates_needed = [
         first_date + timedelta(days=i)
         for i in range((today - first_date).days)
-        if (first_date + timedelta(days=i)).weekday() < 5       # lun-vie
+        if (first_date + timedelta(days=i)).weekday() < 5
         and (first_date + timedelta(days=i)) not in existing
     ]
 
@@ -182,9 +273,9 @@ def reconstruct_portfolio_history(
         logger.info("Reconstructor: todos los snapshots ya existen para user=%s", user_id)
         return 0
 
-    logger.info("Reconstructor: %d snapshots a generar para user=%s", len(dates_needed), user_id)
+    logger.info("Reconstructor: %d snapshots a generar para user=%s",
+                len(dates_needed), user_id)
 
-    # ── 6. Crear snapshots ────────────────────────────────────────────────────
     batch: list[PortfolioSnapshot] = []
     created = 0
 
@@ -204,11 +295,9 @@ def reconstruct_portfolio_history(
             at = info["asset_type"]
             price: float | None = None
 
-            if at in ("CEDEAR", "ETF", "CRYPTO"):
-                # IOL devuelve `cantidad` en ARS (no en acciones) para operaciones de CEDEAR.
-                # Las cantidades del timeline son infiables para estos tipos → skip reconstrucción.
-                # Su historia se acumula vía snapshots diarios a partir del primer sync.
-                continue
+            if at in _YAHOO_TYPES:
+                price = lookup_price(yahoo_prices.get(ticker, {}), target)
+
             elif at == "LETRA":
                 price = letra_price_usd_at(
                     ppc_ars=info["ppc_ars"],
@@ -217,6 +306,7 @@ def reconstruct_portfolio_history(
                     target_date=target,
                     mep=mep,
                 )
+
             elif at in ("BOND", "ON"):
                 price = bond_price_usd_at(
                     ppc_usd=info["ppc_usd"],
@@ -225,12 +315,10 @@ def reconstruct_portfolio_history(
                     current_date=today,
                     target_date=target,
                 )
+
             elif at == "FCI":
-                # Aproximar con ppc_ars / mep histórico — más fiel que usar precio actual
                 if mep > 0 and info["ppc_ars"] > 0:
                     price = info["ppc_ars"] / mep
-                else:
-                    price = None
 
             if price and price > 0:
                 total_usd += qty * price
