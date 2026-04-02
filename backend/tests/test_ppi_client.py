@@ -154,7 +154,7 @@ class TestPPIAuthentication:
     def test_authenticate_401_raises_ppi_auth_error(self):
         client = PPIClient("bad-key", "bad-secret")
         with patch("httpx.post", return_value=_mock_response(401, {"error": "Unauthorized"})):
-            with pytest.raises(PPIAuthError, match="401"):
+            with pytest.raises(PPIAuthError, match="Credenciales"):
                 client.authenticate()
 
     def test_authenticate_connect_error_raises(self):
