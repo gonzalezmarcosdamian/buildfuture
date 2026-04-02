@@ -690,21 +690,26 @@ def list_capital_goals(
     annual_return = max(0.06, min(raw_return, 0.15))  # cap realista 6–15% USD
     monthly_rate = annual_return / 12
 
+    # Ordenar de menor a mayor target: la meta más chica se financia primero
+    goals_sorted = sorted(goals, key=lambda g: float(g.target_usd))
+
+    # Allocation secuencial: cada meta consume el capital restante
+    remaining_usd = portfolio_usd
     result = []
-    for g in goals:
+    for g in goals_sorted:
         target = float(g.target_usd)
-        # Months to reach target from current portfolio + savings
+        allocated = min(remaining_usd, target)
+        progress_pct = min(100, round(allocated / target * 100, 1)) if target > 0 else 0
+
         if monthly_savings_usd > 0 and monthly_rate > 0:
-            # Solve: target = portfolio*(1+r)^n + savings*((1+r)^n - 1)/r
-            # Approximate with iteration
-            bal = portfolio_usd
+            bal = remaining_usd
             months = 0
             while bal < target and months < 600:
                 bal = bal * (1 + monthly_rate) + monthly_savings_usd
                 months += 1
             months_to_goal = months if bal >= target else None
         elif monthly_savings_usd > 0:
-            months_to_goal = max(0, round((target - portfolio_usd) / monthly_savings_usd))
+            months_to_goal = max(0, round(max(0.0, target - remaining_usd) / monthly_savings_usd))
         else:
             months_to_goal = None
 
@@ -714,11 +719,13 @@ def list_capital_goals(
             "emoji": g.emoji,
             "target_usd": target,
             "target_years": g.target_years,
-            "portfolio_usd": portfolio_usd,
-            "progress_pct": min(100, round(portfolio_usd / target * 100, 1)) if target > 0 else 0,
+            "portfolio_usd": allocated,
+            "progress_pct": progress_pct,
             "months_to_goal": months_to_goal,
             "monthly_savings_usd": round(monthly_savings_usd, 2),
         })
+        remaining_usd = max(0.0, remaining_usd - target)
+
     return result
 
 

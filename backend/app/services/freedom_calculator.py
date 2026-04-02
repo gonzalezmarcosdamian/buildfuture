@@ -7,7 +7,7 @@ from typing import TypedDict
 # Ambos: bonos que pagan cupón (renta) y tienen apreciación de precio (capital)
 RENTA_ASSET_TYPES = {"LETRA", "FCI"}
 CAPITAL_ASSET_TYPES = {"CEDEAR", "ETF", "CRYPTO"}
-AMBOS_ASSET_TYPES = {"BOND"}
+AMBOS_ASSET_TYPES = {"BOND", "ON"}   # ON = Obligaciones Negociables, mismo tratamiento 50/50
 MAX_RENTA_USD_YIELD = Decimal("0.15")   # cap para evitar que el 68% nominal ARS infle el monthly return
 
 

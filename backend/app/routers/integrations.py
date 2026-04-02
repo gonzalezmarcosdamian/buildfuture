@@ -143,6 +143,12 @@ def connect_iol(
     integration.last_synced_at = datetime.utcnow()
     db.commit()
 
+    # Crear snapshot inicial para que la proyección histórica tenga al menos el día de hoy
+    try:
+        _upsert_today_snapshot(db, current_user)
+    except Exception as snap_err:
+        logger.warning("connect_iol: snapshot inicial falló (no crítico): %s", snap_err)
+
     return {
         "connected": True,
         "positions_synced": result["positions_synced"],
@@ -170,6 +176,10 @@ def sync_iol(
         integration.last_synced_at = datetime.utcnow()
         integration.last_error = ""
         db.commit()
+        try:
+            _upsert_today_snapshot(db, current_user)
+        except Exception as snap_err:
+            logger.warning("sync_iol: snapshot falló (no crítico): %s", snap_err)
         return {"positions_synced": result["positions_synced"]}
     except Exception as e:
         integration.last_error = str(e)[:200]

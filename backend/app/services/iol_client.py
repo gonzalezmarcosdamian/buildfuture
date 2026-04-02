@@ -144,7 +144,15 @@ class IOLClient:
             tipo_raw = str(titulo.get("tipo", "")).lower()
             asset_type = _normalize_asset_type(tipo_raw, ticker_sym)
             # Normalizar clave para DEFAULT_YIELDS (IOL devuelve "CEDEARS", "Letras", etc.)
-            yield_key = next((k for k in DEFAULT_YIELDS if k in tipo_raw), "default")
+            # Si tipo_raw no matchea (ej: IOL envía "Stock" para un bono), usar el asset_type
+            # resultante del ticker override para elegir el yield correcto
+            yield_key = next((k for k in DEFAULT_YIELDS if k in tipo_raw), None)
+            if yield_key is None:
+                _asset_to_yield_key = {
+                    "BOND": "bono", "ON": "on", "CEDEAR": "cedear",
+                    "LETRA": "letra", "FCI": "fci",
+                }
+                yield_key = _asset_to_yield_key.get(asset_type, "default")
             annual_yield = DEFAULT_YIELDS[yield_key]
 
             cantidad = Decimal(str(activo.get("cantidad", 0)))
@@ -419,10 +427,20 @@ class IOLClient:
 
 # Tickers conocidos que IOL clasifica mal — override explícito
 _TICKER_TYPE_OVERRIDES: dict[str, str] = {
+    # IOL FCIs
     "IOLCAMA": "FCI",
     "IOLCAM":  "FCI",
     "IOLMMA":  "FCI",
     "IOLMM":   "FCI",
+    # Bonos soberanos USD (IOL los puede clasificar como "STOCK")
+    "AL29": "BOND", "AL30": "BOND", "AL35": "BOND", "AL41": "BOND", "AE38": "BOND",
+    "GD29": "BOND", "GD30": "BOND", "GD35": "BOND", "GD38": "BOND",
+    "GD41": "BOND", "GD46": "BOND",
+    # Bopreales
+    "BPY26": "BOND", "BPJ25": "BOND", "BPA7": "BOND",
+    # Obligaciones negociables conocidas
+    "YCA6O": "ON", "YMCXO": "ON", "CA6O": "ON", "TECEO": "ON",
+    "MTCGO": "ON", "CRESO": "ON", "PNDCO": "ON",
 }
 
 
