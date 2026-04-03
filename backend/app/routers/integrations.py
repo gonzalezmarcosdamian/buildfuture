@@ -15,6 +15,7 @@ from app.services.iol_client import IOLClient, IOLAuthError
 from app.services.nexo_client import NexoClient, NexoAuthError
 from app.services.ppi_client import PPIClient, PPIAuthError
 from app.services.cocos_client import CocosClient, CocosAuthError
+from app.services.binance_client import BinanceClient, BinanceAuthError
 
 router = APIRouter(prefix="/integrations", tags=["integrations"])
 
@@ -52,9 +53,10 @@ def _log_error(db: Session, user_id: str, provider: str, operation: str, error: 
 
 
 _DEFAULT_INTEGRATIONS = [
-    {"provider": "IOL",   "provider_type": "ALYC"},
-    {"provider": "PPI",   "provider_type": "ALYC"},
-    {"provider": "COCOS", "provider_type": "ALYC"},
+    {"provider": "IOL",     "provider_type": "ALYC"},
+    {"provider": "PPI",     "provider_type": "ALYC"},
+    {"provider": "COCOS",   "provider_type": "ALYC"},
+    {"provider": "BINANCE", "provider_type": "EXCHANGE"},
 ]
 
 @router.get("/")
@@ -1658,6 +1660,221 @@ def _mark_cocos_investment_month(db: Session, positions, user_id: str, today: da
             "_mark_cocos_investment_month: mes %s marcado como invertido (ARS %.0f)",
             month_key, float(total_ars),
         )
+
+
+# ── Binance ───────────────────────────────────────────────────────────────────
+
+class BinanceConnectRequest(BaseModel):
+    api_key: str
+    secret_key: str
+
+
+def _sync_binance(client: BinanceClient, db: Session, user_id: str) -> dict:
+    """Trae posiciones de Binance y hace upsert en DB. Retorna positions_synced."""
+    from app.services.mep import get_mep
+
+    mep = float(get_mep())
+    positions = client.get_positions()
+
+    # Desactivar posiciones Binance anteriores
+    db.query(Position).filter(
+        Position.source == "BINANCE",
+        Position.is_active == True,  # noqa: E712
+        Position.user_id == user_id,
+    ).update({"is_active": False})
+
+    today = date.today()
+    synced = 0
+
+    for p in positions:
+        ppc_usd = client._get_ppc_usd(p.ticker, mep=mep)
+        current_value_ars = Decimal(str(float(p.quantity) * float(p.current_price_usd) * mep))
+
+        db.add(Position(
+            user_id=user_id,
+            ticker=p.ticker,
+            description=p.ticker,
+            asset_type=p.asset_type,
+            source="BINANCE",
+            quantity=p.quantity,
+            avg_purchase_price_usd=Decimal(str(round(ppc_usd, 6))),
+            current_price_usd=p.current_price_usd,
+            annual_yield_pct=p.annual_yield_pct,
+            snapshot_date=today,
+            is_active=True,
+            ppc_ars=Decimal("0"),
+            purchase_fx_rate=Decimal(str(round(mep, 2))),
+            current_value_ars=current_value_ars,
+        ))
+        synced += 1
+
+    logger.info("_sync_binance: %d posiciones para user=%s", synced, user_id)
+    return {"positions_synced": synced}
+
+
+def _sync_binance_history(client: BinanceClient, db: Session, user_id: str) -> int:
+    """
+    Crea PortfolioSnapshots históricos desde accountSnapshot de Binance.
+    Usa upsert aditivo — suma al snapshot existente si ya hay uno del mismo día.
+    """
+    from app.services.crypto_prices import get_price_usd
+    from app.services.mep import get_mep
+
+    mep = float(get_mep())
+    history = client.get_snapshot_history()
+    if not history:
+        return 0
+
+    # Precios actuales para los assets que aparecen en snapshots
+    all_assets: set[str] = set()
+    for snap in history:
+        all_assets.update(snap["balances"].keys())
+
+    from app.services.binance_client import _COINGECKO_ID, _STABLECOINS
+    price_cache: dict[str, float] = {}
+    for asset in all_assets:
+        if asset in _STABLECOINS:
+            price_cache[asset] = 1.0
+        elif asset in _COINGECKO_ID:
+            p = get_price_usd(_COINGECKO_ID[asset])
+            if p:
+                price_cache[asset] = p
+
+    created = 0
+    for snap in history:
+        snap_date = snap["date"]
+        crypto_usd = sum(
+            qty * price_cache.get(asset, 0.0)
+            for asset, qty in snap["balances"].items()
+        )
+        if crypto_usd <= 0:
+            continue
+
+        existing = db.query(PortfolioSnapshot).filter(
+            PortfolioSnapshot.user_id == user_id,
+            PortfolioSnapshot.snapshot_date == snap_date,
+        ).first()
+
+        if existing:
+            existing.total_usd += Decimal(str(round(crypto_usd, 2)))
+            existing.positions_count += len(snap["balances"])
+        else:
+            db.add(PortfolioSnapshot(
+                user_id=user_id,
+                snapshot_date=snap_date,
+                total_usd=Decimal(str(round(crypto_usd, 2))),
+                monthly_return_usd=Decimal("0"),
+                positions_count=len(snap["balances"]),
+                fx_mep=Decimal(str(round(mep, 2))),
+                cost_basis_usd=Decimal("0"),
+            ))
+            created += 1
+
+    try:
+        db.flush()
+    except Exception as e:
+        db.rollback()
+        logger.warning("_sync_binance_history flush falló: %s", e)
+
+    logger.info("_sync_binance_history: %d nuevos snapshots para user=%s", created, user_id)
+    return created
+
+
+@router.post("/binance/connect")
+def connect_binance(
+    body: BinanceConnectRequest,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    """Valida API Key + Secret, primer sync de posiciones e historial 30d."""
+    client = BinanceClient(api_key=body.api_key, secret=body.secret_key)
+    try:
+        client.validate()
+    except BinanceAuthError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+
+    integration = db.query(Integration).filter(
+        Integration.user_id == current_user,
+        Integration.provider == "BINANCE",
+    ).first()
+    if not integration:
+        integration = Integration(
+            user_id=current_user,
+            provider="BINANCE",
+            provider_type="EXCHANGE",
+            is_active=True,
+        )
+        db.add(integration)
+
+    integration.encrypted_credentials = f"{body.api_key}:{body.secret_key}"
+    integration.is_connected = True
+    integration.last_error = ""
+
+    result = _sync_binance(client, db, current_user)
+    _sync_binance_history(client, db, current_user)
+    integration.last_synced_at = datetime.utcnow()
+    db.commit()
+
+    return {
+        "connected": True,
+        "positions_synced": result["positions_synced"],
+        "message": f"Conectado. {result['positions_synced']} posiciones sincronizadas.",
+    }
+
+
+@router.post("/binance/sync")
+def sync_binance(
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    """Re-sync de posiciones Binance."""
+    integration = db.query(Integration).filter(
+        Integration.user_id == current_user,
+        Integration.provider == "BINANCE",
+        Integration.is_connected == True,  # noqa: E712
+    ).first()
+    if not integration or not integration.encrypted_credentials:
+        raise HTTPException(status_code=404, detail="Binance no conectado")
+
+    api_key, secret = integration.encrypted_credentials.split(":", 1)
+    client = BinanceClient(api_key=api_key, secret=secret)
+    try:
+        result = _sync_binance(client, db, current_user)
+        integration.last_synced_at = datetime.utcnow()
+        integration.last_error = ""
+        db.commit()
+        return {"positions_synced": result["positions_synced"]}
+    except BinanceAuthError as e:
+        integration.is_connected = False
+        integration.last_error = str(e)
+        db.commit()
+        raise HTTPException(status_code=401, detail=str(e))
+
+
+@router.post("/binance/disconnect")
+def disconnect_binance(
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    """Desconecta Binance y desactiva todas sus posiciones."""
+    integration = db.query(Integration).filter(
+        Integration.user_id == current_user,
+        Integration.provider == "BINANCE",
+    ).first()
+    if not integration:
+        raise HTTPException(status_code=404, detail="Binance no conectado")
+
+    integration.is_connected = False
+    integration.encrypted_credentials = ""
+    integration.last_error = ""
+
+    db.query(Position).filter(
+        Position.user_id == current_user,
+        Position.source == "BINANCE",
+    ).update({"is_active": False})
+
+    db.commit()
+    return {"disconnected": True}
 
 
 # ── Diagnóstico de errores multi-usuario ─────────────────────────────────────

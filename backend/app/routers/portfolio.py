@@ -169,10 +169,16 @@ def get_portfolio(
         "summary": {
             "total_usd": float(score["portfolio_total_usd"]),
             "total_ars": float(sum(p.current_value_ars for p in positions if p.current_value_ars)) or None,
-            # Renta bucket: LETRA/FCI con yield capeado — consistente con gamification y dashboard
             "monthly_return_usd": float(buckets["renta_monthly_usd"]),
             "renta_monthly_usd": float(buckets["renta_monthly_usd"]),
+            "renta_total_usd": float(buckets["renta_total_usd"]),
             "capital_total_usd": float(buckets["capital_total_usd"]),
+            "cedear_total_usd": float(buckets["cedear_total_usd"]),
+            "crypto_total_usd": float(buckets["crypto_total_usd"]),
+            "by_source": {
+                src: {k: float(v) for k, v in vals.items()}
+                for src, vals in buckets["by_source"].items()
+            },
             "freedom_pct": float(score["freedom_pct"]),
             "annual_return_pct": float(score["annual_return_pct"]),
         },
