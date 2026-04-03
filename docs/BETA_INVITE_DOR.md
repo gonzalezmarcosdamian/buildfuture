@@ -1,5 +1,5 @@
 # DoR — Beta por Invitación
-## Definition of Ready por fase (iter 2 — enfoque legal)
+## Definition of Ready por fase (iter 3 — auditoría completa Etapa 0)
 
 > Una fase está **Ready** cuando todos los ítems ✅ están resueltos.
 > ⚠️ Bloqueante. 🟡 Deseable. 📋 Legal específico.
@@ -9,15 +9,14 @@
 
 ## Fase L — Legal (transversal)
 
-Esta fase no tiene código. Debe completarse parcialmente **antes** de arrancar cualquier otra.
-Los ítems marcados con 🔴 bloquean el kickoff de marketing.
+Esta fase no tiene código. Debe completarse parcialmente **antes del primer beta user** (no antes del post de MKT).
 
 | # | Acción | Quién | Esfuerzo | Prioridad | Estado |
 |---|--------|-------|----------|-----------|--------|
-| L1 | Registrar base de datos en AAIP (rnbd.aaip.gob.ar) | Marcos | 30 min | 🔴 Antes kickoff | ⏳ Pendiente |
-| L2 | Cláusula de transferencia internacional en TyC v1.1 | Dev | 1hs | 🔴 Antes kickoff | ⏳ Pendiente |
-| L3 | Redactar Acuerdo de Beta | Marcos + Claude | 2hs | 🔴 Antes kickoff | ⏳ Pendiente |
-| L4 | Disclaimer in-app en cada sugerencia visible | Dev | 1hs | 🔴 Antes kickoff | ⏳ Pendiente |
+| L1 | Registrar base de datos en AAIP (rnbd.aaip.gob.ar) | Marcos | 30 min | 🔴 Post-dominio | ⏳ Pendiente |
+| L2 | Cláusula de transferencia internacional en TyC v1.1 | Dev | 1hs | 🔴 Antes 1er usuario | ⏳ Pendiente |
+| L3 | Redactar Acuerdo de Beta | Marcos + Claude | 2hs | 🔴 Antes 1er usuario | ⏳ Pendiente |
+| L4 | Disclaimer in-app en cada sugerencia visible | Dev | 1hs | 🔴 Antes 1er usuario | ⏳ Pendiente |
 | L5 | Checkbox consent credenciales de broker en Settings | Dev | 2hs | 🟡 Deseable kickoff | ⏳ Pendiente |
 | L6 | Política de breach notification (doc interno) | Marcos | 30 min | 🟡 Deseable | ⏳ Pendiente |
 | L7 | Documentar proceso de cifrado en ARCHITECTURE.md | Dev | 30 min | 🟡 Deseable | ⏳ Pendiente |
@@ -68,35 +67,55 @@ Distinto al TyC general — más específico y más corto. Cubre:
 
 ---
 
-## Fase 0 — Story / Landing
+## Fase 0 — Landing + Pantallas de error
 
-### ⚠️ Bloqueantes
+### Contexto: TyC en el flujo de invitación
+
+El TyC **no se acepta en el paso de contacto** — se acepta dentro de la app vía TosModal (ya deployado).
+El mecanismo es: Supabase invite → /auth/callback → /dashboard → TosGate muestra modal bloqueante → usuario acepta.
+No se necesita checkbox en la landing. El registro en `tos_acceptances` queda con timestamp exacto.
+
+### ⚠️ Bloqueantes — Landing
 
 | # | Item | Decisión requerida | Estado |
 |---|------|--------------------|--------|
 | 0.1 | **Copy del nuevo hero** | Titular, subtítulo, tagline de la beta | ⏳ Pendiente |
-| 0.2 | **CTA principal** | "Quiero estar en la beta" u otro texto | ⏳ Pendiente |
-| 0.3 | **Qué pasa con /login** | ¿Desaparece de la LandingNav? Usuarios existentes necesitan acceder | ⏳ Pendiente |
-| 0.4 | **Campos del form de waitlist** | Nombre (obligatorio) + Contexto (¿obligatorio?) + pregunta exacta | ⏳ Pendiente |
-| 0.5 | **Copy post-submit** | Qué le decimos al usuario cuando se anota | ⏳ Pendiente |
-| 0.6 | **Email de confirmación al anotarse** | ¿Se manda automáticamente? ¿O solo aprobación/rechazo? | ⏳ Pendiente |
-| 0.L1 | **TyC v1.1 con transferencia internacional** | L2 debe estar hecha antes de este deploy | ⏳ Depende de L2 |
+| 0.2 | **CTA principal** | Texto exacto del botón ("Quiero acceso →" u otro) | ⏳ Pendiente |
+| 0.3 | **Datos de contacto de Marcos** | Email visible + LinkedIn URL + WhatsApp (opcional) | ⏳ Pendiente |
+| 0.4 | **Copy del mensaje de contacto** | Qué ven los interesados encima del email/LinkedIn/WhatsApp | ⏳ Pendiente |
+| 0.5 | **Copy FAQs nuevas** | Texto de "¿Cómo accedo?" y "¿Por qué beta cerrada?" | ⏳ Pendiente |
+
+### ⚠️ Bloqueantes — Pantallas de error
+
+| # | Item | Decisión requerida | Estado |
+|---|------|--------------------|--------|
+| 0.E1 | **Copy bajo form de /login** | Texto para usuario sin acceso ("¿No tenés acceso? Beta cerrada. Contactá a Marcos") | ⏳ Pendiente |
+| 0.E2 | **Copy de token de invitación expirado** | Qué le decimos cuando el link de Supabase venció | ⏳ Pendiente |
+| 0.E3 | **Redirect de /register** | Confirmar que no existe página de registro — si existe, redirect a / | ⏳ Pendiente |
 
 ### 🟡 Deseables
 
 | # | Item | Nota |
 |---|------|------|
-| 0.7 | Referencia visual del nuevo hero | Mockup o descripción |
-| 0.8 | Secciones a modificar/quitar | ¿Alguna pierde sentido con el nuevo posicionamiento? |
+| 0.6 | Referencia visual del nuevo hero | Mockup o descripción |
+| 0.7 | Secciones a quitar que pierdan sentido | ¿Alguna sección completa queda fuera de contexto? |
 
-### Criterios de aceptación
+### Criterios de aceptación — Fase 0
 
-- [ ] Visitante anónimo: sin CTA de "Crear cuenta" ni "Iniciar sesión" visible
-- [ ] Única acción disponible: form de waitlist
-- [ ] Usuario autenticado llega a `/` → redirect a `/dashboard`
-- [ ] Form acepta nombre + email + contexto, da feedback de éxito/error
-- [ ] Copy transmite "beta privada, no comercial, acceso por invitación"
-- [ ] TyC v1.1 deployado con cláusula de transferencia internacional
+**Landing:**
+- [ ] Ningún CTA de "Crear cuenta" ni "Iniciar sesión" visible en ninguna sección (nav, hero, founder, brokers, CTA final, footer)
+- [ ] CTA único disponible: scroll a sección de contacto
+- [ ] Sección de contacto tiene email + LinkedIn de Marcos (WhatsApp opcional)
+- [ ] Badge/tagline transmite "beta privada, no comercial, acceso por invitación"
+- [ ] Paso 01 de PASOS dice "Recibí tu invitación", no "Creá tu cuenta"
+- [ ] FAQs responden "¿Cómo accedo?" y "¿Por qué beta cerrada?"
+- [ ] Footer auditado: sin links de registro
+- [ ] SectionFounder y SectionBrokers auditados: sin CTAs de registro
+
+**Pantallas de error:**
+- [ ] `/login`: texto visible que explica que es beta cerrada + CTA para contactar a Marcos
+- [ ] `/auth/callback` con token expirado: mensaje claro + CTA (no pantalla genérica de Supabase)
+- [ ] Si existe `/register`: redirige a `/`
 
 ---
 
@@ -120,7 +139,7 @@ Distinto al TyC general — más específico y más corto. Cubre:
 
 | # | Item | Nota |
 |---|------|------|
-| 1.8 | Email automático al anotarse | Depende de decisión 0.6 |
+| 1.8 | Email automático al anotarse | Depende de decisión |
 | 1.9 | `RESEND_API_KEY` en Railway secrets | Pre-configurar |
 | 1.10 | Test en sandbox Resend antes de producción | No envía realmente en modo test |
 
@@ -176,9 +195,10 @@ Distinto al TyC general — más específico y más corto. Cubre:
 |---|------|--------------------|--------|
 | 3.1 | **Impacto en usuarios existentes** | Deshabilitar signup NO afecta logins existentes — confirmar en docs Supabase | ⏳ Verificar |
 | 3.2 | **Usuarios actuales en DB** | ¿Cuántos? ¿Todos son Marcos? Verificar en Supabase Auth → Users | ⏳ Pendiente |
-| 3.3 | **Pantalla de token expirado** | Copy del error, CTA para volver al waitlist | ⏳ Pendiente |
-| 3.4 | **Post-registro redirect** | `/dashboard` directo (FTU existente) o pantalla de bienvenida | ⏳ Pendiente |
-| 3.5 | **Copy error email no coincide** | Si el email del form ≠ email del token | ⏳ Pendiente |
+| 3.3 | **Copy pantalla token expirado** | Mensaje + CTA para volver al contacto | ⏳ Pendiente |
+| 3.4 | **Copy pantalla token ya usado** | Mensaje diferenciado del expirado | ⏳ Pendiente |
+| 3.5 | **Post-registro redirect** | `/dashboard` directo (FTU existente) o pantalla de bienvenida | ⏳ Pendiente |
+| 3.6 | **Copy error email no coincide** | Si el email del form ≠ email del token | ⏳ Pendiente |
 | 3.L1 | **Checkbox explícito en `/invite/[token]`** | "Acepto el Acuerdo de Beta y los TyC" — no solo el botón | ⏳ Decisión UX |
 | 3.L2 | **Acuerdo de Beta disponible online** | Link en `/invite/[token]` debe funcionar | ⏳ Depende de L3 |
 
@@ -186,14 +206,14 @@ Distinto al TyC general — más específico y más corto. Cubre:
 
 | # | Item | Nota |
 |---|------|------|
-| 3.6 | Pantalla de bienvenida personalizada | "Bienvenido a la beta, [nombre]" |
-| 3.7 | Nombre pre-completado en Supabase `user_metadata` | Del campo nombre del waitlist |
+| 3.7 | Pantalla de bienvenida personalizada | "Bienvenido a la beta, [nombre]" |
+| 3.8 | Nombre pre-completado en Supabase `user_metadata` | Del campo nombre del waitlist |
 
 ### Criterios de aceptación
 
 - [ ] Token válido → form con email pre-completado + checkbox acuerdo de beta
-- [ ] Token expirado → pantalla de error con copy definido + CTA
-- [ ] Token ya usado → pantalla de error distinta
+- [ ] Token expirado → pantalla de error con copy definido + CTA a contacto
+- [ ] Token ya usado → pantalla de error distinta al expirado
 - [ ] Token inválido → 404
 - [ ] Submit → Supabase signup → `POST /invite/register/{token}` → redirect
 - [ ] Signup público directo bloqueado por Supabase setting
@@ -202,41 +222,19 @@ Distinto al TyC general — más específico y más corto. Cubre:
 
 ---
 
-## Fase 4 — Waitlist form actualizado
-
-### ⚠️ Bloqueantes
-
-| # | Item | Decisión requerida | Estado |
-|---|------|--------------------|--------|
-| 4.1 | **Texto del campo contexto** | Pregunta exacta que ve el usuario | ⏳ Pendiente |
-| 4.2 | **¿Nombre obligatorio?** | Propuesta: sí | ⏳ Pendiente |
-| 4.3 | **Email de confirmación automático** | Depende de 0.6 | ⏳ Pendiente |
-
-### Criterios de aceptación
-
-- [ ] Form: Nombre (obligatorio) · Email (obligatorio) · Contexto (según decisión 4.2)
-- [ ] Validaciones inline por campo
-- [ ] Email duplicado → responde OK (no revelar existencia)
-- [ ] Post-submit → mensaje acordado
-- [ ] Si hay email automático: llega en < 2 min
-
----
-
 ## Resumen ejecutivo — % de readiness
 
 | Fase | Ready hoy | Principal cuello de botella |
 |------|-----------|----------------------------|
 | Fase L — Legal | 0% | AAIP (30 min), acuerdo beta (redacción), TyC v1.1 (dev) |
-| Fase 0 — Landing | 20% | Copy del hero, campos del form |
+| Fase 0 — Landing + Errores | 30% | Copy hero, datos de contacto, copy pantallas de error |
 | Fase 1 — Backend | 10% | Email provider, dominio, copy emails, acuerdo beta |
 | Fase 2 — Backoffice | 30% | URL, email admin, decisión motivo rechazo |
 | Fase 3 — Invite flow | 20% | Verificar usuarios existentes, pantallas de error, acuerdo beta |
-| Fase 4 — Form | 50% | Copy del campo contexto |
 
-**El único cuello de botella que no requiere decisión de Marcos hoy:**
-- Registrar en AAIP → se puede hacer ahora mismo, sin esperar nada
+**Decisiones que desbloquean Fase 0 (las más urgentes):**
+1. Copy del hero — titular, subtítulo, tagline
+2. Datos de contacto — email visible + LinkedIn + WhatsApp (opcional)
+3. Copy de pantallas de error — /login sin acceso, token expirado
 
-**Los cuellos de botella que desbloquean todo lo demás:**
-1. Dominio (en trámite) → desbloquea email
-2. Copy del hero y emails → desbloquea Fases 0 y 1
-3. Acuerdo de Beta redactado → desbloquea Fases 1 y 3
+**Una vez que Marcos da esas decisiones → Fase 0 está 100% ready para implementar.**
