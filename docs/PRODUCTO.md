@@ -164,6 +164,24 @@ Usuario target: Marcos González — PM Ualá, Córdoba, ahorro USD 1000-1500/me
 
 ---
 
+## Iniciativa en planificación — Beta por invitación
+
+> Docs: [BETA_INVITE_PLAN.md](./BETA_INVITE_PLAN.md) · [BETA_INVITE_DOR.md](./BETA_INVITE_DOR.md)
+
+Cambio de modelo de acceso: de registro público a invitación personal.
+Contexto: kickoff de marketing inminente. **Sin implementación iniciada.**
+
+Resumen de fases:
+- **Fase 0**: Landing/story — quitar CTAs de registro, solo waitlist
+- **Fase 1**: Backend — tokens de invitación + emails via Resend
+- **Fase 2**: Backoffice — Marcos aprueba/rechaza aplicaciones
+- **Fase 3**: Registro por invitación — link único validado
+- **Fase 4**: Form de waitlist — nombre + contexto
+
+**DoR general: ninguna fase Ready todavía. Cuello de botella: dominio + email provider + copy.**
+
+---
+
 ## Pendiente 🔲
 
 ### Alta prioridad
