@@ -1,16 +1,70 @@
 # DoR — Beta por Invitación
-## Definition of Ready por fase
+## Definition of Ready por fase (iter 2 — enfoque legal)
 
 > Una fase está **Ready** cuando todos los ítems ✅ están resueltos.
-> Los ítems ⚠️ son bloqueantes. Los ítems 🟡 son deseables pero no bloquean.
-> Fecha: 2026-04-03
+> ⚠️ Bloqueante. 🟡 Deseable. 📋 Legal específico.
+> Actualizado: 2026-04-03
 
 ---
 
-## Qué es DoR en este proyecto
+## Fase L — Legal (transversal)
 
-Antes de escribir una línea de código de cada fase, este documento define qué
-decisiones tienen que estar tomadas. El objetivo es no arrancar y parar a mitad.
+Esta fase no tiene código. Debe completarse parcialmente **antes** de arrancar cualquier otra.
+Los ítems marcados con 🔴 bloquean el kickoff de marketing.
+
+| # | Acción | Quién | Esfuerzo | Prioridad | Estado |
+|---|--------|-------|----------|-----------|--------|
+| L1 | Registrar base de datos en AAIP (rnbd.aaip.gob.ar) | Marcos | 30 min | 🔴 Antes kickoff | ⏳ Pendiente |
+| L2 | Cláusula de transferencia internacional en TyC v1.1 | Dev | 1hs | 🔴 Antes kickoff | ⏳ Pendiente |
+| L3 | Redactar Acuerdo de Beta | Marcos + Claude | 2hs | 🔴 Antes kickoff | ⏳ Pendiente |
+| L4 | Disclaimer in-app en cada sugerencia visible | Dev | 1hs | 🔴 Antes kickoff | ⏳ Pendiente |
+| L5 | Checkbox consent credenciales de broker en Settings | Dev | 2hs | 🟡 Deseable kickoff | ⏳ Pendiente |
+| L6 | Política de breach notification (doc interno) | Marcos | 30 min | 🟡 Deseable | ⏳ Pendiente |
+| L7 | Documentar proceso de cifrado en ARCHITECTURE.md | Dev | 30 min | 🟡 Deseable | ⏳ Pendiente |
+| L8 | Opinión legal externa (CNV + datos personales) | Abogado externo | Externo | ⬜ Pre-comercial | ⏳ Pendiente |
+
+### Por qué L1 (AAIP) es urgente y fácil
+
+La Ley 25.326 Art. 21 obliga a registrar toda base de datos con información personal en el
+Registro Nacional de Bases de Datos de la AAIP. No hacerlo no tiene consecuencias inmediatas,
+pero ante cualquier denuncia o investigación, la ausencia del registro agrava la situación.
+Es gratuito, tarda 30 minutos y muestra buena fe.
+
+**Qué completar en el formulario:**
+- Nombre del fichero: "BuildFuture — Usuarios Beta"
+- Responsable: Marcos Damián González, DNI [tu DNI], ingonzalezdamian@gmail.com
+- Finalidad: "Gestión de acceso a plataforma de seguimiento personal de portafolio de inversiones"
+- Categoría de datos: identificativos (email), financieros (credenciales cifradas, posiciones)
+- Medidas de seguridad: cifrado AES-256, acceso por JWT, servidores en EE.UU. (con consentimiento)
+- Cesión a terceros: No (excepto proveedores de infraestructura: Supabase, Railway, Vercel)
+
+### Contenido mínimo del Acuerdo de Beta (L3)
+
+Distinto al TyC general — más específico y más corto. Cubre:
+
+1. **Naturaleza no comercial de la beta**
+   > "BuildFuture es un proyecto personal en etapa experimental, sin fines comerciales.
+   > El acceso es gratuito y así seguirá mientras dure la beta."
+
+2. **Limitación de responsabilidad beta**
+   > "El software puede contener errores. BuildFuture no garantiza la exactitud de los datos
+   > mostrados. El usuario es el único responsable de sus decisiones de inversión."
+
+3. **Transición a modelo comercial**
+   > "Si BuildFuture pasa a un modelo de pago, los usuarios beta recibirán 30 días de aviso
+   > previo y podrán eliminar su cuenta sin penalidad."
+
+4. **Confidencialidad (opcional pero recomendado)**
+   > "Los participantes beta aceptan no compartir públicamente detalles técnicos internos
+   > del producto sin autorización del fundador."
+
+5. **Almacenamiento de credenciales de broker**
+   > "Al conectar una cuenta de broker, el usuario autoriza a BuildFuture a almacenar
+   > las credenciales de forma cifrada (AES-256) exclusivamente para sincronizar
+   > sus posiciones de solo lectura. El usuario puede revocarlas en cualquier momento."
+
+6. **Jurisdicción**
+   > Argentina. Ciudad de Córdoba.
 
 ---
 
@@ -20,27 +74,29 @@ decisiones tienen que estar tomadas. El objetivo es no arrancar y parar a mitad.
 
 | # | Item | Decisión requerida | Estado |
 |---|------|--------------------|--------|
-| 0.1 | **Copy del nuevo hero** | Texto del titular, subtítulo y tagline de la beta | ⏳ Pendiente |
+| 0.1 | **Copy del nuevo hero** | Titular, subtítulo, tagline de la beta | ⏳ Pendiente |
 | 0.2 | **CTA principal** | "Quiero estar en la beta" u otro texto | ⏳ Pendiente |
-| 0.3 | **Qué pasa con /login en la nav** | ¿Desaparece de la LandingNav? ¿Solo se oculta? Los usuarios existentes necesitan poder entrar | ⏳ Pendiente |
-| 0.4 | **Campos del form de waitlist** | ¿Nombre obligatorio? ¿Contexto opcional o también obligatorio? ¿Qué pregunta hace el campo contexto? | ⏳ Pendiente |
-| 0.5 | **Copy del mensaje post-submit** | Qué le decimos al usuario cuando se anota (antes de la aprobación) | ⏳ Pendiente |
-| 0.6 | **Email de confirmación al anotarse** | ¿Se manda un email automático de "recibimos tu solicitud"? ¿O solo el de aprobación/rechazo? | ⏳ Pendiente |
+| 0.3 | **Qué pasa con /login** | ¿Desaparece de la LandingNav? Usuarios existentes necesitan acceder | ⏳ Pendiente |
+| 0.4 | **Campos del form de waitlist** | Nombre (obligatorio) + Contexto (¿obligatorio?) + pregunta exacta | ⏳ Pendiente |
+| 0.5 | **Copy post-submit** | Qué le decimos al usuario cuando se anota | ⏳ Pendiente |
+| 0.6 | **Email de confirmación al anotarse** | ¿Se manda automáticamente? ¿O solo aprobación/rechazo? | ⏳ Pendiente |
+| 0.L1 | **TyC v1.1 con transferencia internacional** | L2 debe estar hecha antes de este deploy | ⏳ Depende de L2 |
 
 ### 🟡 Deseables
 
 | # | Item | Nota |
 |---|------|------|
-| 0.7 | Referencia visual del nuevo hero | Mockup o descripción detallada del look |
-| 0.8 | Secciones a modificar/quitar de landing | ¿Alguna sección existente pierde sentido con el nuevo posicionamiento? |
+| 0.7 | Referencia visual del nuevo hero | Mockup o descripción |
+| 0.8 | Secciones a modificar/quitar | ¿Alguna pierde sentido con el nuevo posicionamiento? |
 
 ### Criterios de aceptación
 
-- [ ] Visitante anónimo llega a `/` y no ve ningún CTA de "Crear cuenta" ni "Iniciar sesión"
-- [ ] La única acción disponible es completar el form de waitlist
-- [ ] Usuario autenticado que llega a `/` → redirect automático a `/dashboard`
-- [ ] El form acepta nombre + email + contexto (opcional) y da feedback de éxito/error
-- [ ] Copy del hero transmite claramente "beta privada, no comercial"
+- [ ] Visitante anónimo: sin CTA de "Crear cuenta" ni "Iniciar sesión" visible
+- [ ] Única acción disponible: form de waitlist
+- [ ] Usuario autenticado llega a `/` → redirect a `/dashboard`
+- [ ] Form acepta nombre + email + contexto, da feedback de éxito/error
+- [ ] Copy transmite "beta privada, no comercial, acceso por invitación"
+- [ ] TyC v1.1 deployado con cláusula de transferencia internacional
 
 ---
 
@@ -50,32 +106,34 @@ decisiones tienen que estar tomadas. El objetivo es no arrancar y parar a mitad.
 
 | # | Item | Decisión requerida | Estado |
 |---|------|--------------------|--------|
-| 1.1 | **Email provider** | ¿Resend aprobado? Alternativas: SendGrid, AWS SES, Mailgun. Resend es la propuesta por DX y free tier | ⏳ Pendiente decisión |
-| 1.2 | **Cuenta Resend creada** | Necesita account + API key antes de implementar | ⏳ Pendiente |
-| 1.3 | **Dominio de envío** | ¿Emails salen de `@buildfuture.app`? ¿O de Gmail temporalmente? Con Resend, enviar desde Gmail requiere dominio verificado o usar el sandbox de Resend | ⏳ Decisión bloqueante |
-| 1.4 | **Copy email de aprobación** | Asunto, cuerpo, tono. Ejemplo: "Fuiste aceptado en la beta de BuildFuture — tu acceso expira en 7 días" | ⏳ Pendiente |
-| 1.5 | **Copy email de rechazo** | Asunto, cuerpo cortés. Ejemplo: "Gracias por tu interés — la beta está completa por ahora, te avisamos en la próxima apertura" | ⏳ Pendiente |
-| 1.6 | **TTL del invite token** | ¿7 días? ¿14 días? Depende de cuánto tiempo estimás que el usuario tarda en ver el email y registrarse | ⏳ Pendiente |
-| 1.7 | **Estrategia de re-invite** | Si el token expira antes de que el usuario lo use, ¿Marcos puede volver a aprobar? ¿Hay botón en backoffice para reenviar? | ⏳ Pendiente |
+| 1.1 | **Email provider** | ¿Resend aprobado? | ⏳ Pendiente |
+| 1.2 | **Cuenta Resend creada** | API key disponible antes de implementar | ⏳ Pendiente |
+| 1.3 | **Dominio de envío** | buildfuture.app en trámite | ⏳ En trámite |
+| 1.4 | **Copy email de aprobación** | Incluir link al Acuerdo de Beta + link al invite | ⏳ Pendiente |
+| 1.5 | **Copy email de rechazo** | Tono, CTA "próxima apertura" | ⏳ Pendiente |
+| 1.6 | **TTL del invite token** | Propuesta: 7 días | ⏳ Pendiente decisión |
+| 1.7 | **Estrategia de re-invite** | Si token expira, ¿puede Marcos reenviar? | ⏳ Pendiente |
+| 1.L1 | **Acuerdo de Beta redactado (L3)** | El email de aprobación lo referencia | ⏳ Depende de L3 |
+| 1.L2 | **Campo `beta_agreement_accepted_at`** | Se setea en `POST /invite/register/:token` | ⏳ Decisión técnica |
 
 ### 🟡 Deseables
 
 | # | Item | Nota |
 |---|------|------|
-| 1.8 | Email de confirmación automática al anotarse | Si se decide en Fase 0 que sí va, este template también se hace acá |
-| 1.9 | Variable `RESEND_API_KEY` en Railway secrets | Pre-configurar para no hacerlo mid-deploy |
-| 1.10 | Test de email en sandbox antes de producción | Resend tiene modo test que no envía realmente |
+| 1.8 | Email automático al anotarse | Depende de decisión 0.6 |
+| 1.9 | `RESEND_API_KEY` en Railway secrets | Pre-configurar |
+| 1.10 | Test en sandbox Resend antes de producción | No envía realmente en modo test |
 
 ### Criterios de aceptación
 
-- [ ] `POST /waitlist/` acepta `{ email, name, context, source }` y los persiste
-- [ ] `POST /admin/beta/applications/{id}/approve` genera token único, setea `token_expires_at`, envía email con link
-- [ ] `POST /admin/beta/applications/{id}/reject` cambia status, envía email de rechazo
-- [ ] `GET /invite/validate/{token}` devuelve `{ valid: true, email }` o `{ valid: false, reason: "expired"|"not_found"|"used" }`
-- [ ] `POST /invite/register/{token}` setea `token_used_at` — idempotente en segunda llamada
-- [ ] Token de un solo uso: segundo intento de validar un token ya usado → `{ valid: false, reason: "used" }`
-- [ ] Token expirado → `{ valid: false, reason: "expired" }`
-- [ ] Endpoints admin protegidos con `get_current_user` — sin auth → 401
+- [ ] `POST /waitlist/` acepta `{ email, name, context, source }` y persiste
+- [ ] `POST /admin/beta/applications/{id}/approve` → genera token, setea expiración, envía email con link + acuerdo beta
+- [ ] `POST /admin/beta/applications/{id}/reject` → cambia status, envía email de rechazo
+- [ ] `GET /invite/validate/{token}` → `{ valid, email }` o `{ valid: false, reason }`
+- [ ] `POST /invite/register/{token}` → setea `token_used_at` + `beta_agreement_accepted_at`
+- [ ] Token de un solo uso, con expiración
+- [ ] Endpoints admin protegidos (401 sin auth)
+- [ ] Email de aprobación incluye link al Acuerdo de Beta
 
 ---
 
@@ -85,28 +143,28 @@ decisiones tienen que estar tomadas. El objetivo es no arrancar y parar a mitad.
 
 | # | Item | Decisión requerida | Estado |
 |---|------|--------------------|--------|
-| 2.1 | **URL del backoffice** | ¿`/admin/beta` en el mismo frontend? ¿O ruta separada? La propuesta es `/admin/beta` en el mismo Vercel app | ⏳ Pendiente |
-| 2.2 | **Email del admin** | ¿Qué email se usa para el check? `ingonzalezdamian@gmail.com` o uno `@buildfuture.app`. Va a ser env var `ADMIN_EMAIL` | ⏳ Pendiente |
-| 2.3 | **Qué muestra el motivo de rechazo** | ¿El motivo que escribe Marcos en el backoffice se incluye en el email al usuario? ¿O es solo interno? | ⏳ Decisión de UX |
-| 2.4 | **Qué pasa con tokens expirados** | En la tabla de aprobados, ¿hay indicador de "token expirado"? ¿Botón para re-aprobar (reenviar)? | ⏳ Pendiente |
+| 2.1 | **URL** | `/admin/beta` en mismo frontend | ⏳ Confirmar |
+| 2.2 | **Email del admin** | `ADMIN_EMAIL` como env var | ⏳ Pendiente |
+| 2.3 | **Motivo de rechazo visible para el usuario** | ¿Se incluye en el email o es solo interno? | ⏳ Decisión |
+| 2.4 | **Tokens expirados** | ¿Indicador + botón reenviar en la tabla? | ⏳ Pendiente |
 
 ### 🟡 Deseables
 
 | # | Item | Nota |
 |---|------|------|
-| 2.5 | Notas internas por aplicación | Campo de texto que solo ve Marcos, no el usuario |
-| 2.6 | Orden por defecto de la tabla | Propuesta: pendientes primero, luego por fecha desc |
-| 2.7 | Indicador de aplicaciones nuevas | Badge con count en la nav del backoffice |
+| 2.5 | Notas internas por aplicación | Solo visibles para el admin |
+| 2.6 | Orden por defecto | Propuesta: pendientes primero, luego fecha desc |
+| 2.7 | Badge count de aplicaciones pendientes | Alerta visual |
 
 ### Criterios de aceptación
 
-- [ ] Acceder a `/admin/beta` sin estar logueado → redirect a `/login`
-- [ ] Loguearse con email que no es el admin → redirect a landing (403)
-- [ ] Loguearse como admin → ver tabla de aplicaciones con columnas: nombre, email, fecha, status, contexto
-- [ ] Filtros pendientes/aprobados/rechazados/todos funcionan sin reload
-- [ ] Botón "Aprobar" → modal de confirmación → confirmar → fila cambia a "aprobado" + email enviado
-- [ ] Botón "Rechazar" → modal con campo de motivo opcional → confirmar → fila cambia a "rechazado" + email enviado
-- [ ] No se puede aprobar/rechazar una aplicación ya procesada (botones deshabilitados)
+- [ ] Sin auth → redirect a `/login`
+- [ ] Auth con email no-admin → redirect a landing
+- [ ] Auth como admin → tabla con nombre, email, fecha, status, contexto
+- [ ] Filtros funcionales sin reload
+- [ ] Aprobar → confirmación → status cambia a aprobado + email enviado
+- [ ] Rechazar → modal con motivo opcional → status cambia a rechazado + email enviado
+- [ ] Aplicación ya procesada → botones deshabilitados
 
 ---
 
@@ -116,30 +174,31 @@ decisiones tienen que estar tomadas. El objetivo es no arrancar y parar a mitad.
 
 | # | Item | Decisión requerida | Estado |
 |---|------|--------------------|--------|
-| 3.1 | **Deshabilitar signup público en Supabase** | Confirmar que los usuarios existentes NO se ven afectados por esta configuración | ⏳ Verificar con Supabase docs |
-| 3.2 | **Grandfathered users** | Marcos y cualquier tester actual necesitan seguir pudiendo hacer login. ¿Hay más usuarios además de Marcos en la DB hoy? | ⏳ Verificar |
-| 3.3 | **Pantalla de error de token** | ¿Qué ve el usuario si el link ya expiró? ¿CTA para volver al waitlist? ¿Puede re-anotarse con el mismo email? | ⏳ Decisión de UX |
-| 3.4 | **Post-registro redirect** | ¿Va directo al `/dashboard` (FTU flow existente) o hay una pantalla de bienvenida personalizada? | ⏳ Pendiente |
-| 3.5 | **Validación de email cruzada** | El email del form de registro debe coincidir con el del token. Si no coincide, ¿qué error se muestra? | ⏳ Pendiente copy |
-| 3.6 | **Campo nombre en Supabase** | ¿Se guarda el nombre del aplicante en `user_metadata` de Supabase al momento del signup? | ⏳ Pendiente |
+| 3.1 | **Impacto en usuarios existentes** | Deshabilitar signup NO afecta logins existentes — confirmar en docs Supabase | ⏳ Verificar |
+| 3.2 | **Usuarios actuales en DB** | ¿Cuántos? ¿Todos son Marcos? Verificar en Supabase Auth → Users | ⏳ Pendiente |
+| 3.3 | **Pantalla de token expirado** | Copy del error, CTA para volver al waitlist | ⏳ Pendiente |
+| 3.4 | **Post-registro redirect** | `/dashboard` directo (FTU existente) o pantalla de bienvenida | ⏳ Pendiente |
+| 3.5 | **Copy error email no coincide** | Si el email del form ≠ email del token | ⏳ Pendiente |
+| 3.L1 | **Checkbox explícito en `/invite/[token]`** | "Acepto el Acuerdo de Beta y los TyC" — no solo el botón | ⏳ Decisión UX |
+| 3.L2 | **Acuerdo de Beta disponible online** | Link en `/invite/[token]` debe funcionar | ⏳ Depende de L3 |
 
 ### 🟡 Deseables
 
 | # | Item | Nota |
 |---|------|------|
-| 3.7 | Pantalla de bienvenida personalizada | "Bienvenido a la beta, [nombre]" — diferente al FTU genérico |
-| 3.8 | Pre-fill del campo contraseña con requisitos visibles | Indicador de fortaleza de contraseña |
+| 3.6 | Pantalla de bienvenida personalizada | "Bienvenido a la beta, [nombre]" |
+| 3.7 | Nombre pre-completado en Supabase `user_metadata` | Del campo nombre del waitlist |
 
 ### Criterios de aceptación
 
-- [ ] Token válido → `/invite/{token}` muestra form con email pre-completado y no editable
-- [ ] Token expirado → pantalla de error con mensaje claro y CTA
-- [ ] Token ya usado → pantalla de error distinta ("esta invitación ya fue utilizada")
-- [ ] Token inválido (no existe) → 404
-- [ ] Submit del form → Supabase signup con el email del token
-- [ ] Post-signup → `POST /invite/register/{token}` marca como usado → redirect `/dashboard`
-- [ ] Intentar hacer signup público en Supabase directamente → bloqueado (Supabase setting)
-- [ ] Usuario ya registrado que intenta usar el mismo token → error claro
+- [ ] Token válido → form con email pre-completado + checkbox acuerdo de beta
+- [ ] Token expirado → pantalla de error con copy definido + CTA
+- [ ] Token ya usado → pantalla de error distinta
+- [ ] Token inválido → 404
+- [ ] Submit → Supabase signup → `POST /invite/register/{token}` → redirect
+- [ ] Signup público directo bloqueado por Supabase setting
+- [ ] `beta_agreement_accepted_at` guardado en DB
+- [ ] Checkbox de acuerdo de beta requerido para submit
 
 ---
 
@@ -149,104 +208,35 @@ decisiones tienen que estar tomadas. El objetivo es no arrancar y parar a mitad.
 
 | # | Item | Decisión requerida | Estado |
 |---|------|--------------------|--------|
-| 4.1 | **Texto exacto del campo contexto** | La pregunta que ve el usuario. Ejemplo: "¿Por qué querés estar en la beta? (opcional)" | ⏳ Pendiente |
-| 4.2 | **¿Es obligatorio el nombre?** | Propuesta: sí. Permite que Marcos personalice el email de aprobación | ⏳ Pendiente |
-| 4.3 | **¿Se manda email de confirmación al anotarse?** | Decidido en Fase 0. Si sí, el copy y template se definen acá | ⏳ Depende de 0.6 |
-
-### 🟡 Deseables
-
-| # | Item | Nota |
-|---|------|------|
-| 4.4 | Validación de formato de nombre | Mínimo 2 caracteres, sin números |
-| 4.5 | Textarea con límite visible | "0/200 caracteres" para el campo contexto |
+| 4.1 | **Texto del campo contexto** | Pregunta exacta que ve el usuario | ⏳ Pendiente |
+| 4.2 | **¿Nombre obligatorio?** | Propuesta: sí | ⏳ Pendiente |
+| 4.3 | **Email de confirmación automático** | Depende de 0.6 | ⏳ Pendiente |
 
 ### Criterios de aceptación
 
-- [ ] Form muestra campos: Nombre (obligatorio) · Email (obligatorio) · Contexto (opcional)
-- [ ] Submit sin nombre → error inline en el campo
-- [ ] Submit sin email → error inline en el campo
-- [ ] Submit con email ya registrado → responde OK (no revelar si el email existe)
-- [ ] Post-submit → mensaje de confirmación con el texto acordado
-- [ ] Si se decidió email automático: llega email dentro de 2 minutos de anotarse
+- [ ] Form: Nombre (obligatorio) · Email (obligatorio) · Contexto (según decisión 4.2)
+- [ ] Validaciones inline por campo
+- [ ] Email duplicado → responde OK (no revelar existencia)
+- [ ] Post-submit → mensaje acordado
+- [ ] Si hay email automático: llega en < 2 min
 
 ---
 
-## Preguntas de arquitectura transversales
+## Resumen ejecutivo — % de readiness
 
-Estas preguntas afectan múltiples fases y deben responderse antes de arrancar cualquiera:
+| Fase | Ready hoy | Principal cuello de botella |
+|------|-----------|----------------------------|
+| Fase L — Legal | 0% | AAIP (30 min), acuerdo beta (redacción), TyC v1.1 (dev) |
+| Fase 0 — Landing | 20% | Copy del hero, campos del form |
+| Fase 1 — Backend | 10% | Email provider, dominio, copy emails, acuerdo beta |
+| Fase 2 — Backoffice | 30% | URL, email admin, decisión motivo rechazo |
+| Fase 3 — Invite flow | 20% | Verificar usuarios existentes, pantallas de error, acuerdo beta |
+| Fase 4 — Form | 50% | Copy del campo contexto |
 
-### P1 — Dominio del email ⚠️ BLOQUEANTE
+**El único cuello de botella que no requiere decisión de Marcos hoy:**
+- Registrar en AAIP → se puede hacer ahora mismo, sin esperar nada
 
-**Pregunta:** ¿Los emails de BuildFuture salen de qué dirección?
-
-**Opciones:**
-- `noreply@buildfuture.app` — requiere dominio `buildfuture.app` + DNS en Resend
-- `marcos@buildfuture.app` — más personal, mismo requisito
-- `ingonzalezdamian@gmail.com` — no requiere dominio pero menos profesional y Resend lo soporta con limitaciones
-
-**Impacto:** Bloquea configuración de Resend (Fase 1)
-
----
-
-### P2 — ¿Tenés el dominio `buildfuture.app`? ⚠️ BLOQUEANTE
-
-**Pregunta:** ¿Compraste `buildfuture.app` o similar? Si no, hay que comprarlo antes de configurar email.
-
-**Costo referencial:** ~USD 12/año en Namecheap / Google Domains
-
----
-
-### P3 — Usuarios existentes en la DB
-
-**Pregunta:** ¿Cuántos usuarios están registrados hoy en Supabase Auth?
-
-**Por qué importa:** Al deshabilitar signup público, los usuarios existentes pueden seguir haciendo login. Pero si hay testers que Marcos invitó informalmente, necesitan confirmación de que no pierden acceso.
-
-**Acción:** Verificar en Supabase Dashboard → Authentication → Users antes de Fase 3.
-
----
-
-### P4 — Fecha del kickoff de marketing
-
-**Pregunta:** ¿Cuándo es el post/reel/story del kickoff?
-
-**Por qué importa:** Define qué fases son necesarias ANTES del kickoff y cuáles pueden ir después.
-
-**Escenario mínimo viable para el kickoff:**
-- Fase 0 ✅ (landing sin registro, solo waitlist con nombre)
-- Fase 4 ✅ (form actualizado)
-- Fases 1, 2, 3 pueden ser días después — en el interín Marcos aprueba manualmente y el registro abre temporalmente
-
----
-
-### P5 — MVP vs full flow
-
-**Pregunta:** ¿Querés lanzar el kickoff con el full flow (fases 0-4) o con un MVP más simple?
-
-**MVP alternativo:**
-- Landing actualizada (Fase 0) + form con nombre (Fase 4)
-- Waitlist existente en DB, Marcos exporta manualmente el CSV y contacta por Gmail
-- Registro sigue siendo público temporalmente (Supabase habilitado)
-- Las Fases 1-3 (backend + backoffice + invite token) se hacen la semana post-kickoff
-
-**Ventaja del MVP:** Lanzás el kickoff en 1-2 días de trabajo
-**Desventaja:** Marcos gestiona aprobaciones a mano hasta que esté el backoffice
-
----
-
-## Checklist de DoR — Resumen ejecutivo
-
-Para considerar **READY** cada fase:
-
-| Fase | % Ready hoy | Bloqueantes críticos |
-|------|-------------|----------------------|
-| **Fase 0** — Landing/Story | 20% | Copy del hero (0.1), campos del form (0.4), qué pasa con /login (0.3) |
-| **Fase 1** — Backend emails | 10% | Provider de email (1.1), cuenta Resend (1.2), dominio (1.3), copy emails (1.4, 1.5) |
-| **Fase 2** — Backoffice | 30% | URL (2.1), email admin (2.2), decisión motivo rechazo (2.3) |
-| **Fase 3** — Invite flow | 25% | Confirmar impacto en Supabase (3.1), usuarios existentes (3.2), pantalla error (3.3) |
-| **Fase 4** — Form actualizado | 50% | Copy del campo contexto (4.1), email de confirmación (4.3) |
-
-**Ninguna fase está Ready para implementar hoy.**
-
-El cuello de botella principal es: **dominio + email provider + copy**.
-Esas tres decisiones desbloquean el 80% del resto.
+**Los cuellos de botella que desbloquean todo lo demás:**
+1. Dominio (en trámite) → desbloquea email
+2. Copy del hero y emails → desbloquea Fases 0 y 1
+3. Acuerdo de Beta redactado → desbloquea Fases 1 y 3
