@@ -14,6 +14,7 @@ from app.routers import (
     positions,
     admin,
     waitlist,
+    tos,
 )
 
 IS_SERVERLESS = os.environ.get("VERCEL", "") == "1"
@@ -46,6 +47,7 @@ app.include_router(profile.router)
 app.include_router(positions.router)
 app.include_router(admin.router, include_in_schema=False)  # no expuesto en /docs
 app.include_router(waitlist.router)
+app.include_router(tos.router)
 
 
 @app.on_event("startup")
@@ -128,6 +130,37 @@ def _run_migrations():
         (
             "CREATE INDEX IF NOT EXISTS idx_mep_history_date ON mep_history(price_date)",
             "idx_mep_history_date",
+        ),
+        (
+            """CREATE TABLE IF NOT EXISTS tos_versions (
+                id SERIAL PRIMARY KEY,
+                version TEXT NOT NULL UNIQUE,
+                effective_date DATE NOT NULL,
+                summary TEXT,
+                is_current BOOLEAN DEFAULT false,
+                created_at TIMESTAMP DEFAULT NOW()
+            )""",
+            "tos_versions table",
+        ),
+        (
+            """CREATE TABLE IF NOT EXISTS tos_acceptances (
+                id SERIAL PRIMARY KEY,
+                user_id VARCHAR(36) NOT NULL,
+                version_id INTEGER NOT NULL REFERENCES tos_versions(id),
+                accepted_at TIMESTAMPTZ DEFAULT NOW(),
+                CONSTRAINT uq_tos_user_version UNIQUE (user_id, version_id)
+            )""",
+            "tos_acceptances table",
+        ),
+        (
+            "CREATE INDEX IF NOT EXISTS idx_tos_acceptances_user ON tos_acceptances(user_id)",
+            "idx_tos_acceptances_user",
+        ),
+        (
+            """INSERT INTO tos_versions (version, effective_date, summary, is_current)
+               VALUES ('1.0', '2026-04-03', 'Versión inicial — términos, privacidad y disclaimer CNV', true)
+               ON CONFLICT (version) DO NOTHING""",
+            "tos_versions seed v1.0",
         ),
     ]
     try:
