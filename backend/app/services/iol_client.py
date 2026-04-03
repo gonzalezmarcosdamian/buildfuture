@@ -331,10 +331,10 @@ class IOLClient:
                     disponible = Decimal(str(cuenta.get("disponible") or cuenta.get("saldo") or 0))
                     if any(k in moneda for k in ("peso", "ars", "pesos", "argentino")):
                         logger.info("Cash ARS (cuenta): %.2f", float(disponible))
-                        result["ars"] = disponible
+                        result["ars"] += disponible
                     elif any(k in moneda for k in ("dolar", "usd", "dollar", "estadounidense")):
                         logger.info("Cash USD (cuenta): %.2f", float(disponible))
-                        result["usd"] = disponible
+                        result["usd"] += disponible
                 return result
 
             # Estructura flat: solo ARS
