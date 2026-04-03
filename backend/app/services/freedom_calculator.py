@@ -13,13 +13,14 @@ def split_portfolio_buckets(positions: list) -> dict:
     Separa el portfolio en dos carriles:
     - renta_monthly_usd: ingreso mensual del bucket renta usando el yield real del instrumento
     - renta_total_usd: valor total del bucket renta
-    - capital_total_usd: valor total del bucket capital (CEDEAR/ETF/CRYPTO + 50% BOND)
+    - capital_total_usd: valor total del bucket capital (CEDEAR/ETF/CRYPTO + 50% BOND + CASH)
+    - cash_total_usd: subset de capital — solo CASH (líquido disponible)
     - crypto_total_usd: subset de capital — solo CRYPTO
     - by_source: desglose {source: {total_usd, capital_usd, renta_usd, crypto_usd}}
 
     LETRA y FCI: yield directo del ALYC (TNA nominal ARS).
     BOND/ON: split 50/50 — cupón a renta, apreciación a capital.
-    CASH → neutral (no computa en ningún bucket).
+    CASH → capital (líquido disponible, sin yield).
     CRYPTO → capital únicamente, nunca renta (apreciación especulativa).
     """
     renta_monthly = Decimal("0")
@@ -27,6 +28,7 @@ def split_portfolio_buckets(positions: list) -> dict:
     capital_total = Decimal("0")
     cedear_total = Decimal("0")   # capital puro: solo CEDEAR/ETF (sin BOND split)
     crypto_total = Decimal("0")
+    cash_total = Decimal("0")
     by_source: dict[str, dict] = {}
 
     for p in positions:
@@ -62,7 +64,11 @@ def split_portfolio_buckets(positions: list) -> dict:
             capital_total += value * Decimal("0.5")
             by_source[source]["renta_usd"] += value * Decimal("0.5")
             by_source[source]["capital_usd"] += value * Decimal("0.5")
-        # CASH, OTHER, STOCK → neutral
+        elif asset_type == "CASH":
+            capital_total += value
+            cash_total += value
+            by_source[source]["capital_usd"] += value
+        # OTHER, STOCK → neutral
 
     return {
         "renta_monthly_usd": renta_monthly,
@@ -70,6 +76,7 @@ def split_portfolio_buckets(positions: list) -> dict:
         "capital_total_usd": capital_total,
         "cedear_total_usd": cedear_total,
         "crypto_total_usd": crypto_total,
+        "cash_total_usd": cash_total,
         "by_source": by_source,
     }
 
