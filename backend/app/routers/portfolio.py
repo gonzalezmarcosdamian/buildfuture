@@ -175,6 +175,7 @@ def get_portfolio(
             "capital_total_usd": float(buckets["capital_total_usd"]),
             "cedear_total_usd": float(buckets["cedear_total_usd"]),
             "crypto_total_usd": float(buckets["crypto_total_usd"]),
+            "cash_total_usd": float(buckets["cash_total_usd"]),
             "by_source": {
                 src: {k: float(v) for k, v in vals.items()}
                 for src, vals in buckets["by_source"].items()
