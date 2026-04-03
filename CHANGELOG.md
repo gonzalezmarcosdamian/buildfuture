@@ -5,6 +5,40 @@ Commits: [Conventional Commits](https://www.conventionalcommits.org/)
 
 ---
 
+## [0.11.0] — 2026-04-03
+
+### Added
+- **Persistencia de enriquecimiento entre re-syncs** (`_get_enrichment`): helper en `integrations.py` que preserva `annual_yield_pct`, `external_id` y `fci_categoria` (campos platform-owned) entre re-syncs de IOL, PPI y Cocos. El yield real ya no se pisa con el DEFAULT del ALYC cada vez que el usuario sincroniza.
+- **yield_updater post-sync**: los 3 syncs (IOL, PPI, Cocos) llaman `update_yields()` inmediatamente después del INSERT — yield correcto disponible en segundos, sin esperar al scheduler de 17:30.
+- **ONs corporativas en `_BOND_YTM`**: 13 ONs calibradas con precios de mercado abril 2026 (ARC1O, DNC5O, DNC7O, LOC6O, MR39O, RUCDO, TLCMO, TLCPO, TLCTO, VSCVO, YM34O, YM39O, YMCJO). Yields 7–12% USD.
+- **Endpoints admin yields**: `GET /admin/yields/diagnose` y `POST /admin/yields/run` para inspección y disparo manual del yield_updater.
+- **Yields reales por instrumento**: LECAP → TIR real desde precio + días al vencimiento decodificados del ticker. FCI → promedio ArgentinaDatos mercadoDinero (~17% TNA). BOND → tabla `_BOND_YTM` calibrada.
+- **MEP diario en posiciones ARS**: `current_price_usd` de LETRA/FCI se recalcula con MEP del día en cada cierre.
+- **Badge de vencimiento en InstrumentDetail**: alerta "Rolleo en Nd" cuando la LECAP vence en ≤60 días.
+
+### Fixed
+- LECAP con precio técnico acumulado (>par en IOL) ya no pisa el yield con 0%. Auto-restaura a 68% TNA si fue pisado.
+- FCI con match incorrecto en ArgentinaDatos (>150% TNA) cae al promedio de mercado.
+- `timedelta` import en `yield_updater.py` — bug que forzaba fallback a 38% TNA en FCIs.
+- `current_value_ars=0` en posiciones históricas reconstruido desde `price_usd × mep` antes del cálculo de TIR.
+
+### Chore
+- Eliminado `.docs/` (stale, `docs/` es el directorio canónico)
+- Eliminado `requirements.txt` raíz (stale, el activo es `backend/requirements.txt`)
+- Movidos `test_iol_auth.py` y `test_nexo_auth.py` a `backend/scripts/`
+- Cerrado PR stale #4 (feat/autosync-gamification, 100 commits behind main)
+
+---
+
+## [0.10.0] — 2026-04-01
+
+### Added
+- **Reconstructor histórico v2**: algoritmo backwards-anchored con `cantidadOperada` real de IOL. Detecta ventas invisibles y preserva posiciones conocidas. Snapshots diarios reconstruidos desde operaciones reales.
+- **Admin endpoints**: `/admin/snapshots/info`, `/admin/reconstruct/dry-run`, `/admin/reconstruct/raw-ops`, `/admin/positions/inspect`, `/admin/positions/dupes`, `/admin/cache/mep-info`, `/admin/cache/price-info`.
+- **Fix precio LECAP**: `ppc_ars / 100` — IOL expresa precio en ARS por 100 VN.
+
+---
+
 ## [0.8.0] — 2026-04-01
 
 ### Added
