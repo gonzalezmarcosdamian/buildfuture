@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.database import get_db
 from app.auth import get_current_user
 from pydantic import BaseModel
-from app.models import Position, BudgetConfig, BudgetCategory, FreedomGoal, InvestmentMonth, PortfolioSnapshot, CapitalGoal
+from app.models import Position, BudgetConfig, BudgetCategory, FreedomGoal, InvestmentMonth, PortfolioSnapshot, CapitalGoal, PositionSnapshot
 from app.services.freedom_calculator import calculate_freedom_score, calculate_milestone_projections, split_portfolio_buckets
 from app.services.ai_recommendations import get_ai_recommendations
 from app.services.market_data import fetch_market_snapshot
@@ -40,6 +40,44 @@ def _get_freedom_score(user_id: str, positions: list, monthly_expenses_usd: Deci
 def _invalidate_score_cache(user_id: str) -> None:
     with _score_lock:
         _score_cache.pop(user_id, None)
+
+def save_position_snapshots(db: Session, user_id: str, positions: list) -> None:
+    """
+    Guarda/actualiza un PositionSnapshot por posición activa para hoy.
+    Upsert seguro: si ya existe el registro (user_id, ticker, hoy) lo actualiza,
+    si no existe lo crea. Llamar después de cualquier sync exitoso.
+    """
+    today = date.today()
+    for p in positions:
+        if not getattr(p, "is_active", True):
+            continue
+        existing = (
+            db.query(PositionSnapshot)
+            .filter(
+                PositionSnapshot.user_id == user_id,
+                PositionSnapshot.ticker == p.ticker,
+                PositionSnapshot.snapshot_date == today,
+            )
+            .first()
+        )
+        if existing:
+            existing.value_usd = p.current_value_usd
+            existing.price_usd = p.current_price_usd
+            existing.quantity = p.quantity
+            existing.asset_type = p.asset_type
+            existing.source = p.source or ""
+        else:
+            db.add(PositionSnapshot(
+                user_id=user_id,
+                ticker=p.ticker,
+                snapshot_date=today,
+                value_usd=p.current_value_usd,
+                price_usd=p.current_price_usd,
+                quantity=p.quantity,
+                asset_type=p.asset_type,
+                source=p.source or "",
+            ))
+
 
 def _query_budget(db: Session, user_id: str) -> BudgetConfig | None:
     """Carga BudgetConfig con categorías eager para evitar lazy queries."""
@@ -142,6 +180,14 @@ def get_portfolio(
 
     score = _get_freedom_score(current_user, positions, monthly_expenses_usd)
     buckets = split_portfolio_buckets(positions)
+
+    # Guardar snapshot por posición para habilitar Δ por período en Rendimientos
+    try:
+        save_position_snapshots(db, current_user, positions)
+        db.commit()
+    except Exception as _e:
+        logger.warning("save_position_snapshots failed (non-blocking): %s", _e)
+        db.rollback()
 
     return {
         "positions": [
@@ -359,6 +405,81 @@ def get_gamification(
 
 
 _MONTH_NAMES = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"]
+
+
+@router.get("/positions/delta")
+def get_positions_delta(
+    period: str = Query(default="daily"),  # daily | monthly | annual
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    """
+    Δ de valor por posición entre hoy y el inicio del período seleccionado.
+    daily  → ayer
+    monthly → 30 días atrás
+    annual  → 365 días atrás
+
+    Si no hay snapshot para el período anterior, la posición se omite del resultado
+    y el frontend muestra fallback "desde compra".
+    """
+    today = date.today()
+    LOOKBACK = {"daily": 1, "monthly": 30, "annual": 365}
+    days_back = LOOKBACK.get(period, 1)
+    from_date = today - timedelta(days=days_back)
+
+    # Snapshots de hoy
+    today_snaps = {
+        s.ticker: s
+        for s in db.query(PositionSnapshot).filter(
+            PositionSnapshot.user_id == current_user,
+            PositionSnapshot.snapshot_date == today,
+        ).all()
+    }
+
+    if not today_snaps:
+        return {"period": period, "has_data": False, "positions": []}
+
+    # Snapshot más cercano al from_date (puede ser exacto o el más reciente anterior)
+    tickers = list(today_snaps.keys())
+    prev_snaps: dict[str, PositionSnapshot] = {}
+    for ticker in tickers:
+        snap = (
+            db.query(PositionSnapshot)
+            .filter(
+                PositionSnapshot.user_id == current_user,
+                PositionSnapshot.ticker == ticker,
+                PositionSnapshot.snapshot_date <= from_date,
+            )
+            .order_by(PositionSnapshot.snapshot_date.desc())
+            .first()
+        )
+        if snap:
+            prev_snaps[ticker] = snap
+
+    results = []
+    for ticker, today_snap in today_snaps.items():
+        prev = prev_snaps.get(ticker)
+        if not prev:
+            continue  # sin historial para este período
+        delta_usd = float(today_snap.value_usd) - float(prev.value_usd)
+        prev_val = float(prev.value_usd)
+        delta_pct = (delta_usd / prev_val) if prev_val != 0 else 0.0
+        results.append({
+            "ticker": ticker,
+            "asset_type": today_snap.asset_type,
+            "source": today_snap.source,
+            "value_usd_now": float(today_snap.value_usd),
+            "value_usd_prev": prev_val,
+            "delta_usd": round(delta_usd, 2),
+            "delta_pct": round(delta_pct, 6),
+            "from_date": prev.snapshot_date.isoformat(),
+        })
+
+    return {
+        "period": period,
+        "has_data": len(results) > 0,
+        "positions": results,
+    }
 
 
 def _normalize_date(s_date) -> date:

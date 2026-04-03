@@ -279,3 +279,26 @@ class MepHistory(Base):
     price_date: Mapped[date] = mapped_column(Date, unique=True, index=True)
     mep_rate: Mapped[Decimal] = mapped_column(Numeric(10, 2))
     source: Mapped[str] = mapped_column(String(20), default="BLUELYTICS")
+
+
+class PositionSnapshot(Base):
+    """
+    Snapshot diario del valor de cada posición individual por usuario.
+    Permite calcular Δ real por posición para cualquier período (día/mes/año),
+    sincronizado con el gráfico de tenencia agregada.
+    Se guarda una vez por posición por día — upsert en (user_id, ticker, snapshot_date).
+    """
+    __tablename__ = "position_snapshots"
+    __table_args__ = (
+        UniqueConstraint("user_id", "ticker", "snapshot_date", name="uq_pos_snapshot"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(36), index=True)
+    ticker: Mapped[str] = mapped_column(String(20), index=True)
+    snapshot_date: Mapped[date] = mapped_column(Date, index=True)
+    value_usd: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    price_usd: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    quantity: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    asset_type: Mapped[str] = mapped_column(String(20), default="")
+    source: Mapped[str] = mapped_column(String(20), default="")
