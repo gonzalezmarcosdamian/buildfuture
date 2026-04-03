@@ -3,6 +3,7 @@ Waitlist pública — sin autenticación.
 POST /waitlist — registra email interesado en BuildFuture.
 Rate limit simple: 3 requests por IP por hora vía cabecera X-Forwarded-For.
 """
+
 import logging
 import re
 from datetime import datetime, timedelta
@@ -60,7 +61,7 @@ def register_waitlist(
 ):
     forwarded = request.headers.get("X-Forwarded-For")
     fallback = request.client.host if request.client else "unknown"
-    ip = (forwarded.split(",")[0].strip() if forwarded else fallback)
+    ip = forwarded.split(",")[0].strip() if forwarded else fallback
     _check_rate_limit(ip)
 
     entry = WaitlistEntry(

@@ -7,7 +7,12 @@ from typing import TypedDict
 # Ambos: bonos que pagan cupón (renta) y tienen apreciación de precio (capital)
 RENTA_ASSET_TYPES = {"LETRA", "FCI"}
 CAPITAL_ASSET_TYPES = {"CEDEAR", "ETF", "CRYPTO"}
-AMBOS_ASSET_TYPES = {"BOND", "ON"}   # ON = Obligaciones Negociables, mismo tratamiento 50/50
+AMBOS_ASSET_TYPES = {
+    "BOND",
+    "ON",
+}  # ON = Obligaciones Negociables, mismo tratamiento 50/50
+
+
 def split_portfolio_buckets(positions: list) -> dict:
     """
     Separa el portfolio en dos carriles:
@@ -26,7 +31,7 @@ def split_portfolio_buckets(positions: list) -> dict:
     renta_monthly = Decimal("0")
     renta_total = Decimal("0")
     capital_total = Decimal("0")
-    cedear_total = Decimal("0")   # capital puro: solo CEDEAR/ETF (sin BOND split)
+    cedear_total = Decimal("0")  # capital puro: solo CEDEAR/ETF (sin BOND split)
     crypto_total = Decimal("0")
     cash_total = Decimal("0")
     by_source: dict[str, dict] = {}
@@ -57,7 +62,7 @@ def split_portfolio_buckets(positions: list) -> dict:
                 crypto_total += value
                 by_source[source]["crypto_usd"] += value
             else:
-                cedear_total += value   # CEDEAR / ETF puro
+                cedear_total += value  # CEDEAR / ETF puro
         elif asset_type in AMBOS_ASSET_TYPES:
             renta_monthly += value * raw_yield / 12 * Decimal("0.5")
             renta_total += value * Decimal("0.5")
@@ -126,7 +131,9 @@ def calculate_freedom_score(
 
     # annual_return_pct: rendimiento anual del portfolio completo (para proyecciones)
     renta_total = buckets["renta_total_usd"]
-    annual_return_pct = (monthly_return * 12 / renta_total) if renta_total > 0 else Decimal("0")
+    annual_return_pct = (
+        (monthly_return * 12 / renta_total) if renta_total > 0 else Decimal("0")
+    )
 
     freedom_pct = monthly_return / monthly_expenses_usd
 
@@ -144,7 +151,12 @@ def calculate_milestone_projections(
     monthly_savings_usd: Decimal,
     monthly_expenses_usd: Decimal,
     annual_return_pct: Decimal,
-    milestones: list[Decimal] = [Decimal("0.25"), Decimal("0.50"), Decimal("0.75"), Decimal("1.00")],
+    milestones: list[Decimal] = [
+        Decimal("0.25"),
+        Decimal("0.50"),
+        Decimal("0.75"),
+        Decimal("1.00"),
+    ],
 ) -> list[dict]:
     """
     Para cada milestone, calcula:
@@ -161,13 +173,15 @@ def calculate_milestone_projections(
         required_capital = (monthly_expenses_usd * target_pct * 12) / annual_return_pct
 
         if current_portfolio_usd >= required_capital:
-            results.append({
-                "milestone_pct": float(target_pct),
-                "required_capital_usd": float(required_capital),
-                "months_to_reach": 0,
-                "projected_date": date.today().isoformat(),
-                "reached": True,
-            })
+            results.append(
+                {
+                    "milestone_pct": float(target_pct),
+                    "required_capital_usd": float(required_capital),
+                    "months_to_reach": 0,
+                    "projected_date": date.today().isoformat(),
+                    "reached": True,
+                }
+            )
             continue
 
         # Búsqueda binaria: cuántos meses para llegar
@@ -176,7 +190,11 @@ def calculate_milestone_projections(
             mid = (lo + hi) // 2
             # Valor futuro: portafolio actual crece + aportes mensuales
             fv = current_portfolio_usd * (1 + monthly_rate) ** mid
-            fv += monthly_savings_usd * (((1 + monthly_rate) ** mid - 1) / monthly_rate) if monthly_rate > 0 else monthly_savings_usd * mid
+            fv += (
+                monthly_savings_usd * (((1 + monthly_rate) ** mid - 1) / monthly_rate)
+                if monthly_rate > 0
+                else monthly_savings_usd * mid
+            )
 
             if fv >= required_capital:
                 hi = mid
@@ -185,12 +203,14 @@ def calculate_milestone_projections(
 
         projected_date = date.today() + timedelta(days=lo * 30)
 
-        results.append({
-            "milestone_pct": float(target_pct),
-            "required_capital_usd": float(required_capital),
-            "months_to_reach": lo,
-            "projected_date": projected_date.isoformat(),
-            "reached": False,
-        })
+        results.append(
+            {
+                "milestone_pct": float(target_pct),
+                "required_capital_usd": float(required_capital),
+                "months_to_reach": lo,
+                "projected_date": projected_date.isoformat(),
+                "reached": False,
+            }
+        )
 
     return results

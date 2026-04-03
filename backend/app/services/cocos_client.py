@@ -3,6 +3,7 @@ Cocos Capital client.
 Auth: email + password + 2FA (TOTP code o TOTP secret BASE32).
 API: reverse-engineered, no oficial. Usa pycocos + cloudscraper (Cloudflare bypass).
 """
+
 import logging
 from dataclasses import dataclass, field
 from decimal import Decimal
@@ -21,10 +22,10 @@ except ImportError:
 
 
 DEFAULT_YIELDS: dict[str, Decimal] = {
-    "FCI":    Decimal("0.08"),
+    "FCI": Decimal("0.08"),
     "CEDEAR": Decimal("0.10"),
-    "BOND":   Decimal("0.09"),
-    "LETRA":  Decimal("0.68"),
+    "BOND": Decimal("0.09"),
+    "LETRA": Decimal("0.68"),
     "default": Decimal("0.08"),
 }
 
@@ -39,14 +40,16 @@ _INSTRUMENT_TYPE_MAP: dict[str, str] = {
 class CocosPosition:
     ticker: str
     description: str
-    asset_type: Optional[str]        # None si instrument_type desconocido — ver raw_instrument_type
+    asset_type: Optional[
+        str
+    ]  # None si instrument_type desconocido — ver raw_instrument_type
     quantity: Decimal
     current_price_usd: Decimal
     avg_purchase_price_usd: Decimal
     ppc_ars: Decimal
     annual_yield_pct: Decimal
     current_value_ars: Decimal
-    raw_instrument_type: str = ""    # tipo original de Cocos, siempre presente
+    raw_instrument_type: str = ""  # tipo original de Cocos, siempre presente
     raw_data: dict = field(default_factory=dict)  # item crudo para discovery
 
 
@@ -59,7 +62,9 @@ def _normalize_instrument_type(instrument_type: str) -> Optional[str]:
     Mapea instrument_type de Cocos a asset_type BuildFuture.
     Retorna None para tipos desconocidos — el sync layer los envía a IntegrationDiscovery.
     """
-    normalized = _INSTRUMENT_TYPE_MAP.get(instrument_type.upper() if instrument_type else "")
+    normalized = _INSTRUMENT_TYPE_MAP.get(
+        instrument_type.upper() if instrument_type else ""
+    )
     if normalized:
         return normalized
     logger.warning(
@@ -84,7 +89,9 @@ class CocosClient:
         - Si no tiene totp_secret: usa el código manual provisto en `code`.
         """
         if Cocos is None:
-            raise CocosAuthError("pycocos no está instalado. Ejecutá: pip install pycocos")
+            raise CocosAuthError(
+                "pycocos no está instalado. Ejecutá: pip install pycocos"
+            )
 
         try:
             if self.totp_secret:
@@ -97,6 +104,7 @@ class CocosClient:
             else:
                 logger.info("CocosClient: autenticando con código 2FA manual")
                 import builtins
+
                 _original_input = builtins.input
                 builtins.input = lambda _prompt="": code
                 try:
@@ -121,7 +129,9 @@ class CocosClient:
         - annual_yield_pct: DEFAULT_YIELDS por asset_type (nunca result_percentage).
         """
         if self._app is None:
-            raise CocosAuthError("Cliente no autenticado. Llamar authenticate() primero.")
+            raise CocosAuthError(
+                "Cliente no autenticado. Llamar authenticate() primero."
+            )
 
         mep = self._get_mep()
         mep_dec = Decimal(str(mep))
@@ -156,32 +166,41 @@ class CocosClient:
 
             average_price = item.get("average_price") or 0
             ppc_ars = Decimal(str(average_price))
-            avg_purchase_price_usd = ppc_ars / mep_dec if ppc_ars > 0 else current_price_usd
+            avg_purchase_price_usd = (
+                ppc_ars / mep_dec if ppc_ars > 0 else current_price_usd
+            )
 
             raw_instrument_type = item.get("instrument_type", "")
             asset_type = _normalize_instrument_type(raw_instrument_type)
-            annual_yield_pct = DEFAULT_YIELDS.get(asset_type or "", DEFAULT_YIELDS["default"])
+            annual_yield_pct = DEFAULT_YIELDS.get(
+                asset_type or "", DEFAULT_YIELDS["default"]
+            )
 
             logger.info(
                 "  %s (%s) cant=%.2f last=%.4f ARS → USD %.4f | yield=%.0f%%",
-                ticker, asset_type or f"?{raw_instrument_type}",
-                float(quantity), float(price_ars_dec),
-                float(current_price_usd), float(annual_yield_pct) * 100,
+                ticker,
+                asset_type or f"?{raw_instrument_type}",
+                float(quantity),
+                float(price_ars_dec),
+                float(current_price_usd),
+                float(annual_yield_pct) * 100,
             )
 
-            positions.append(CocosPosition(
-                ticker=ticker,
-                description=item.get("instrument_short_name", ""),
-                asset_type=asset_type,
-                quantity=quantity,
-                current_price_usd=current_price_usd,
-                avg_purchase_price_usd=avg_purchase_price_usd,
-                ppc_ars=ppc_ars,
-                annual_yield_pct=annual_yield_pct,
-                current_value_ars=current_value_ars,
-                raw_instrument_type=raw_instrument_type,
-                raw_data=item,
-            ))
+            positions.append(
+                CocosPosition(
+                    ticker=ticker,
+                    description=item.get("instrument_short_name", ""),
+                    asset_type=asset_type,
+                    quantity=quantity,
+                    current_price_usd=current_price_usd,
+                    avg_purchase_price_usd=avg_purchase_price_usd,
+                    ppc_ars=ppc_ars,
+                    annual_yield_pct=annual_yield_pct,
+                    current_value_ars=current_value_ars,
+                    raw_instrument_type=raw_instrument_type,
+                    raw_data=item,
+                )
+            )
 
         logger.info("CocosClient: %d posiciones obtenidas", len(positions))
         return positions
@@ -192,14 +211,18 @@ class CocosClient:
         Retorna {"ars": Decimal, "usd": Decimal}. Nunca falla — devuelve ceros en error.
         """
         if self._app is None:
-            raise CocosAuthError("Cliente no autenticado. Llamar authenticate() primero.")
+            raise CocosAuthError(
+                "Cliente no autenticado. Llamar authenticate() primero."
+            )
 
         try:
             data = self._app.funds_available()
             ci = data.get("CI", {})
             ars = Decimal(str(ci.get("ars") or 0))
             usd = Decimal(str(ci.get("usd") or 0))
-            logger.info("CocosClient: cash CI — ARS=%.2f USD=%.2f", float(ars), float(usd))
+            logger.info(
+                "CocosClient: cash CI — ARS=%.2f USD=%.2f", float(ars), float(usd)
+            )
             return {"ars": ars, "usd": usd}
         except CocosAuthError:
             raise

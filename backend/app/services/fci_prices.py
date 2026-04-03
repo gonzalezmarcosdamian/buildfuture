@@ -3,6 +3,7 @@ ArgentinaDatos API — cuotapartes de FCI argentinos.
 Fuente: https://api.argentinadatos.com/v1/finanzas/fci/{categoria}/{fecha}
 Pública, sin API key. Cubre todos los fondos registrados en CAFCI.
 """
+
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -96,6 +97,7 @@ def get_yield_30d(fondo_name: str, categoria: str) -> float:
     Para mayor precisión usa una fecha 30 días atrás si está disponible.
     """
     from datetime import date, timedelta
+
     try:
         vcp_hoy = get_vcp(fondo_name, categoria)
         if not vcp_hoy:
@@ -103,8 +105,9 @@ def get_yield_30d(fondo_name: str, categoria: str) -> float:
 
         # Intentar fecha hace 30 días
         fecha_30d = (date.today() - timedelta(days=30)).strftime("%Y/%m/%d")
-        r = httpx.get(f"{ARGDATA_BASE}/{categoria}/{fecha_30d}",
-                      headers=_HEADERS, timeout=10)
+        r = httpx.get(
+            f"{ARGDATA_BASE}/{categoria}/{fecha_30d}", headers=_HEADERS, timeout=10
+        )
         if r.is_success:
             for f in r.json():
                 if f.get("fondo", "").lower() == fondo_name.lower():
@@ -115,8 +118,9 @@ def get_yield_30d(fondo_name: str, categoria: str) -> float:
                         return round(float(tna), 4)
 
         # Fallback: penúltimo vs último (estimación menos precisa)
-        r2 = httpx.get(f"{ARGDATA_BASE}/{categoria}/penultimo",
-                       headers=_HEADERS, timeout=10)
+        r2 = httpx.get(
+            f"{ARGDATA_BASE}/{categoria}/penultimo", headers=_HEADERS, timeout=10
+        )
         if r2.is_success:
             for f in r2.json():
                 if f.get("fondo", "").lower() == fondo_name.lower():

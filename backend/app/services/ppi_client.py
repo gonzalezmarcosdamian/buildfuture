@@ -5,6 +5,7 @@ Docs: https://itatppi.github.io/ppi-official-api-docs/
 Sandbox:    https://clientapi_sandbox.portfoliopersonal.com
 Production: https://clientapi.portfoliopersonal.com
 """
+
 import logging
 import re
 import httpx
@@ -13,24 +14,39 @@ from decimal import Decimal
 
 logger = logging.getLogger("buildfuture.ppi")
 
-PPI_BASE_PROD    = "https://clientapi.portfoliopersonal.com"
+PPI_BASE_PROD = "https://clientapi.portfoliopersonal.com"
 PPI_BASE_SANDBOX = "https://clientapi_sandbox.portfoliopersonal.com"
 
 DEFAULT_YIELDS: dict[str, Decimal] = {
-    "cedear":  Decimal("0.10"),
-    "stock":   Decimal("0.10"),
-    "bond":    Decimal("0.09"),
-    "letra":   Decimal("0.68"),
-    "etf":     Decimal("0.10"),
+    "cedear": Decimal("0.10"),
+    "stock": Decimal("0.10"),
+    "bond": Decimal("0.09"),
+    "letra": Decimal("0.68"),
+    "etf": Decimal("0.10"),
     "default": Decimal("0.08"),
 }
 
 # Bonos soberanos que cotizan en USD en el mercado BYMA
-_USD_BOND_TICKERS: frozenset[str] = frozenset({
-    "AL29", "AL29D", "AL30", "AL30D", "AL35", "AL35D", "AL41", "AL41D",
-    "GD29", "GD30", "GD35", "GD38", "GD41", "GD46",
-    "AE38", "AE38D",
-})
+_USD_BOND_TICKERS: frozenset[str] = frozenset(
+    {
+        "AL29",
+        "AL29D",
+        "AL30",
+        "AL30D",
+        "AL35",
+        "AL35D",
+        "AL41",
+        "AL41D",
+        "GD29",
+        "GD30",
+        "GD35",
+        "GD38",
+        "GD41",
+        "GD46",
+        "AE38",
+        "AE38D",
+    }
+)
 
 # Patrón de LECAPs/LETEs: S31G6, S15Y6, S14N5, etc.
 _LETRA_TICKER_RE = re.compile(r"^S\d{2}[A-Z]\d$")
@@ -40,10 +56,10 @@ _LETRA_TICKER_RE = re.compile(r"^S\d{2}[A-Z]\d$")
 class PPIPosition:
     ticker: str
     description: str
-    asset_type: str            # CEDEAR | BOND | LETRA | STOCK | ETF | CAUCION
+    asset_type: str  # CEDEAR | BOND | LETRA | STOCK | ETF | CAUCION
     quantity: Decimal
     current_price_usd: Decimal
-    avg_price_usd: Decimal     # sobreescrito con cost-basis real desde operaciones
+    avg_price_usd: Decimal  # sobreescrito con cost-basis real desde operaciones
     annual_yield_pct: Decimal
     ppc_ars: Decimal = field(default_factory=lambda: Decimal("0"))
     current_value_ars: Decimal = field(default_factory=lambda: Decimal("0"))
@@ -54,6 +70,7 @@ class PPIAuthError(Exception):
 
 
 _MOCK_PREFIX = "mock-"
+
 
 def _mock_portfolio() -> list["PPIPosition"]:
     """Portafolio falso para testing visual sin credenciales reales."""
@@ -134,7 +151,9 @@ class PPIClient:
         except httpx.TimeoutException:
             raise PPIAuthError("Timeout conectando con PPI")
 
-        logger.info("PPI auth response: status=%s body=%s", resp.status_code, resp.text[:300])
+        logger.info(
+            "PPI auth response: status=%s body=%s", resp.status_code, resp.text[:300]
+        )
 
         if resp.status_code in (400, 401):
             ppi_msg = resp.text[:300]
@@ -150,7 +169,7 @@ class PPIClient:
         except Exception:
             raise PPIAuthError(f"Respuesta inesperada de PPI: {resp.text[:200]}")
 
-        self._access_token  = data.get("accessToken")  or data.get("access_token")
+        self._access_token = data.get("accessToken") or data.get("access_token")
         self._refresh_token = data.get("refreshToken") or data.get("refresh_token")
 
         if not self._access_token:
@@ -185,15 +204,19 @@ class PPIClient:
             )
             if resp.status_code == 200:
                 data = resp.json()
-                self._access_token  = data.get("accessToken",  self._access_token)
+                self._access_token = data.get("accessToken", self._access_token)
                 self._refresh_token = data.get("refreshToken", self._refresh_token)
             else:
-                logger.warning("PPI refresh falló (%s) — re-autenticando", resp.status_code)
+                logger.warning(
+                    "PPI refresh falló (%s) — re-autenticando", resp.status_code
+                )
                 self.authenticate()
         except Exception:
             self.authenticate()
 
-    def _get(self, path: str, params: dict | None = None, retry: bool = True) -> dict | list:
+    def _get(
+        self, path: str, params: dict | None = None, retry: bool = True
+    ) -> dict | list:
         url = f"{self._base}{path}"
         logger.debug("GET %s params=%s", url, params)
         resp = httpx.get(url, headers=self._headers(), params=params, timeout=20)
@@ -212,7 +235,13 @@ class PPIClient:
     def get_accounts(self) -> list[dict]:
         """Lista de cuentas disponibles del usuario."""
         if self._mock:
-            return [{"accountNumber": "99999999", "name": "Cuenta Mock PPI", "type": "INVERSION"}]
+            return [
+                {
+                    "accountNumber": "99999999",
+                    "name": "Cuenta Mock PPI",
+                    "type": "INVERSION",
+                }
+            ]
         data = self._get("/api/1.0/Account/Accounts")
         if isinstance(data, list):
             return data
@@ -240,7 +269,9 @@ class PPIClient:
             if "500" in str(e) and "Internal Error" in str(e):
                 # PPI devuelve 500 "Internal Error" cuando la cuenta está vacía (sin posiciones).
                 # Es un bug del lado de PPI — lo tratamos como portafolio vacío.
-                logger.warning("PPI BalancesAndPositions 500 — cuenta posiblemente vacía, retornando []")
+                logger.warning(
+                    "PPI BalancesAndPositions 500 — cuenta posiblemente vacía, retornando []"
+                )
                 return []
             raise
         logger.info("PPI portafolio recibido | MEP=%.0f", mep)
@@ -260,53 +291,70 @@ class PPIClient:
                 if not ticker:
                     continue
 
-                quantity  = Decimal(str(inst.get("quantity",  inst.get("cantidad", 0))))
+                quantity = Decimal(str(inst.get("quantity", inst.get("cantidad", 0))))
                 if quantity <= 0:
                     continue
 
                 description = str(inst.get("name", inst.get("nombre", ticker)))
-                price_raw   = Decimal(str(inst.get("price",  inst.get("precio", 0))))
-                amount_raw  = Decimal(str(inst.get("amount", inst.get("monto",  0))))
+                price_raw = Decimal(str(inst.get("price", inst.get("precio", 0))))
+                amount_raw = Decimal(str(inst.get("amount", inst.get("monto", 0))))
 
                 asset_type = _normalize_asset_type(group_name, ticker)
-                is_usd     = _is_usd_instrument(ticker, group_name)
+                is_usd = _is_usd_instrument(ticker, group_name)
 
                 if is_usd:
-                    price_per_unit = price_raw if price_raw > 0 else (
-                        amount_raw / quantity if quantity > 0 else Decimal("0")
+                    price_per_unit = (
+                        price_raw
+                        if price_raw > 0
+                        else (amount_raw / quantity if quantity > 0 else Decimal("0"))
                     )
                     current_price_usd = price_per_unit
                     current_value_ars = current_price_usd * mep_dec
                     ppc_ars = Decimal("0")
                 else:
                     # Precio en ARS → dividir por MEP
-                    price_ars = price_raw if price_raw > 0 else (
-                        amount_raw / quantity if quantity > 0 else Decimal("0")
+                    price_ars = (
+                        price_raw
+                        if price_raw > 0
+                        else (amount_raw / quantity if quantity > 0 else Decimal("0"))
                     )
-                    current_price_usd = price_ars / mep_dec if mep_dec > 0 else Decimal("0")
-                    current_value_ars = amount_raw if amount_raw > 0 else price_ars * quantity
+                    current_price_usd = (
+                        price_ars / mep_dec if mep_dec > 0 else Decimal("0")
+                    )
+                    current_value_ars = (
+                        amount_raw if amount_raw > 0 else price_ars * quantity
+                    )
                     ppc_ars = price_ars  # precio crudo en ARS para cost-basis
 
-                yield_key    = asset_type.lower() if asset_type.lower() in DEFAULT_YIELDS else "default"
+                yield_key = (
+                    asset_type.lower()
+                    if asset_type.lower() in DEFAULT_YIELDS
+                    else "default"
+                )
                 annual_yield = DEFAULT_YIELDS[yield_key]
 
                 logger.info(
                     "  PPI %s (%s) cant=%.4f USD=%.4f yield=%.0f%%",
-                    ticker, asset_type, float(quantity),
-                    float(current_price_usd), float(annual_yield) * 100,
+                    ticker,
+                    asset_type,
+                    float(quantity),
+                    float(current_price_usd),
+                    float(annual_yield) * 100,
                 )
 
-                positions.append(PPIPosition(
-                    ticker=ticker,
-                    description=description,
-                    asset_type=asset_type,
-                    quantity=quantity,
-                    current_price_usd=current_price_usd,
-                    avg_price_usd=current_price_usd,   # placeholder — se reemplaza con MEP compra
-                    annual_yield_pct=annual_yield,
-                    ppc_ars=ppc_ars,
-                    current_value_ars=current_value_ars,
-                ))
+                positions.append(
+                    PPIPosition(
+                        ticker=ticker,
+                        description=description,
+                        asset_type=asset_type,
+                        quantity=quantity,
+                        current_price_usd=current_price_usd,
+                        avg_price_usd=current_price_usd,  # placeholder — se reemplaza con MEP compra
+                        annual_yield_pct=annual_yield,
+                        ppc_ars=ppc_ars,
+                        current_value_ars=current_value_ars,
+                    )
+                )
 
         return positions
 
@@ -346,9 +394,9 @@ class PPIClient:
 
         seen_settlements: set[str] = set()
         for item in items:
-            name       = str(item.get("name", "")).upper()
-            symbol     = str(item.get("symbol", "")).upper()
-            amount     = Decimal(str(item.get("amount", 0)))
+            name = str(item.get("name", "")).upper()
+            symbol = str(item.get("symbol", "")).upper()
+            amount = Decimal(str(item.get("amount", 0)))
             settlement = str(item.get("settlement", ""))
             # Contar solo INMEDIATA para no triplicar el saldo
             if settlement and settlement != "INMEDIATA":
@@ -414,8 +462,8 @@ class PPIClient:
                 timeout=8,
             )
             if r.status_code == 200:
-                data    = r.json()
-                blue    = data.get("blue", {}).get("value_sell", 0)
+                data = r.json()
+                blue = data.get("blue", {}).get("value_sell", 0)
                 oficial = data.get("official", {}).get("value_sell", 0)
                 if blue and oficial:
                     mep = float((blue + oficial) / 2)
@@ -427,6 +475,7 @@ class PPIClient:
 
 
 # ── Helpers de normalización (module-level) ────────────────────────────────────
+
 
 def _is_usd_instrument(ticker: str, group_name: str) -> bool:
     """
@@ -441,7 +490,9 @@ def _is_usd_instrument(ticker: str, group_name: str) -> bool:
     if t in _USD_BOND_TICKERS:
         return True
     g = group_name.upper()
-    if g == "BONOS" and (t.startswith("AL") or t.startswith("GD") or t.startswith("AE")):
+    if g == "BONOS" and (
+        t.startswith("AL") or t.startswith("GD") or t.startswith("AE")
+    ):
         return True
     return False
 

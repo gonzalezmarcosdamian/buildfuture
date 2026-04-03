@@ -3,6 +3,7 @@ Supabase JWT auth dependency.
 Supabase uses ES256 — verifies via JWKS endpoint.
 Falls back to SEED_USER_ID in local dev (no SUPABASE_URL set).
 """
+
 import os
 import logging
 import httpx
@@ -16,16 +17,16 @@ load_dotenv()
 logger = logging.getLogger("buildfuture.auth")
 
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
-DEV_USER_ID  = os.getenv("SEED_USER_ID", "00000000-0000-0000-0000-000000000001")
+DEV_USER_ID = os.getenv("SEED_USER_ID", "00000000-0000-0000-0000-000000000001")
 
 # Mapa de alias → UUID para dev local multi-usuario (X-Mock-User header)
 MOCK_USER_MAP: dict[str, str] = {
-    "marcos":       "00000000-0000-0000-0000-000000000001",
-    "matiasmoron":  "00000000-0000-0000-0000-000000000010",
-    "nuevo":        "00000000-0000-0000-0000-000000000020",
-    "renta":        "00000000-0000-0000-0000-000000000030",
-    "capital":      "00000000-0000-0000-0000-000000000040",
-    "mixto":        "00000000-0000-0000-0000-000000000050",
+    "marcos": "00000000-0000-0000-0000-000000000001",
+    "matiasmoron": "00000000-0000-0000-0000-000000000010",
+    "nuevo": "00000000-0000-0000-0000-000000000020",
+    "renta": "00000000-0000-0000-0000-000000000030",
+    "capital": "00000000-0000-0000-0000-000000000040",
+    "mixto": "00000000-0000-0000-0000-000000000050",
 }
 
 _bearer = HTTPBearer(auto_error=False)
@@ -70,15 +71,17 @@ def get_current_user(
         )
 
     token = credentials.credentials
-    keys  = _get_jwks()
+    keys = _get_jwks()
 
     if not keys:
-        raise HTTPException(status_code=503, detail="Auth service temporarily unavailable")
+        raise HTTPException(
+            status_code=503, detail="Auth service temporarily unavailable"
+        )
 
     try:
         header = jwt.get_unverified_header(token)
-        kid    = header.get("kid")
-        key    = next((k for k in keys if k.get("kid") == kid), keys[0])
+        kid = header.get("kid")
+        key = next((k for k in keys if k.get("kid") == kid), keys[0])
 
         payload = jwt.decode(
             token,

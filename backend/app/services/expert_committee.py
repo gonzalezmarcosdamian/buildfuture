@@ -29,14 +29,15 @@ MARKET_CACHE_TTL = 3600
 
 # ── Instrumento con datos enriquecidos ────────────────────────────────────────
 
+
 @dataclass
 class Instrument:
     ticker: str
     name: str
-    asset_type: str        # LETRA | CEDEAR | BOND | ON | FCI
-    currency: str          # ARS | USD
+    asset_type: str  # LETRA | CEDEAR | BOND | ON | FCI
+    currency: str  # ARS | USD
     base_yield_pct: float
-    risk_level: str        # bajo | medio | alto
+    risk_level: str  # bajo | medio | alto
     min_capital_ars: float
     mercado: str = "bCBA"
     # Factores de afinidad por agente (0-1)
@@ -56,26 +57,26 @@ class Instrument:
 
 _LOGO_MAP: dict[str, str] = {
     # CEDEARs — subyacente US/latam
-    "MELI":   "https://logo.clearbit.com/mercadolibre.com",
-    "SPY":    "https://logo.clearbit.com/ssga.com",
-    "QQQ":    "https://logo.clearbit.com/invesco.com",
-    "XLE":    "https://logo.clearbit.com/ssga.com",
-    "GGAL":   "https://logo.clearbit.com/grupogalicia.com.ar",
-    "YPFD":   "https://logo.clearbit.com/ypf.com",
-    "VIST":   "https://logo.clearbit.com/vistaenergy.com",
-    "GLOB":   "https://logo.clearbit.com/globant.com",
+    "MELI": "https://logo.clearbit.com/mercadolibre.com",
+    "SPY": "https://logo.clearbit.com/ssga.com",
+    "QQQ": "https://logo.clearbit.com/invesco.com",
+    "XLE": "https://logo.clearbit.com/ssga.com",
+    "GGAL": "https://logo.clearbit.com/grupogalicia.com.ar",
+    "YPFD": "https://logo.clearbit.com/ypf.com",
+    "VIST": "https://logo.clearbit.com/vistaenergy.com",
+    "GLOB": "https://logo.clearbit.com/globant.com",
     # ONs — empresa emisora
-    "YCA6O":  "https://logo.clearbit.com/ypf.com",
-    "YMCJO":  "https://logo.clearbit.com/ypf.com",
-    "TLCMO":  "https://logo.clearbit.com/telecom.com.ar",
+    "YCA6O": "https://logo.clearbit.com/ypf.com",
+    "YMCJO": "https://logo.clearbit.com/ypf.com",
+    "TLCMO": "https://logo.clearbit.com/telecom.com.ar",
     # Soberanos
-    "AL30":   "https://flagcdn.com/w40/ar.png",
-    "GD30":   "https://flagcdn.com/w40/ar.png",
-    "GD35":   "https://flagcdn.com/w40/ar.png",
+    "AL30": "https://flagcdn.com/w40/ar.png",
+    "GD30": "https://flagcdn.com/w40/ar.png",
+    "GD35": "https://flagcdn.com/w40/ar.png",
     # LECAPs — BCRA
-    "S15Y6":  "https://logo.clearbit.com/bcra.gob.ar",
-    "S29J6":  "https://logo.clearbit.com/bcra.gob.ar",
-    "S31G6":  "https://logo.clearbit.com/bcra.gob.ar",
+    "S15Y6": "https://logo.clearbit.com/bcra.gob.ar",
+    "S29J6": "https://logo.clearbit.com/bcra.gob.ar",
+    "S31G6": "https://logo.clearbit.com/bcra.gob.ar",
     # FCI
     "IOLCAMA": "https://logo.clearbit.com/invertironline.com",
 }
@@ -93,187 +94,307 @@ _LOGO_MAP: dict[str, str] = {
 # Actualizable sin cambiar la lógica del comité.
 
 UNIVERSE: list[Instrument] = [
-
     # ── FCI Money Market ─────────────────────────────────────────────────────
     Instrument(
-        ticker="IOLCAMA", name="Fondo Común Money Market ARS",
-        asset_type="FCI", currency="ARS",
-        base_yield_pct=0.64, risk_level="bajo", min_capital_ars=1_000,
-        affinity_carry=0.9, affinity_dolar=0.05, affinity_renta_fija=0.2,
+        ticker="IOLCAMA",
+        name="Fondo Común Money Market ARS",
+        asset_type="FCI",
+        currency="ARS",
+        base_yield_pct=0.64,
+        risk_level="bajo",
+        min_capital_ars=1_000,
+        affinity_carry=0.9,
+        affinity_dolar=0.05,
+        affinity_renta_fija=0.2,
         tags=["money_market", "liquidez_diaria", "capital_garantizado", "fci"],
-        job="renta", liquidity_score=1.0,
+        job="renta",
+        liquidity_score=1.0,
         logo_url=_LOGO_MAP["IOLCAMA"],
     ),
-
     # ── LECAPs (Letras de Capitalización del Tesoro) ─────────────────────────
     # Más operadas en BYMA por volumen — duration corto→largo
     Instrument(
-        ticker="S15Y6", name="LECAP May-26",
-        asset_type="LETRA", currency="ARS",
-        base_yield_pct=0.68, risk_level="bajo", min_capital_ars=10_000,
-        affinity_carry=1.0, affinity_dolar=0.1, affinity_renta_fija=0.4,
+        ticker="S15Y6",
+        name="LECAP May-26",
+        asset_type="LETRA",
+        currency="ARS",
+        base_yield_pct=0.68,
+        risk_level="bajo",
+        min_capital_ars=10_000,
+        affinity_carry=1.0,
+        affinity_dolar=0.1,
+        affinity_renta_fija=0.4,
         tags=["carry", "capital_garantizado", "corto_plazo"],
-        job="renta", liquidity_score=0.95,
+        job="renta",
+        liquidity_score=0.95,
         logo_url=_LOGO_MAP["S15Y6"],
     ),
     Instrument(
-        ticker="S29J6", name="LECAP Jun-26",
-        asset_type="LETRA", currency="ARS",
-        base_yield_pct=0.67, risk_level="bajo", min_capital_ars=10_000,
-        affinity_carry=0.95, affinity_dolar=0.1, affinity_renta_fija=0.4,
+        ticker="S29J6",
+        name="LECAP Jun-26",
+        asset_type="LETRA",
+        currency="ARS",
+        base_yield_pct=0.67,
+        risk_level="bajo",
+        min_capital_ars=10_000,
+        affinity_carry=0.95,
+        affinity_dolar=0.1,
+        affinity_renta_fija=0.4,
         tags=["carry", "capital_garantizado", "corto_plazo"],
-        job="renta", liquidity_score=0.88,
+        job="renta",
+        liquidity_score=0.88,
         logo_url=_LOGO_MAP["S29J6"],
     ),
     Instrument(
-        ticker="S31G6", name="LECAP Ago-26",
-        asset_type="LETRA", currency="ARS",
-        base_yield_pct=0.66, risk_level="bajo", min_capital_ars=10_000,
-        affinity_carry=0.9, affinity_dolar=0.1, affinity_renta_fija=0.4,
+        ticker="S31G6",
+        name="LECAP Ago-26",
+        asset_type="LETRA",
+        currency="ARS",
+        base_yield_pct=0.66,
+        risk_level="bajo",
+        min_capital_ars=10_000,
+        affinity_carry=0.9,
+        affinity_dolar=0.1,
+        affinity_renta_fija=0.4,
         tags=["carry", "capital_garantizado", "mediano_plazo"],
-        job="renta", liquidity_score=0.90,
+        job="renta",
+        liquidity_score=0.90,
         logo_url=_LOGO_MAP["S31G6"],
     ),
-
     # ── ONs corporativas hard dollar ──────────────────────────────────────────
     # Renta fija privada: menor riesgo que soberano, flujo en USD real
     Instrument(
-        ticker="YCA6O", name="YPF ON USD 2026",
-        asset_type="ON", currency="USD",
-        base_yield_pct=0.085, risk_level="bajo", min_capital_ars=50_000,
-        affinity_carry=0.1, affinity_dolar=0.6, affinity_renta_fija=0.95,
+        ticker="YCA6O",
+        name="YPF ON USD 2026",
+        asset_type="ON",
+        currency="USD",
+        base_yield_pct=0.085,
+        risk_level="bajo",
+        min_capital_ars=50_000,
+        affinity_carry=0.1,
+        affinity_dolar=0.6,
+        affinity_renta_fija=0.95,
         tags=["on", "hard_dollar", "ypf", "vaca_muerta", "flujo_fijo"],
-        job="renta", liquidity_score=0.92,
+        job="renta",
+        liquidity_score=0.92,
         logo_url=_LOGO_MAP["YCA6O"],
     ),
     Instrument(
-        ticker="TLCMO", name="Telecom ON USD 2026",
-        asset_type="ON", currency="USD",
-        base_yield_pct=0.07, risk_level="bajo", min_capital_ars=50_000,
-        affinity_carry=0.1, affinity_dolar=0.55, affinity_renta_fija=0.90,
+        ticker="TLCMO",
+        name="Telecom ON USD 2026",
+        asset_type="ON",
+        currency="USD",
+        base_yield_pct=0.07,
+        risk_level="bajo",
+        min_capital_ars=50_000,
+        affinity_carry=0.1,
+        affinity_dolar=0.55,
+        affinity_renta_fija=0.90,
         tags=["on", "hard_dollar", "telecom", "flujo_fijo"],
-        job="renta", liquidity_score=0.80,
+        job="renta",
+        liquidity_score=0.80,
         logo_url=_LOGO_MAP["TLCMO"],
     ),
     Instrument(
-        ticker="YMCJO", name="YPF ON USD 2029",
-        asset_type="ON", currency="USD",
-        base_yield_pct=0.09, risk_level="medio", min_capital_ars=50_000,
-        affinity_carry=0.1, affinity_dolar=0.6, affinity_renta_fija=0.88,
+        ticker="YMCJO",
+        name="YPF ON USD 2029",
+        asset_type="ON",
+        currency="USD",
+        base_yield_pct=0.09,
+        risk_level="medio",
+        min_capital_ars=50_000,
+        affinity_carry=0.1,
+        affinity_dolar=0.6,
+        affinity_renta_fija=0.88,
         tags=["on", "hard_dollar", "ypf", "duration_media"],
-        job="renta", liquidity_score=0.75,
+        job="renta",
+        liquidity_score=0.75,
         logo_url=_LOGO_MAP["YMCJO"],
     ),
-
     # ── Bonos soberanos (renta + upside capital) ──────────────────────────────
     Instrument(
-        ticker="AL30", name="Bono Soberano AL30",
-        asset_type="BOND", currency="USD",
-        base_yield_pct=0.16, risk_level="alto", min_capital_ars=30_000,
-        affinity_carry=0.2, affinity_dolar=0.8, affinity_renta_fija=0.9,
+        ticker="AL30",
+        name="Bono Soberano AL30",
+        asset_type="BOND",
+        currency="USD",
+        base_yield_pct=0.16,
+        risk_level="alto",
+        min_capital_ars=30_000,
+        affinity_carry=0.2,
+        affinity_dolar=0.8,
+        affinity_renta_fija=0.9,
         tags=["high_yield", "soberano", "spread_compression", "ley_ar"],
-        job="ambos", liquidity_score=0.98,
+        job="ambos",
+        liquidity_score=0.98,
         logo_url=_LOGO_MAP["AL30"],
     ),
     Instrument(
-        ticker="GD30", name="Bono Soberano GD30 (ley NY)",
-        asset_type="BOND", currency="USD",
-        base_yield_pct=0.14, risk_level="alto", min_capital_ars=30_000,
-        affinity_carry=0.2, affinity_dolar=0.8, affinity_renta_fija=0.9,
+        ticker="GD30",
+        name="Bono Soberano GD30 (ley NY)",
+        asset_type="BOND",
+        currency="USD",
+        base_yield_pct=0.14,
+        risk_level="alto",
+        min_capital_ars=30_000,
+        affinity_carry=0.2,
+        affinity_dolar=0.8,
+        affinity_renta_fija=0.9,
         tags=["high_yield", "ley_ny", "soberano", "institucional"],
-        job="ambos", liquidity_score=0.92,
+        job="ambos",
+        liquidity_score=0.92,
         logo_url=_LOGO_MAP["GD30"],
     ),
     Instrument(
-        ticker="GD35", name="Bono Soberano GD35 (ley NY)",
-        asset_type="BOND", currency="USD",
-        base_yield_pct=0.18, risk_level="alto", min_capital_ars=30_000,
-        affinity_carry=0.15, affinity_dolar=0.8, affinity_renta_fija=0.85,
+        ticker="GD35",
+        name="Bono Soberano GD35 (ley NY)",
+        asset_type="BOND",
+        currency="USD",
+        base_yield_pct=0.18,
+        risk_level="alto",
+        min_capital_ars=30_000,
+        affinity_carry=0.15,
+        affinity_dolar=0.8,
+        affinity_renta_fija=0.85,
         tags=["high_yield", "ley_ny", "soberano", "largo_plazo"],
-        job="ambos", liquidity_score=0.82,
+        job="ambos",
+        liquidity_score=0.82,
         logo_url=_LOGO_MAP["GD35"],
     ),
-
     # ── CEDEARs — dolarización via mercado de capitales ───────────────────────
-
     # MercadoLibre: el más operado de Argentina por volumen nominal
     Instrument(
-        ticker="MELI", name="CEDEAR MercadoLibre",
-        asset_type="CEDEAR", currency="USD",
-        base_yield_pct=0.22, risk_level="medio", min_capital_ars=10_000,
-        affinity_carry=0.05, affinity_dolar=0.95, affinity_renta_fija=0.0,
+        ticker="MELI",
+        name="CEDEAR MercadoLibre",
+        asset_type="CEDEAR",
+        currency="USD",
+        base_yield_pct=0.22,
+        risk_level="medio",
+        min_capital_ars=10_000,
+        affinity_carry=0.05,
+        affinity_dolar=0.95,
+        affinity_renta_fija=0.0,
         tags=["dolarizacion", "tech_latam", "lider_regional", "largo_plazo"],
-        job="capital", liquidity_score=1.0,
+        job="capital",
+        liquidity_score=1.0,
         logo_url=_LOGO_MAP["MELI"],
     ),
     # S&P 500: broad market defensivo, bajo tracking error
     Instrument(
-        ticker="SPY", name="CEDEAR S&P 500",
-        asset_type="CEDEAR", currency="USD",
-        base_yield_pct=0.12, risk_level="medio", min_capital_ars=15_000,
-        affinity_carry=0.1, affinity_dolar=0.9, affinity_renta_fija=0.0,
+        ticker="SPY",
+        name="CEDEAR S&P 500",
+        asset_type="CEDEAR",
+        currency="USD",
+        base_yield_pct=0.12,
+        risk_level="medio",
+        min_capital_ars=15_000,
+        affinity_carry=0.1,
+        affinity_dolar=0.9,
+        affinity_renta_fija=0.0,
         tags=["dolarizacion", "mercado_usa", "largo_plazo", "defensivo"],
-        job="capital", liquidity_score=0.95,
+        job="capital",
+        liquidity_score=0.95,
         logo_url=_LOGO_MAP["SPY"],
     ),
     # Nasdaq 100: concentrado en tech megacap
     Instrument(
-        ticker="QQQ", name="CEDEAR Nasdaq 100",
-        asset_type="CEDEAR", currency="USD",
-        base_yield_pct=0.15, risk_level="medio", min_capital_ars=20_000,
-        affinity_carry=0.1, affinity_dolar=1.0, affinity_renta_fija=0.0,
+        ticker="QQQ",
+        name="CEDEAR Nasdaq 100",
+        asset_type="CEDEAR",
+        currency="USD",
+        base_yield_pct=0.15,
+        risk_level="medio",
+        min_capital_ars=20_000,
+        affinity_carry=0.1,
+        affinity_dolar=1.0,
+        affinity_renta_fija=0.0,
         tags=["dolarizacion", "tech_usa", "largo_plazo"],
-        job="capital", liquidity_score=0.92,
+        job="capital",
+        liquidity_score=0.92,
         logo_url=_LOGO_MAP["QQQ"],
     ),
     # Galicia: proxy ciclo crediticio AR, alta beta al proceso de normalización
     Instrument(
-        ticker="GGAL", name="CEDEAR Galicia",
-        asset_type="CEDEAR", currency="USD",
-        base_yield_pct=0.25, risk_level="alto", min_capital_ars=10_000,
-        affinity_carry=0.1, affinity_dolar=0.75, affinity_renta_fija=0.0,
+        ticker="GGAL",
+        name="CEDEAR Galicia",
+        asset_type="CEDEAR",
+        currency="USD",
+        base_yield_pct=0.25,
+        risk_level="alto",
+        min_capital_ars=10_000,
+        affinity_carry=0.1,
+        affinity_dolar=0.75,
+        affinity_renta_fija=0.0,
         tags=["bancos_ar", "beta_alto", "ciclo_credito", "normalizacion"],
-        job="capital", liquidity_score=0.93,
+        job="capital",
+        liquidity_score=0.93,
         logo_url=_LOGO_MAP["GGAL"],
     ),
     # YPF equity: proxy directo Vaca Muerta, más líquido que VIST
     Instrument(
-        ticker="YPFD", name="CEDEAR YPF",
-        asset_type="CEDEAR", currency="USD",
-        base_yield_pct=0.20, risk_level="alto", min_capital_ars=10_000,
-        affinity_carry=0.05, affinity_dolar=0.8, affinity_renta_fija=0.0,
+        ticker="YPFD",
+        name="CEDEAR YPF",
+        asset_type="CEDEAR",
+        currency="USD",
+        base_yield_pct=0.20,
+        risk_level="alto",
+        min_capital_ars=10_000,
+        affinity_carry=0.05,
+        affinity_dolar=0.8,
+        affinity_renta_fija=0.0,
         tags=["energia", "vaca_muerta", "hidrocarburos", "exportaciones"],
-        job="capital", liquidity_score=0.88,
+        job="capital",
+        liquidity_score=0.88,
         logo_url=_LOGO_MAP["YPFD"],
     ),
     # XLE: energía global diversificada, menos volátil que VIST/YPFD
     Instrument(
-        ticker="XLE", name="CEDEAR XLE Energy ETF",
-        asset_type="CEDEAR", currency="USD",
-        base_yield_pct=0.115, risk_level="medio", min_capital_ars=15_000,
-        affinity_carry=0.1, affinity_dolar=0.8, affinity_renta_fija=0.0,
+        ticker="XLE",
+        name="CEDEAR XLE Energy ETF",
+        asset_type="CEDEAR",
+        currency="USD",
+        base_yield_pct=0.115,
+        risk_level="medio",
+        min_capital_ars=15_000,
+        affinity_carry=0.1,
+        affinity_dolar=0.8,
+        affinity_renta_fija=0.0,
         tags=["energia", "commodities", "global", "defensivo"],
-        job="capital", liquidity_score=0.78,
+        job="capital",
+        liquidity_score=0.78,
         logo_url=_LOGO_MAP["XLE"],
     ),
     # Vista Energy: puro Vaca Muerta, mayor beta que YPFD
     Instrument(
-        ticker="VIST", name="CEDEAR Vista Energy",
-        asset_type="CEDEAR", currency="USD",
-        base_yield_pct=0.28, risk_level="alto", min_capital_ars=10_000,
-        affinity_carry=0.05, affinity_dolar=0.7, affinity_renta_fija=0.0,
+        ticker="VIST",
+        name="CEDEAR Vista Energy",
+        asset_type="CEDEAR",
+        currency="USD",
+        base_yield_pct=0.28,
+        risk_level="alto",
+        min_capital_ars=10_000,
+        affinity_carry=0.05,
+        affinity_dolar=0.7,
+        affinity_renta_fija=0.0,
         tags=["energia", "vaca_muerta", "beta_alto", "crecimiento"],
-        job="capital", liquidity_score=0.72,
+        job="capital",
+        liquidity_score=0.72,
         logo_url=_LOGO_MAP["VIST"],
     ),
     # Globant: tech latam, lider en servicios digitales
     Instrument(
-        ticker="GLOB", name="CEDEAR Globant",
-        asset_type="CEDEAR", currency="USD",
-        base_yield_pct=0.18, risk_level="medio", min_capital_ars=15_000,
-        affinity_carry=0.05, affinity_dolar=0.85, affinity_renta_fija=0.0,
+        ticker="GLOB",
+        name="CEDEAR Globant",
+        asset_type="CEDEAR",
+        currency="USD",
+        base_yield_pct=0.18,
+        risk_level="medio",
+        min_capital_ars=15_000,
+        affinity_carry=0.05,
+        affinity_dolar=0.85,
+        affinity_renta_fija=0.0,
         tags=["tech_latam", "servicios_digitales", "exportaciones", "largo_plazo"],
-        job="capital", liquidity_score=0.70,
+        job="capital",
+        liquidity_score=0.70,
         logo_url=_LOGO_MAP.get("GLOB", ""),
     ),
 ]
@@ -281,12 +402,13 @@ UNIVERSE: list[Instrument] = [
 
 # ── Resultado de un agente ────────────────────────────────────────────────────
 
+
 @dataclass
 class AgentVote:
     agent: str
-    scores: dict[str, float]   # ticker → score
+    scores: dict[str, float]  # ticker → score
     rationale: str
-    conviction: float           # 0-1
+    conviction: float  # 0-1
     key_signal: str
 
 
@@ -294,27 +416,37 @@ class AgentVote:
 
 AGENT_WEIGHTS: dict[str, dict[str, float]] = {
     "conservador": {
-        "Carry ARS": 0.35, "Dolarizacion": 0.20,
-        "Renta Fija": 0.20, "Diversificacion": 0.10, "Macro": 0.15,
+        "Carry ARS": 0.35,
+        "Dolarizacion": 0.20,
+        "Renta Fija": 0.20,
+        "Diversificacion": 0.10,
+        "Macro": 0.15,
     },
     "moderado": {
-        "Carry ARS": 0.25, "Dolarizacion": 0.25,
-        "Renta Fija": 0.25, "Diversificacion": 0.10, "Macro": 0.15,
+        "Carry ARS": 0.25,
+        "Dolarizacion": 0.25,
+        "Renta Fija": 0.25,
+        "Diversificacion": 0.10,
+        "Macro": 0.15,
     },
     "agresivo": {
-        "Carry ARS": 0.10, "Dolarizacion": 0.35,
-        "Renta Fija": 0.30, "Diversificacion": 0.10, "Macro": 0.15,
+        "Carry ARS": 0.10,
+        "Dolarizacion": 0.35,
+        "Renta Fija": 0.30,
+        "Diversificacion": 0.10,
+        "Macro": 0.15,
     },
 }
 
 RISK_PROFILE_FILTERS: dict[str, dict[str, float]] = {
     "conservador": {"bajo": 1.5, "medio": 0.4, "alto": 0.0},
-    "moderado":    {"bajo": 1.0, "medio": 1.1, "alto": 0.7},
-    "agresivo":    {"bajo": 0.3, "medio": 0.9, "alto": 1.6},
+    "moderado": {"bajo": 1.0, "medio": 1.1, "alto": 0.7},
+    "agresivo": {"bajo": 0.3, "medio": 0.9, "alto": 1.6},
 }
 
 
 # ── Fetch de datos de mercado ─────────────────────────────────────────────────
+
 
 def _fetch_market() -> dict:
     cache_key = "market"
@@ -323,13 +455,15 @@ def _fetch_market() -> dict:
             return _market_cache[cache_key]["data"]
 
     data = {
-        "mep": 1431.0, "blue": 1415.0, "oficial": 1354.0,
+        "mep": 1431.0,
+        "blue": 1415.0,
+        "oficial": 1354.0,
         "spread_pct": 5.7,
         "lecap_tna": 68.0,
         "inflation_monthly": 2.5,
         "tasa_real_mensual": 3.2,
         "riesgo_pais": 700,
-        "merval_trend": 0.0,   # % variación últimos 5 días (positivo = suba)
+        "merval_trend": 0.0,  # % variación últimos 5 días (positivo = suba)
         "sources": [],
     }
 
@@ -345,9 +479,16 @@ def _fetch_market() -> dict:
                 data["blue"] = d.get("venta") or data["blue"]
             elif casa == "oficial":
                 data["oficial"] = d.get("venta") or data["oficial"]
-        data["spread_pct"] = round((data["mep"] - data["oficial"]) / data["oficial"] * 100, 1)
+        data["spread_pct"] = round(
+            (data["mep"] - data["oficial"]) / data["oficial"] * 100, 1
+        )
         data["sources"].append("dolarapi")
-        logger.info("MEP=%.0f Blue=%.0f spread=%.1f%%", data["mep"], data["blue"], data["spread_pct"])
+        logger.info(
+            "MEP=%.0f Blue=%.0f spread=%.1f%%",
+            data["mep"],
+            data["blue"],
+            data["spread_pct"],
+        )
     except Exception as e:
         logger.warning("dolarapi fallo: %s", e)
 
@@ -355,7 +496,8 @@ def _fetch_market() -> dict:
     try:
         r = httpx.get(
             "https://api.bcra.gob.ar/estadisticas/v3.0/monetarias/inflacion",
-            timeout=8, headers={"User-Agent": "BuildFuture/1.0"}
+            timeout=8,
+            headers={"User-Agent": "BuildFuture/1.0"},
         )
         if r.status_code == 200:
             rows = r.json().get("results", [])
@@ -389,11 +531,15 @@ def _fetch_market() -> dict:
 
 # ── Agentes expertos ──────────────────────────────────────────────────────────
 
+
 class AgenteCarryARS:
     """Especialista en carry trade en pesos. Vota por LECAPs/FCI cuando tasa real > 0."""
+
     name = "Carry ARS"
 
-    def vote(self, market: dict, portfolio_tickers: list[str], capital_ars: float) -> AgentVote:
+    def vote(
+        self, market: dict, portfolio_tickers: list[str], capital_ars: float
+    ) -> AgentVote:
         tasa_real = market["tasa_real_mensual"]
         inflation = market["inflation_monthly"]
         spread = market["spread_pct"]
@@ -403,9 +549,17 @@ class AgenteCarryARS:
             s = inst.affinity_carry * 100
 
             if tasa_real > 2:
-                s += 40 if inst.asset_type == "LETRA" else (15 if inst.asset_type == "FCI" else 0)
+                s += (
+                    40
+                    if inst.asset_type == "LETRA"
+                    else (15 if inst.asset_type == "FCI" else 0)
+                )
             elif tasa_real > 0:
-                s += 20 if inst.asset_type == "LETRA" else (8 if inst.asset_type == "FCI" else 0)
+                s += (
+                    20
+                    if inst.asset_type == "LETRA"
+                    else (8 if inst.asset_type == "FCI" else 0)
+                )
             elif tasa_real < -1:
                 s -= 30 if inst.currency == "ARS" else 0
 
@@ -435,15 +589,23 @@ class AgenteCarryARS:
             f"{'Las LECAPs son la opcion de menor riesgo con rendimiento real garantizado.' if tasa_real > 1 else 'Carry en ARS pierde atractivo — evaluar cobertura.'}"
         )
 
-        return AgentVote(agent=self.name, scores=scores, rationale=rationale,
-                         conviction=round(conviction, 2), key_signal=key)
+        return AgentVote(
+            agent=self.name,
+            scores=scores,
+            rationale=rationale,
+            conviction=round(conviction, 2),
+            key_signal=key,
+        )
 
 
 class AgenteDolarizacion:
     """Cobertura cambiaria. Cuando spread MEP/oficial alto, prioriza CEDEARs y bonos USD."""
+
     name = "Dolarizacion"
 
-    def vote(self, market: dict, portfolio_tickers: list[str], capital_ars: float) -> AgentVote:
+    def vote(
+        self, market: dict, portfolio_tickers: list[str], capital_ars: float
+    ) -> AgentVote:
         spread = market["spread_pct"]
         mep = market["mep"]
         oficial = market["oficial"]
@@ -483,15 +645,23 @@ class AgenteDolarizacion:
             f"CEDEARs ajustan automaticamente al CCL."
         )
 
-        return AgentVote(agent=self.name, scores=scores, rationale=rationale,
-                         conviction=round(conviction, 2), key_signal=key)
+        return AgentVote(
+            agent=self.name,
+            scores=scores,
+            rationale=rationale,
+            conviction=round(conviction, 2),
+            key_signal=key,
+        )
 
 
 class AgenteRentaFija:
     """Bonos soberanos y ONs. Usa riesgo país real para calibrar upside de BONDs."""
+
     name = "Renta Fija"
 
-    def vote(self, market: dict, portfolio_tickers: list[str], capital_ars: float) -> AgentVote:
+    def vote(
+        self, market: dict, portfolio_tickers: list[str], capital_ars: float
+    ) -> AgentVote:
         riesgo_pais = market.get("riesgo_pais", 700)
 
         scores: dict[str, float] = {}
@@ -500,13 +670,13 @@ class AgenteRentaFija:
 
             if inst.asset_type == "BOND":
                 if riesgo_pais < 500:
-                    s += 40   # compresión fuerte de spread → máximo upside capital
+                    s += 40  # compresión fuerte de spread → máximo upside capital
                 elif riesgo_pais < 700:
                     s += 25
                 elif riesgo_pais < 900:
                     s += 10
                 else:
-                    s -= 20   # riesgo soberano alto, reducir exposición
+                    s -= 20  # riesgo soberano alto, reducir exposición
                 # Liquidez: preferir AL30 sobre GD35 en contexto incierto
                 s += inst.liquidity_score * 8
 
@@ -538,15 +708,23 @@ class AgenteRentaFija:
             f"{'los bonos AL30/GD30 tienen upside significativo si continua compresion de spreads' if riesgo_pais < 700 else 'las ONs aseguran rendimiento con menor volatilidad que soberanos'}."
         )
 
-        return AgentVote(agent=self.name, scores=scores, rationale=rationale,
-                         conviction=round(conviction, 2), key_signal=key)
+        return AgentVote(
+            agent=self.name,
+            scores=scores,
+            rationale=rationale,
+            conviction=round(conviction, 2),
+            key_signal=key,
+        )
 
 
 class AgenteDiversificacion:
     """Penaliza concentración. Premio si el usuario no tiene ese tipo de activo."""
+
     name = "Diversificacion"
 
-    def vote(self, market: dict, portfolio_tickers: list[str], capital_ars: float) -> AgentVote:
+    def vote(
+        self, market: dict, portfolio_tickers: list[str], capital_ars: float
+    ) -> AgentVote:
         scores: dict[str, float] = {}
         portfolio_set = set(t.upper() for t in portfolio_tickers)
 
@@ -563,8 +741,8 @@ class AgenteDiversificacion:
 
             scores[inst.ticker] = max(s, 0)
 
-        has_ars    = bool(portfolio_set & _LECAP_TICKERS)
-        has_usd    = bool(portfolio_set & _USD_TICKERS)
+        has_ars = bool(portfolio_set & _LECAP_TICKERS)
+        has_usd = bool(portfolio_set & _USD_TICKERS)
         has_cedear = bool(portfolio_set & _CEDEAR_TICKERS)
 
         missing = []
@@ -576,22 +754,32 @@ class AgenteDiversificacion:
             missing.append("CEDEARs")
 
         conviction = 0.6 if missing else 0.3
-        key = (f"Portfolio actual: {len(portfolio_set)} posiciones — "
-               f"{'faltan: ' + ', '.join(missing) if missing else 'bien diversificado'}")
+        key = (
+            f"Portfolio actual: {len(portfolio_set)} posiciones — "
+            f"{'faltan: ' + ', '.join(missing) if missing else 'bien diversificado'}"
+        )
         rationale = (
             f"Un portafolio equilibrado necesita ARS (carry), USD (cobertura) y renta fija. "
             f"{'Te falta: ' + ', '.join(missing) + '.' if missing else 'Tu portafolio esta distribuido.'}"
         )
 
-        return AgentVote(agent=self.name, scores=scores, rationale=rationale,
-                         conviction=round(conviction, 2), key_signal=key)
+        return AgentVote(
+            agent=self.name,
+            scores=scores,
+            rationale=rationale,
+            conviction=round(conviction, 2),
+            key_signal=key,
+        )
 
 
 class AgenteMacro:
     """Contexto macro transversal. Ajusta todos los scores según el régimen macro del día."""
+
     name = "Macro"
 
-    def vote(self, market: dict, portfolio_tickers: list[str], capital_ars: float) -> AgentVote:
+    def vote(
+        self, market: dict, portfolio_tickers: list[str], capital_ars: float
+    ) -> AgentVote:
         spread = market["spread_pct"]
         inflation = market["inflation_monthly"]
         riesgo_pais = market.get("riesgo_pais", 700)
@@ -645,18 +833,24 @@ class AgenteMacro:
             f"Inflacion {inflation:.1f}%/mes, tasa real {'+' if tasa_real >= 0 else ''}{tasa_real:.1f}pp."
         )
 
-        return AgentVote(agent=self.name, scores=scores, rationale=rationale,
-                         conviction=round(conviction, 2), key_signal=key)
+        return AgentVote(
+            agent=self.name,
+            scores=scores,
+            rationale=rationale,
+            conviction=round(conviction, 2),
+            key_signal=key,
+        )
 
 
 # ── Sets derivados del UNIVERSE ───────────────────────────────────────────────
 
-_LECAP_TICKERS  = frozenset(i.ticker for i in UNIVERSE if i.asset_type == "LETRA")
-_USD_TICKERS    = frozenset(i.ticker for i in UNIVERSE if i.currency == "USD")
+_LECAP_TICKERS = frozenset(i.ticker for i in UNIVERSE if i.asset_type == "LETRA")
+_USD_TICKERS = frozenset(i.ticker for i in UNIVERSE if i.currency == "USD")
 _CEDEAR_TICKERS = frozenset(i.ticker for i in UNIVERSE if i.asset_type == "CEDEAR")
 
 
 # ── Scoring interno compartido ────────────────────────────────────────────────
+
 
 def _compute_scores(
     universe: list[Instrument],
@@ -694,6 +888,7 @@ def _compute_scores(
 
 # ── Slot system ───────────────────────────────────────────────────────────────
 
+
 def _pick_by_slots(ranked: list, profile: str, target: int = 5) -> list:
     """
     Selecciona instrumentos usando slots para garantizar variedad por perfil.
@@ -718,14 +913,18 @@ def _pick_by_slots(ranked: list, profile: str, target: int = 5) -> list:
     if profile == "conservador":
         pick(lambda i: i.asset_type == "FCI") or pick(lambda i: i.asset_type == "LETRA")
         pick(lambda i: i.asset_type == "LETRA")
-        pick(lambda i: i.asset_type == "LETRA") or pick(lambda i: i.asset_type in ("ON", "FCI"))
+        pick(lambda i: i.asset_type == "LETRA") or pick(
+            lambda i: i.asset_type in ("ON", "FCI")
+        )
         pick(lambda i: i.asset_type == "ON" and i.risk_level == "bajo")
         pick(lambda i: i.risk_level != "alto")
 
     elif profile == "agresivo":
         pick(lambda i: i.risk_level == "alto")
         used_types = {inst.asset_type for _, inst in selected}
-        pick(lambda i: i.risk_level == "alto" and i.asset_type not in used_types) or pick(lambda i: i.risk_level == "alto")
+        pick(
+            lambda i: i.risk_level == "alto" and i.asset_type not in used_types
+        ) or pick(lambda i: i.risk_level == "alto")
         pick(lambda i: i.asset_type == "CEDEAR")
         pick(lambda i: i.risk_level in ("medio", "alto") and i.asset_type != "ON")
         pick()
@@ -736,7 +935,9 @@ def _pick_by_slots(ranked: list, profile: str, target: int = 5) -> list:
         used_types = {inst.asset_type for _, inst in selected}
         pick(lambda i: i.asset_type not in used_types)
         used_types = {inst.asset_type for _, inst in selected}
-        pick(lambda i: i.asset_type not in used_types) or pick(lambda i: i.currency not in {inst.currency for _, inst in selected}) or pick()
+        pick(lambda i: i.asset_type not in used_types) or pick(
+            lambda i: i.currency not in {inst.currency for _, inst in selected}
+        ) or pick()
         pick()
 
     while len(selected) < target:
@@ -751,7 +952,10 @@ def _pick_by_slots(ranked: list, profile: str, target: int = 5) -> list:
 
 # ── Rationale builder ─────────────────────────────────────────────────────────
 
-def _build_rationale(inst: Instrument, winning_agents: list[AgentVote], market: dict) -> tuple[str, str]:
+
+def _build_rationale(
+    inst: Instrument, winning_agents: list[AgentVote], market: dict
+) -> tuple[str, str]:
     agents_for = [a for a in winning_agents if a.scores.get(inst.ticker, 0) > 50]
 
     if inst.asset_type == "FCI":
@@ -773,8 +977,10 @@ def _build_rationale(inst: Instrument, winning_agents: list[AgentVote], market: 
             f"cada mes sin invertir en LECAPs es rendimiento real perdido."
         )
     elif inst.asset_type == "CEDEAR":
-        style = "tecnologico" if any(t in inst.tags for t in ["tech_usa", "tech_latam"]) else (
-            "energetico" if "energia" in inst.tags else "internacional"
+        style = (
+            "tecnologico"
+            if any(t in inst.tags for t in ["tech_usa", "tech_latam"])
+            else ("energetico" if "energia" in inst.tags else "internacional")
         )
         rationale = (
             f"Exposicion en USD al mercado {style} via CCL. "
@@ -803,7 +1009,9 @@ def _build_rationale(inst: Instrument, winning_agents: list[AgentVote], market: 
             f"cada baja de 100pb implica apreciacion de capital en los bonos."
         )
     else:
-        rationale = f"{inst.name} — {inst.base_yield_pct * 100:.0f}% anual en {inst.currency}."
+        rationale = (
+            f"{inst.name} — {inst.base_yield_pct * 100:.0f}% anual en {inst.currency}."
+        )
         why_now = "Instrumento recomendado segun condiciones actuales."
 
     if agents_for:
@@ -815,13 +1023,14 @@ def _build_rationale(inst: Instrument, winning_agents: list[AgentVote], market: 
 # ── Mapa perfil suitability desde risk_level ─────────────────────────────────
 
 _RECOMMENDED_FOR: dict[str, list[str]] = {
-    "bajo":  ["conservador", "moderado"],
+    "bajo": ["conservador", "moderado"],
     "medio": ["moderado", "agresivo"],
-    "alto":  ["agresivo"],
+    "alto": ["agresivo"],
 }
 
 
 # ── get_committee_recommendations — endpoint clásico por perfil ───────────────
+
 
 def get_committee_recommendations(
     capital_ars: float,
@@ -841,19 +1050,29 @@ def get_committee_recommendations(
             if inst.ticker in live_yields:
                 inst.base_yield_pct = live_yields[inst.ticker]
 
-    agents = [AgenteCarryARS(), AgenteDolarizacion(), AgenteRentaFija(),
-              AgenteDiversificacion(), AgenteMacro()]
+    agents = [
+        AgenteCarryARS(),
+        AgenteDolarizacion(),
+        AgenteRentaFija(),
+        AgenteDiversificacion(),
+        AgenteMacro(),
+    ]
     votes = [a.vote(market, current_tickers, capital_ars) for a in agents]
 
     weights = AGENT_WEIGHTS.get(risk_profile, AGENT_WEIGHTS["moderado"])
-    risk_filter = RISK_PROFILE_FILTERS.get(risk_profile, RISK_PROFILE_FILTERS["moderado"])
+    risk_filter = RISK_PROFILE_FILTERS.get(
+        risk_profile, RISK_PROFILE_FILTERS["moderado"]
+    )
 
-    final_scores = _compute_scores(universe, votes, weights, risk_filter, capital_ars, freedom_pct)
+    final_scores = _compute_scores(
+        universe, votes, weights, risk_filter, capital_ars, freedom_pct
+    )
 
     ticker_map = {inst.ticker: inst for inst in universe}
     ranked_all = sorted(
         [(s, ticker_map[t]) for t, s in final_scores.items() if s > 0],
-        key=lambda x: x[0], reverse=True,
+        key=lambda x: x[0],
+        reverse=True,
     )
 
     if not ranked_all:
@@ -873,30 +1092,37 @@ def get_committee_recommendations(
         monthly_return_usd = amount_usd * inst.base_yield_pct / 12
         rationale, why_now = _build_rationale(inst, votes, market)
 
-        recommendations.append({
-            "rank": rank,
-            "ticker": inst.ticker,
-            "name": inst.name,
-            "asset_type": inst.asset_type,
-            "job": inst.job,
-            "recommended_for": _RECOMMENDED_FOR.get(inst.risk_level, ["moderado"]),
-            "logo_url": inst.logo_url,
-            "rationale": rationale,
-            "why_now": why_now,
-            "annual_yield_pct": inst.base_yield_pct,
-            "risk_level": inst.risk_level,
-            "currency": inst.currency,
-            "allocation_pct": round(alloc_pct, 2),
-            "amount_ars": round(amount_ars),
-            "amount_usd": round(amount_usd, 2),
-            "monthly_return_usd": round(monthly_return_usd, 2),
-            "score": score,
-            "is_hero": rank == 1,
-            "agents_agreed": [
-                {"agent": v.agent, "conviction": v.conviction, "signal": v.key_signal}
-                for v in votes if v.scores.get(inst.ticker, 0) > 50
-            ],
-        })
+        recommendations.append(
+            {
+                "rank": rank,
+                "ticker": inst.ticker,
+                "name": inst.name,
+                "asset_type": inst.asset_type,
+                "job": inst.job,
+                "recommended_for": _RECOMMENDED_FOR.get(inst.risk_level, ["moderado"]),
+                "logo_url": inst.logo_url,
+                "rationale": rationale,
+                "why_now": why_now,
+                "annual_yield_pct": inst.base_yield_pct,
+                "risk_level": inst.risk_level,
+                "currency": inst.currency,
+                "allocation_pct": round(alloc_pct, 2),
+                "amount_ars": round(amount_ars),
+                "amount_usd": round(amount_usd, 2),
+                "monthly_return_usd": round(monthly_return_usd, 2),
+                "score": score,
+                "is_hero": rank == 1,
+                "agents_agreed": [
+                    {
+                        "agent": v.agent,
+                        "conviction": v.conviction,
+                        "signal": v.key_signal,
+                    }
+                    for v in votes
+                    if v.scores.get(inst.ticker, 0) > 50
+                ],
+            }
+        )
 
     spread = market["spread_pct"]
     tasa_real = market["tasa_real_mensual"]
@@ -914,13 +1140,20 @@ def get_committee_recommendations(
         "valid_until": (datetime.utcnow() + timedelta(hours=24)).isoformat(),
         "context_summary": context,
         "committee_signals": [
-            {"agent": v.agent, "key_signal": v.key_signal, "conviction": v.conviction, "rationale": v.rationale}
+            {
+                "agent": v.agent,
+                "key_signal": v.key_signal,
+                "conviction": v.conviction,
+                "rationale": v.rationale,
+            }
             for v in votes
         ],
         "recommendations": recommendations,
         "market_snapshot": {
-            "mep": market["mep"], "spread_pct": market["spread_pct"],
-            "lecap_tna": market["lecap_tna"], "inflation_monthly": market["inflation_monthly"],
+            "mep": market["mep"],
+            "spread_pct": market["spread_pct"],
+            "lecap_tna": market["lecap_tna"],
+            "inflation_monthly": market["inflation_monthly"],
             "tasa_real_mensual": market["tasa_real_mensual"],
             "riesgo_pais": market.get("riesgo_pais", 700),
             "sources": market["sources"],
@@ -929,6 +1162,7 @@ def get_committee_recommendations(
 
 
 # ── get_sections_recommendations — nuevo endpoint sin selector de perfil ──────
+
 
 def get_sections_recommendations(
     capital_ars: float,
@@ -954,18 +1188,25 @@ def get_sections_recommendations(
                 inst.base_yield_pct = live_yields[inst.ticker]
 
     # Agentes votan una sola vez (son independientes del perfil)
-    agents = [AgenteCarryARS(), AgenteDolarizacion(), AgenteRentaFija(),
-              AgenteDiversificacion(), AgenteMacro()]
+    agents = [
+        AgenteCarryARS(),
+        AgenteDolarizacion(),
+        AgenteRentaFija(),
+        AgenteDiversificacion(),
+        AgenteMacro(),
+    ]
     votes = [a.vote(market, current_tickers, capital_ars) for a in agents]
 
     # Scores por perfil para cada instrumento
     profile_scores: dict[str, dict[str, float]] = {}
     for profile in ("conservador", "moderado", "agresivo"):
         profile_scores[profile] = _compute_scores(
-            universe, votes,
+            universe,
+            votes,
             AGENT_WEIGHTS[profile],
             RISK_PROFILE_FILTERS[profile],
-            capital_ars, freedom_pct,
+            capital_ars,
+            freedom_pct,
         )
 
     # Construir entrada por instrumento
@@ -973,7 +1214,10 @@ def get_sections_recommendations(
     recs_capital: list[dict] = []
 
     for inst in universe:
-        scores_by_profile = {p: profile_scores[p][inst.ticker] for p in ("conservador", "moderado", "agresivo")}
+        scores_by_profile = {
+            p: profile_scores[p][inst.ticker]
+            for p in ("conservador", "moderado", "agresivo")
+        }
         max_score = max(scores_by_profile.values())
         avg_score = sum(scores_by_profile.values()) / 3
 
@@ -983,11 +1227,16 @@ def get_sections_recommendations(
         # Perfil suitability: incluir perfiles donde el score es significativo (> 30% del max)
         threshold = max_score * 0.3
         active_profiles = [
-            p for p in ("conservador", "moderado", "agresivo")
+            p
+            for p in ("conservador", "moderado", "agresivo")
             if scores_by_profile[p] >= threshold
         ]
         # Fallback: usar el mapa estático de risk_level
-        recommended_for = active_profiles if active_profiles else _RECOMMENDED_FOR.get(inst.risk_level, ["moderado"])
+        recommended_for = (
+            active_profiles
+            if active_profiles
+            else _RECOMMENDED_FOR.get(inst.risk_level, ["moderado"])
+        )
 
         # Allocation informativa: porción fija por sección (el usuario ve montos orientativos)
         alloc_ars = capital_ars * 0.17  # ~1/6 del capital por instrumento en sección
@@ -1015,7 +1264,8 @@ def get_sections_recommendations(
             "avg_score": round(avg_score, 2),
             "agents_agreed": [
                 {"agent": v.agent, "conviction": v.conviction, "signal": v.key_signal}
-                for v in votes if v.scores.get(inst.ticker, 0) > 50
+                for v in votes
+                if v.scores.get(inst.ticker, 0) > 50
             ],
         }
 

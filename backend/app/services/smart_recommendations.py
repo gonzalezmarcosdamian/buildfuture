@@ -2,6 +2,7 @@
 Motor de recomendaciones inteligente basado en scoring — sin API externa de IA.
 Consulta datos de mercado en tiempo real y aplica reglas financieras argentinas.
 """
+
 import logging
 import time
 import httpx
@@ -16,91 +17,156 @@ MARKET_CACHE_TTL = 3600  # 1 hora
 
 # ── Universo de instrumentos ─────────────────────────────────────────────────
 
+
 @dataclass
 class Instrument:
     ticker: str
     name: str
-    asset_type: str        # CEDEAR | LETRA | BOND | ON | CRYPTO
-    currency: str          # ARS | USD
+    asset_type: str  # CEDEAR | LETRA | BOND | ON | CRYPTO
+    currency: str  # ARS | USD
     base_yield_pct: float
-    risk_level: str        # bajo | medio | alto
+    risk_level: str  # bajo | medio | alto
     min_capital_ars: float
     # Factores de scoring (se multiplican por condiciones de mercado)
-    score_fx_hedge: float    # sube si MEP spread es alto (dolarización urgente)
-    score_yield_carry: float # sube si tasa real ARS es positiva
-    score_freedom_bar: float # peso cuando freedom bar es bajo (necesita yield)
-    score_diversify: float   # sube si el usuario no lo tiene
+    score_fx_hedge: float  # sube si MEP spread es alto (dolarización urgente)
+    score_yield_carry: float  # sube si tasa real ARS es positiva
+    score_freedom_bar: float  # peso cuando freedom bar es bajo (necesita yield)
+    score_diversify: float  # sube si el usuario no lo tiene
     tags: list[str] = field(default_factory=list)
 
 
 UNIVERSE = [
     Instrument(
-        ticker="S31O5", name="LECAP Oct-25 (corto plazo)",
-        asset_type="LETRA", currency="ARS",
-        base_yield_pct=0.68, risk_level="bajo", min_capital_ars=10000,
-        score_fx_hedge=0.3, score_yield_carry=1.0, score_freedom_bar=0.8, score_diversify=0.7,
+        ticker="S31O5",
+        name="LECAP Oct-25 (corto plazo)",
+        asset_type="LETRA",
+        currency="ARS",
+        base_yield_pct=0.68,
+        risk_level="bajo",
+        min_capital_ars=10000,
+        score_fx_hedge=0.3,
+        score_yield_carry=1.0,
+        score_freedom_bar=0.8,
+        score_diversify=0.7,
         tags=["capital_preservation", "carry_trade", "corto_plazo"],
     ),
     Instrument(
-        ticker="S15G5", name="LECAP Jun-25 (muy corto)",
-        asset_type="LETRA", currency="ARS",
-        base_yield_pct=0.72, risk_level="bajo", min_capital_ars=5000,
-        score_fx_hedge=0.2, score_yield_carry=1.0, score_freedom_bar=0.7, score_diversify=0.6,
+        ticker="S15G5",
+        name="LECAP Jun-25 (muy corto)",
+        asset_type="LETRA",
+        currency="ARS",
+        base_yield_pct=0.72,
+        risk_level="bajo",
+        min_capital_ars=5000,
+        score_fx_hedge=0.2,
+        score_yield_carry=1.0,
+        score_freedom_bar=0.7,
+        score_diversify=0.6,
         tags=["capital_preservation", "carry_trade", "liquidez"],
     ),
     Instrument(
-        ticker="QQQ", name="CEDEAR QQQ — Nasdaq 100",
-        asset_type="CEDEAR", currency="USD",
-        base_yield_pct=0.15, risk_level="medio", min_capital_ars=20000,
-        score_fx_hedge=1.0, score_yield_carry=0.3, score_freedom_bar=0.6, score_diversify=0.9,
+        ticker="QQQ",
+        name="CEDEAR QQQ — Nasdaq 100",
+        asset_type="CEDEAR",
+        currency="USD",
+        base_yield_pct=0.15,
+        risk_level="medio",
+        min_capital_ars=20000,
+        score_fx_hedge=1.0,
+        score_yield_carry=0.3,
+        score_freedom_bar=0.6,
+        score_diversify=0.9,
         tags=["dolarizacion", "tech_usa", "largo_plazo"],
     ),
     Instrument(
-        ticker="SPY", name="CEDEAR SPY — S&P 500",
-        asset_type="CEDEAR", currency="USD",
-        base_yield_pct=0.12, risk_level="medio", min_capital_ars=15000,
-        score_fx_hedge=1.0, score_yield_carry=0.3, score_freedom_bar=0.5, score_diversify=0.9,
+        ticker="SPY",
+        name="CEDEAR SPY — S&P 500",
+        asset_type="CEDEAR",
+        currency="USD",
+        base_yield_pct=0.12,
+        risk_level="medio",
+        min_capital_ars=15000,
+        score_fx_hedge=1.0,
+        score_yield_carry=0.3,
+        score_freedom_bar=0.5,
+        score_diversify=0.9,
         tags=["dolarizacion", "mercado_usa", "largo_plazo"],
     ),
     Instrument(
-        ticker="YCA6O", name="ON YPF USD (hard dollar)",
-        asset_type="ON", currency="USD",
-        base_yield_pct=0.09, risk_level="medio", min_capital_ars=50000,
-        score_fx_hedge=0.9, score_yield_carry=0.5, score_freedom_bar=0.9, score_diversify=0.8,
+        ticker="YCA6O",
+        name="ON YPF USD (hard dollar)",
+        asset_type="ON",
+        currency="USD",
+        base_yield_pct=0.09,
+        risk_level="medio",
+        min_capital_ars=50000,
+        score_fx_hedge=0.9,
+        score_yield_carry=0.5,
+        score_freedom_bar=0.9,
+        score_diversify=0.8,
         tags=["flujo_fijo", "hard_dollar", "cuasi_soberano"],
     ),
     Instrument(
-        ticker="AL30", name="Bono Soberano AL30",
-        asset_type="BOND", currency="USD",
-        base_yield_pct=0.16, risk_level="alto", min_capital_ars=30000,
-        score_fx_hedge=0.8, score_yield_carry=0.4, score_freedom_bar=1.0, score_diversify=0.7,
+        ticker="AL30",
+        name="Bono Soberano AL30",
+        asset_type="BOND",
+        currency="USD",
+        base_yield_pct=0.16,
+        risk_level="alto",
+        min_capital_ars=30000,
+        score_fx_hedge=0.8,
+        score_yield_carry=0.4,
+        score_freedom_bar=1.0,
+        score_diversify=0.7,
         tags=["high_yield", "soberano", "spread_compression"],
     ),
     Instrument(
-        ticker="GD30", name="Bono Soberano GD30 (ley NY)",
-        asset_type="BOND", currency="USD",
-        base_yield_pct=0.14, risk_level="alto", min_capital_ars=30000,
-        score_fx_hedge=0.8, score_yield_carry=0.4, score_freedom_bar=0.9, score_diversify=0.7,
+        ticker="GD30",
+        name="Bono Soberano GD30 (ley NY)",
+        asset_type="BOND",
+        currency="USD",
+        base_yield_pct=0.14,
+        risk_level="alto",
+        min_capital_ars=30000,
+        score_fx_hedge=0.8,
+        score_yield_carry=0.4,
+        score_freedom_bar=0.9,
+        score_diversify=0.7,
         tags=["high_yield", "ley_ny", "soberano"],
     ),
     Instrument(
-        ticker="GGAL", name="CEDEAR Galicia (banco AR)",
-        asset_type="CEDEAR", currency="USD",
-        base_yield_pct=0.20, risk_level="alto", min_capital_ars=10000,
-        score_fx_hedge=0.7, score_yield_carry=0.2, score_freedom_bar=0.5, score_diversify=0.8,
+        ticker="GGAL",
+        name="CEDEAR Galicia (banco AR)",
+        asset_type="CEDEAR",
+        currency="USD",
+        base_yield_pct=0.20,
+        risk_level="alto",
+        min_capital_ars=10000,
+        score_fx_hedge=0.7,
+        score_yield_carry=0.2,
+        score_freedom_bar=0.5,
+        score_diversify=0.8,
         tags=["bancos_ar", "ciclo_credito", "beta_alto"],
     ),
     Instrument(
-        ticker="XLE", name="CEDEAR XLE — Energy ETF",
-        asset_type="CEDEAR", currency="USD",
-        base_yield_pct=0.115, risk_level="medio", min_capital_ars=15000,
-        score_fx_hedge=0.9, score_yield_carry=0.2, score_freedom_bar=0.4, score_diversify=0.8,
+        ticker="XLE",
+        name="CEDEAR XLE — Energy ETF",
+        asset_type="CEDEAR",
+        currency="USD",
+        base_yield_pct=0.115,
+        risk_level="medio",
+        min_capital_ars=15000,
+        score_fx_hedge=0.9,
+        score_yield_carry=0.2,
+        score_freedom_bar=0.4,
+        score_diversify=0.8,
         tags=["energia", "vaca_muerta", "commodities"],
     ),
 ]
 
 
 # ── Fetch de datos de mercado ─────────────────────────────────────────────────
+
 
 def _fetch_market_data() -> dict:
     cache_key = "market"
@@ -109,9 +175,11 @@ def _fetch_market_data() -> dict:
             return _market_cache[cache_key]["data"]
 
     data = {
-        "mep": 1431.0, "blue": 1415.0,
-        "oficial": 1354.0, "spread_pct": 1.1,
-        "lecap_tna": 68.0,      # TNA referencial mercado secundario
+        "mep": 1431.0,
+        "blue": 1415.0,
+        "oficial": 1354.0,
+        "spread_pct": 1.1,
+        "lecap_tna": 68.0,  # TNA referencial mercado secundario
         "inflation_monthly": 2.5,
         "tasa_real_mensual": 0.0,
         "merval_ytd": 45.0,
@@ -131,16 +199,26 @@ def _fetch_market_data() -> dict:
                 data["blue"] = d.get("venta") or data["blue"]
             elif casa == "oficial":
                 data["oficial"] = d.get("venta") or data["oficial"]
-        data["spread_pct"] = round((data["mep"] - data["oficial"]) / data["oficial"] * 100, 1)
+        data["spread_pct"] = round(
+            (data["mep"] - data["oficial"]) / data["oficial"] * 100, 1
+        )
         data["sources"].append("dolarapi")
-        logger.info("TC fetched: MEP=%s blue=%s spread=%s%%", data["mep"], data["blue"], data["spread_pct"])
+        logger.info(
+            "TC fetched: MEP=%s blue=%s spread=%s%%",
+            data["mep"],
+            data["blue"],
+            data["spread_pct"],
+        )
     except Exception as e:
         logger.warning("dolarapi falló: %s", e)
 
     # 2. Inflación y tasa real — BCRA API pública
     try:
-        r = httpx.get("https://api.bcra.gob.ar/estadisticas/v3.0/monetarias/inflacion", timeout=8,
-                      headers={"User-Agent": "BuildFuture/1.0"})
+        r = httpx.get(
+            "https://api.bcra.gob.ar/estadisticas/v3.0/monetarias/inflacion",
+            timeout=8,
+            headers={"User-Agent": "BuildFuture/1.0"},
+        )
         if r.status_code == 200:
             rows = r.json().get("results", [])
             if rows:
@@ -162,8 +240,8 @@ def _fetch_market_data() -> dict:
 
 RISK_PROFILES = {
     "conservador": {"bajo": 1.4, "medio": 0.6, "alto": 0.0},
-    "moderado":    {"bajo": 1.0, "medio": 1.0, "alto": 0.5},
-    "agresivo":    {"bajo": 0.7, "medio": 1.0, "alto": 1.3},
+    "moderado": {"bajo": 1.0, "medio": 1.0, "alto": 0.5},
+    "agresivo": {"bajo": 0.7, "medio": 1.0, "alto": 1.3},
 }
 
 
@@ -225,32 +303,35 @@ def _build_rationale(inst: Instrument, market: dict, rank: int) -> tuple[str, st
             f"Tasa real {'positiva' if tasa_real > 0 else 'negativa'} en ARS "
             f"({inst.base_yield_pct*100:.0f}% TEA). Sin riesgo precio, capital garantizado.",
             f"TNA mensualizada supera inflación en {tasa_real:.1f}pp. "
-            f"El carry trade en ARS {'sigue activo' if tasa_real > 0 else 'está comprimido'}."
+            f"El carry trade en ARS {'sigue activo' if tasa_real > 0 else 'está comprimido'}.",
         ),
         "CEDEAR": (
             f"Exposición dolarizada al mercado {'tecnológico' if 'tech' in (inst.tags or []) else 'internacional'} "
             f"de EE.UU. vía CCL, sin necesidad de transferir divisas.",
             f"Spread MEP/oficial del {spread:.1f}% hace atractiva la dolarización vía CEDEARs "
-            f"{'— urgente si spread sube más' if spread > 4 else '— cobertura preventiva'}."
+            f"{'— urgente si spread sube más' if spread > 4 else '— cobertura preventiva'}.",
         ),
         "ON": (
             f"Flujo fijo en dólares reales (hard dollar) con {inst.base_yield_pct*100:.0f}% anual. "
             f"Emisor cuasi-soberano con respaldo de exportaciones.",
             f"Spread soberano en compresión post-acuerdo FMI. "
-            f"Buen punto de entrada para asegurar yield en USD."
+            f"Buen punto de entrada para asegurar yield en USD.",
         ),
         "BOND": (
             f"Alto rendimiento en USD ({inst.base_yield_pct*100:.0f}% anual) a precio de descuento. "
             f"Upside de capital si Argentina continúa comprimiendo spreads.",
             f"Con inflación mensual del {inflation:.1f}% y carry positivo, "
-            f"los bonos soberanos ofrecen la mejor relación yield/riesgo del mercado local."
+            f"los bonos soberanos ofrecen la mejor relación yield/riesgo del mercado local.",
         ),
     }
 
-    return rationale_map.get(inst.asset_type, (
-        f"{inst.name} — rendimiento estimado {inst.base_yield_pct*100:.0f}% anual en {inst.currency}.",
-        "Instrumento recomendado según condiciones actuales del mercado."
-    ))
+    return rationale_map.get(
+        inst.asset_type,
+        (
+            f"{inst.name} — rendimiento estimado {inst.base_yield_pct*100:.0f}% anual en {inst.currency}.",
+            "Instrumento recomendado según condiciones actuales del mercado.",
+        ),
+    )
 
 
 def get_smart_recommendations(
@@ -266,7 +347,9 @@ def get_smart_recommendations(
     # Score todos los instrumentos
     scored = []
     for inst in UNIVERSE:
-        s = score_instrument(inst, market, freedom_pct, current_tickers, capital_ars, risk_profile)
+        s = score_instrument(
+            inst, market, freedom_pct, current_tickers, capital_ars, risk_profile
+        )
         if s > 0:
             scored.append((s, inst))
 
@@ -285,23 +368,25 @@ def get_smart_recommendations(
         monthly_return_usd = amount_usd * inst.base_yield_pct / 12
         rationale, why_now = _build_rationale(inst, market, rank)
 
-        recommendations.append({
-            "rank": rank,
-            "ticker": inst.ticker,
-            "name": inst.name,
-            "asset_type": inst.asset_type,
-            "rationale": rationale,
-            "why_now": why_now,
-            "annual_yield_pct": inst.base_yield_pct,
-            "risk_level": inst.risk_level,
-            "currency": inst.currency,
-            "allocation_pct": round(alloc_pct, 2),
-            "amount_ars": round(amount_ars),
-            "amount_usd": round(amount_usd, 2),
-            "monthly_return_usd": round(monthly_return_usd, 2),
-            "score": score,
-            "is_hero": rank == 1,
-        })
+        recommendations.append(
+            {
+                "rank": rank,
+                "ticker": inst.ticker,
+                "name": inst.name,
+                "asset_type": inst.asset_type,
+                "rationale": rationale,
+                "why_now": why_now,
+                "annual_yield_pct": inst.base_yield_pct,
+                "risk_level": inst.risk_level,
+                "currency": inst.currency,
+                "allocation_pct": round(alloc_pct, 2),
+                "amount_ars": round(amount_ars),
+                "amount_usd": round(amount_usd, 2),
+                "monthly_return_usd": round(monthly_return_usd, 2),
+                "score": score,
+                "is_hero": rank == 1,
+            }
+        )
 
     # Context summary dinámico
     spread = market["spread_pct"]

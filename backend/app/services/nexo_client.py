@@ -3,6 +3,7 @@ Nexo Pro API client.
 Auth: HMAC SHA-256 — api_key + api_secret.
 Docs: https://pro.nexo.com/apiDocPro.html
 """
+
 import base64
 import hashlib
 import hmac
@@ -18,24 +19,35 @@ NEXO_BASE = "https://pro.nexo.com"
 
 # Yield estimado anual por asset type en Nexo (savings wallet)
 NEXO_YIELDS = {
-    "btc":   Decimal("0.04"),
-    "eth":   Decimal("0.04"),
-    "bnb":   Decimal("0.04"),
-    "usdt":  Decimal("0.14"),
-    "usdc":  Decimal("0.14"),
-    "dai":   Decimal("0.14"),
-    "nexo":  Decimal("0.12"),
+    "btc": Decimal("0.04"),
+    "eth": Decimal("0.04"),
+    "bnb": Decimal("0.04"),
+    "usdt": Decimal("0.14"),
+    "usdc": Decimal("0.14"),
+    "dai": Decimal("0.14"),
+    "nexo": Decimal("0.12"),
     "default": Decimal("0.05"),
 }
 
-STABLE_COINS = {"usdt", "usdc", "dai", "busd", "tusd", "usdp", "usdd", "frax", "lusd", "nexo"}
+STABLE_COINS = {
+    "usdt",
+    "usdc",
+    "dai",
+    "busd",
+    "tusd",
+    "usdp",
+    "usdd",
+    "frax",
+    "lusd",
+    "nexo",
+}
 
 
 @dataclass
 class NexoPosition:
     ticker: str
     description: str
-    asset_type: str       # CRYPTO | STABLE
+    asset_type: str  # CRYPTO | STABLE
     quantity: Decimal
     current_price_usd: Decimal
     annual_yield_pct: Decimal
@@ -119,16 +131,23 @@ class NexoClient:
             asset_type = "STABLE" if is_stable else "CRYPTO"
             annual_yield = NEXO_YIELDS.get(asset_lower, NEXO_YIELDS["default"])
 
-            logger.debug("Nexo asset: %s tipo=%s balance=%s precio=%s",
-                         asset, asset_type, total_balance, price_usd)
+            logger.debug(
+                "Nexo asset: %s tipo=%s balance=%s precio=%s",
+                asset,
+                asset_type,
+                total_balance,
+                price_usd,
+            )
 
-            positions.append(NexoPosition(
-                ticker=asset,
-                description=f"{asset} — Nexo",
-                asset_type=asset_type,
-                quantity=total_balance,
-                current_price_usd=price_usd,
-                annual_yield_pct=annual_yield,
-            ))
+            positions.append(
+                NexoPosition(
+                    ticker=asset,
+                    description=f"{asset} — Nexo",
+                    asset_type=asset_type,
+                    quantity=total_balance,
+                    current_price_usd=price_usd,
+                    annual_yield_pct=annual_yield,
+                )
+            )
 
         return positions

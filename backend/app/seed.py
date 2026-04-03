@@ -2,6 +2,7 @@
 Seed data — portafolio mock de Marcos para desarrollo local.
 Refleja su perfil financiero real con posiciones ficticias pero realistas.
 """
+
 import os
 from datetime import date
 from decimal import Decimal
@@ -98,13 +99,62 @@ def seed(db: Session) -> None:
 
     # Porcentajes sobre el ingreso neto
     categories = [
-        BudgetCategory(budget_id=budget.id, name="Vivienda",      percentage=Decimal("0.236"), icon="🏠", color="#3B82F6", is_vacation=False),
-        BudgetCategory(budget_id=budget.id, name="Alimentación",  percentage=Decimal("0.082"), icon="🛒", color="#10B981", is_vacation=False),
-        BudgetCategory(budget_id=budget.id, name="Transporte",    percentage=Decimal("0.027"), icon="🚗", color="#F59E0B", is_vacation=False),
-        BudgetCategory(budget_id=budget.id, name="Ocio",          percentage=Decimal("0.055"), icon="🎯", color="#8B5CF6", is_vacation=False),
-        BudgetCategory(budget_id=budget.id, name="Servicios",     percentage=Decimal("0.036"), icon="⚡", color="#EF4444", is_vacation=False),
-        BudgetCategory(budget_id=budget.id, name="Varios",        percentage=Decimal("0.034"), icon="📦", color="#6B7280", is_vacation=False),
-        BudgetCategory(budget_id=budget.id, name="Vacaciones",    percentage=Decimal("0.050"), icon="🌴", color="#0EA5E9", is_vacation=True),
+        BudgetCategory(
+            budget_id=budget.id,
+            name="Vivienda",
+            percentage=Decimal("0.236"),
+            icon="🏠",
+            color="#3B82F6",
+            is_vacation=False,
+        ),
+        BudgetCategory(
+            budget_id=budget.id,
+            name="Alimentación",
+            percentage=Decimal("0.082"),
+            icon="🛒",
+            color="#10B981",
+            is_vacation=False,
+        ),
+        BudgetCategory(
+            budget_id=budget.id,
+            name="Transporte",
+            percentage=Decimal("0.027"),
+            icon="🚗",
+            color="#F59E0B",
+            is_vacation=False,
+        ),
+        BudgetCategory(
+            budget_id=budget.id,
+            name="Ocio",
+            percentage=Decimal("0.055"),
+            icon="🎯",
+            color="#8B5CF6",
+            is_vacation=False,
+        ),
+        BudgetCategory(
+            budget_id=budget.id,
+            name="Servicios",
+            percentage=Decimal("0.036"),
+            icon="⚡",
+            color="#EF4444",
+            is_vacation=False,
+        ),
+        BudgetCategory(
+            budget_id=budget.id,
+            name="Varios",
+            percentage=Decimal("0.034"),
+            icon="📦",
+            color="#6B7280",
+            is_vacation=False,
+        ),
+        BudgetCategory(
+            budget_id=budget.id,
+            name="Vacaciones",
+            percentage=Decimal("0.050"),
+            icon="🌴",
+            color="#0EA5E9",
+            is_vacation=True,
+        ),
     ]
     db.add_all(categories)
 
@@ -118,8 +168,20 @@ def seed(db: Session) -> None:
 
     # ── Integraciones (solo ALYCs con API pública confirmada) ────────────────
     integrations = [
-        Integration(user_id=SEED_USER_ID, provider="IOL", provider_type="ALYC", is_active=True, is_connected=False),
-        Integration(user_id=SEED_USER_ID, provider="PPI", provider_type="ALYC", is_active=True, is_connected=False),
+        Integration(
+            user_id=SEED_USER_ID,
+            provider="IOL",
+            provider_type="ALYC",
+            is_active=True,
+            is_connected=False,
+        ),
+        Integration(
+            user_id=SEED_USER_ID,
+            provider="PPI",
+            provider_type="ALYC",
+            is_active=True,
+            is_connected=False,
+        ),
     ]
     db.add_all(integrations)
 

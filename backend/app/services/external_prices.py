@@ -2,6 +2,7 @@
 Precios de ETFs y acciones internacionales vía Yahoo Finance.
 Reutiliza la misma lógica que usa iol_client para CEDEARs.
 """
+
 import logging
 import httpx
 

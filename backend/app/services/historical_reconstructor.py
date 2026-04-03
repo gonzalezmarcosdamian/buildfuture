@@ -16,6 +16,7 @@ Algoritmo backwards-anchored:
 Resultado: snapshots que reflejan solo la historia verificable, sin inflacion
 por operaciones fuera de la ventana o por importes ARS interpretados como unidades.
 """
+
 import logging
 from collections import defaultdict
 from datetime import date, timedelta
@@ -36,18 +37,25 @@ from app.services.historical_prices import (
 logger = logging.getLogger("buildfuture.reconstructor")
 
 _CRYPTO_YAHOO_MAP: dict[str, str | None] = {
-    "BTC": "BTC-USD", "ETH": "ETH-USD", "BNB": "BNB-USD",
-    "SOL": "SOL-USD", "ADA": "ADA-USD", "XRP": "XRP-USD",
-    "USDT": None, "USDC": None,
+    "BTC": "BTC-USD",
+    "ETH": "ETH-USD",
+    "BNB": "BNB-USD",
+    "SOL": "SOL-USD",
+    "ADA": "ADA-USD",
+    "XRP": "XRP-USD",
+    "USDT": None,
+    "USDC": None,
 }
 
 _YAHOO_TYPES = {"CEDEAR", "ETF", "CRYPTO"}
 
 
 def _existing_snapshot_dates(db: Session, user_id: str) -> set[date]:
-    rows = db.query(PortfolioSnapshot.snapshot_date).filter(
-        PortfolioSnapshot.user_id == user_id
-    ).all()
+    rows = (
+        db.query(PortfolioSnapshot.snapshot_date)
+        .filter(PortfolioSnapshot.user_id == user_id)
+        .all()
+    )
     return {r[0] for r in rows}
 
 
@@ -92,14 +100,16 @@ def _parse_operations_v2(ops: list[dict]) -> list[dict]:
         if qty_op is None or float(qty_op) <= 0:
             continue
 
-        parsed.append({
-            "date":      op_date,
-            "ticker":    ticker,
-            "qty":       float(qty_op),
-            "tipo":      tipo,
-            "precio_op": float(op.get("precioOperado") or 0),
-            "monto_op":  float(op.get("montoOperado") or 0),
-        })
+        parsed.append(
+            {
+                "date": op_date,
+                "ticker": ticker,
+                "qty": float(qty_op),
+                "tipo": tipo,
+                "precio_op": float(op.get("precioOperado") or 0),
+                "monto_op": float(op.get("montoOperado") or 0),
+            }
+        )
 
     return sorted(parsed, key=lambda x: x["date"])
 
@@ -133,8 +143,8 @@ def _build_reliable_timeline(
 
     for op in reversed(parsed_ops):
         ticker = op["ticker"]
-        qty    = op["qty"]
-        tipo   = op["tipo"]
+        qty = op["qty"]
+        tipo = op["tipo"]
 
         if ticker not in current_pos:
             continue
@@ -150,7 +160,9 @@ def _build_reliable_timeline(
                 logger.info(
                     "Reconstructor: %s ventas invisibles fuera de ventana "
                     "(state=%.4f, op_qty=%.4f) — historia anterior a esta op descartada",
-                    ticker, current_qty, qty,
+                    ticker,
+                    current_qty,
+                    qty,
                 )
                 continue
             state[ticker] = max(0.0, new_qty)
@@ -222,11 +234,11 @@ def reconstruct_portfolio_history(
     today = date.today()
     pos_info: dict[str, dict] = {
         p.ticker.upper(): {
-            "asset_type":    p.asset_type.upper(),
-            "ppc_ars":       float(p.ppc_ars or 0),
-            "ppc_usd":       float(p.avg_purchase_price_usd or 0),
-            "current_usd":   float(p.current_price_usd or 0),
-            "annual_yield":  float(p.annual_yield_pct or 0),
+            "asset_type": p.asset_type.upper(),
+            "ppc_ars": float(p.ppc_ars or 0),
+            "ppc_usd": float(p.avg_purchase_price_usd or 0),
+            "current_usd": float(p.current_price_usd or 0),
+            "annual_yield": float(p.annual_yield_pct or 0),
             "purchase_date": p.snapshot_date or today,
         }
         for p in current_positions
@@ -245,8 +257,11 @@ def reconstruct_portfolio_history(
         return 0
 
     first_date = min(tl[0][0] for tl in holdings_tl.values())
-    logger.info("Reconstructor: timeline confiable para %d tickers desde %s",
-                len(holdings_tl), first_date)
+    logger.info(
+        "Reconstructor: timeline confiable para %d tickers desde %s",
+        len(holdings_tl),
+        first_date,
+    )
 
     yahoo_map: dict[str, str] = {}
     for ticker in holdings_tl:
@@ -260,7 +275,9 @@ def reconstruct_portfolio_history(
     yahoo_prices: dict[str, dict[date, float]] = {}
     if yahoo_map:
         unique_yahoo = list(set(yahoo_map.values()))
-        logger.info("Reconstructor: %d tickers Yahoo (cache DB first)", len(unique_yahoo))
+        logger.info(
+            "Reconstructor: %d tickers Yahoo (cache DB first)", len(unique_yahoo)
+        )
         raw_yahoo = get_prices_batch_cached(db, unique_yahoo, first_date, today)
         for iol_t, yah_t in yahoo_map.items():
             yahoo_prices[iol_t] = raw_yahoo.get(yah_t, {})
@@ -277,11 +294,14 @@ def reconstruct_portfolio_history(
     ]
 
     if not dates_needed:
-        logger.info("Reconstructor: todos los snapshots ya existen para user=%s", user_id)
+        logger.info(
+            "Reconstructor: todos los snapshots ya existen para user=%s", user_id
+        )
         return 0
 
-    logger.info("Reconstructor: %d snapshots a generar para user=%s",
-                len(dates_needed), user_id)
+    logger.info(
+        "Reconstructor: %d snapshots a generar para user=%s", len(dates_needed), user_id
+    )
 
     batch: list[PortfolioSnapshot] = []
     created = 0
@@ -345,15 +365,17 @@ def reconstruct_portfolio_history(
         if total_usd <= 0:
             continue
 
-        batch.append(PortfolioSnapshot(
-            user_id=user_id,
-            snapshot_date=target,
-            total_usd=Decimal(str(round(total_usd, 2))),
-            monthly_return_usd=Decimal(str(round(renta_monthly_usd, 2))),
-            positions_count=n_pos,
-            fx_mep=Decimal(str(round(mep, 2))),
-            cost_basis_usd=Decimal("0"),
-        ))
+        batch.append(
+            PortfolioSnapshot(
+                user_id=user_id,
+                snapshot_date=target,
+                total_usd=Decimal(str(round(total_usd, 2))),
+                monthly_return_usd=Decimal(str(round(renta_monthly_usd, 2))),
+                positions_count=n_pos,
+                fx_mep=Decimal(str(round(mep, 2))),
+                cost_basis_usd=Decimal("0"),
+            )
+        )
         created += 1
 
         if len(batch) >= 100:

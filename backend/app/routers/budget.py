@@ -22,7 +22,11 @@ _FX_TTL = 600  # segundos
 def get_fx_rate():
     """Trae el tipo de cambio MEP. Cacheado 10 min para no llamar APIs externas en cada request."""
     global _fx_cache, _fx_cache_time
-    if _fx_cache and _fx_cache_time and (datetime.utcnow() - _fx_cache_time).total_seconds() < _FX_TTL:
+    if (
+        _fx_cache
+        and _fx_cache_time
+        and (datetime.utcnow() - _fx_cache_time).total_seconds() < _FX_TTL
+    ):
         return _fx_cache
 
     result = _fetch_fx_rate()
@@ -40,7 +44,11 @@ def _fetch_fx_rate() -> dict:
         value = data.get("venta") or data.get("compra")
         if value:
             logger.info("TC MEP (dolarapi): %s", value)
-            return {"fx_rate": round(float(value), 2), "source": "dolarapi", "type": "MEP"}
+            return {
+                "fx_rate": round(float(value), 2),
+                "source": "dolarapi",
+                "type": "MEP",
+            }
     except Exception as e:
         logger.warning("dolarapi falló: %s", e)
 
@@ -52,7 +60,11 @@ def _fetch_fx_rate() -> dict:
         value = data.get("blue", {}).get("value_sell")
         if value:
             logger.info("TC blue (bluelytics proxy): %s", value)
-            return {"fx_rate": round(float(value), 2), "source": "bluelytics_blue", "type": "Blue"}
+            return {
+                "fx_rate": round(float(value), 2),
+                "source": "bluelytics_blue",
+                "type": "Blue",
+            }
     except Exception as e:
         logger.warning("bluelytics falló: %s", e)
 
@@ -143,9 +155,7 @@ def update_budget(
     budget.fx_rate = Decimal(str(body.fx_rate))
 
     # Recalcular total gastos = sum de categorías no-vacaciones * ingreso
-    expense_pct = sum(
-        c.percentage for c in body.categories if not c.is_vacation
-    )
+    expense_pct = sum(c.percentage for c in body.categories if not c.is_vacation)
     budget.total_monthly_ars = budget.income_monthly_ars * Decimal(str(expense_pct))
 
     # Reemplazar categorías
@@ -154,14 +164,16 @@ def update_budget(
     db.flush()
 
     for cat in body.categories:
-        db.add(BudgetCategory(
-            budget_id=budget.id,
-            name=cat.name,
-            percentage=Decimal(str(cat.percentage)),
-            icon=cat.icon,
-            color=cat.color,
-            is_vacation=cat.is_vacation,
-        ))
+        db.add(
+            BudgetCategory(
+                budget_id=budget.id,
+                name=cat.name,
+                percentage=Decimal(str(cat.percentage)),
+                icon=cat.icon,
+                color=cat.color,
+                is_vacation=cat.is_vacation,
+            )
+        )
 
     db.commit()
     db.refresh(budget)

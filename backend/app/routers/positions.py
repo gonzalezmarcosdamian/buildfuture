@@ -2,6 +2,7 @@
 Gestión de posiciones manuales (CRYPTO, FCI, ETF/acciones, OTRO).
 Complementa las posiciones sincronizadas desde IOL.
 """
+
 import logging
 from datetime import date
 from decimal import Decimal
@@ -23,18 +24,19 @@ router = APIRouter(prefix="/positions", tags=["positions"])
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
 
+
 class ManualPositionCreate(BaseModel):
-    asset_type: str          # CRYPTO | FCI | ETF | OTRO
-    ticker: str              # símbolo o nombre corto (ej: BTC, SPY, CocosDolaresPlus)
-    description: str         # nombre legible
+    asset_type: str  # CRYPTO | FCI | ETF | OTRO
+    ticker: str  # símbolo o nombre corto (ej: BTC, SPY, CocosDolaresPlus)
+    description: str  # nombre legible
     quantity: float
-    ppc_ars: float           # precio promedio de compra en ARS (0 si es en USD)
+    ppc_ars: float  # precio promedio de compra en ARS (0 si es en USD)
     purchase_price_usd: float  # precio promedio de compra en USD
     purchase_fx_rate: float  # MEP al momento de compra (0 si la compra fue en USD)
     purchase_date: Optional[str] = None  # ISO date de la compra
     # Campos específicos por tipo
-    external_id: Optional[str] = None       # CoinGecko ID | ticker Yahoo
-    fci_categoria: Optional[str] = None     # para FCI: categoria ArgentinaDatos
+    external_id: Optional[str] = None  # CoinGecko ID | ticker Yahoo
+    fci_categoria: Optional[str] = None  # para FCI: categoria ArgentinaDatos
     manual_yield_pct: Optional[float] = None  # yield anual manual para OTRO
 
 
@@ -48,6 +50,7 @@ class ManualPositionUpdate(BaseModel):
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 def _get_live_price_and_yield(
     asset_type: str,
@@ -76,8 +79,13 @@ def _get_live_price_and_yield(
             # Convertir VCP (ARS) a USD usando MEP actual
             try:
                 import httpx as _httpx
+
                 r = _httpx.get("https://dolarapi.com/v1/dolares/bolsa", timeout=5)
-                mep = float(r.json().get("venta", 1430)) if r.status_code == 200 else 1430.0
+                mep = (
+                    float(r.json().get("venta", 1430))
+                    if r.status_code == 200
+                    else 1430.0
+                )
             except Exception:
                 mep = 1430.0
             price = vcp / mep if mep > 0 else purchase_price_usd
@@ -92,6 +100,7 @@ def _get_live_price_and_yield(
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
+
 
 @router.get("/search/crypto")
 def search_crypto(q: str = Query(min_length=1)):
@@ -110,7 +119,9 @@ def search_etf(ticker: str = Query(min_length=1)):
     """Valida y retorna info de un ticker en Yahoo Finance (ETF, acción, índice)."""
     info = external_prices.validate_ticker(ticker)
     if not info:
-        raise HTTPException(status_code=404, detail=f"Ticker '{ticker}' no encontrado en Yahoo Finance")
+        raise HTTPException(
+            status_code=404, detail=f"Ticker '{ticker}' no encontrado en Yahoo Finance"
+        )
     return info
 
 
@@ -132,7 +143,9 @@ def create_manual_position(
 
     # Para FCI: el precio de compra en ARS / MEP de compra = costo base USD
     ppc_ars = Decimal(str(body.ppc_ars)) if body.ppc_ars else Decimal("0")
-    purchase_fx = Decimal(str(body.purchase_fx_rate)) if body.purchase_fx_rate else Decimal("0")
+    purchase_fx = (
+        Decimal(str(body.purchase_fx_rate)) if body.purchase_fx_rate else Decimal("0")
+    )
 
     pos = Position(
         user_id=user_id,
@@ -154,7 +167,9 @@ def create_manual_position(
     db.add(pos)
     db.commit()
     db.refresh(pos)
-    logger.info("Posición manual creada: %s %s (user %s)", body.asset_type, body.ticker, user_id)
+    logger.info(
+        "Posición manual creada: %s %s (user %s)", body.asset_type, body.ticker, user_id
+    )
     return {
         "id": pos.id,
         "ticker": pos.ticker,
@@ -176,12 +191,16 @@ def update_manual_position(
     user_id: str = Depends(get_current_user),
 ):
     """Actualiza cantidad, precio de compra o yield de una posición manual."""
-    pos = db.query(Position).filter(
-        Position.id == position_id,
-        Position.user_id == user_id,
-        Position.source == "MANUAL",
-        Position.is_active == True,
-    ).first()
+    pos = (
+        db.query(Position)
+        .filter(
+            Position.id == position_id,
+            Position.user_id == user_id,
+            Position.source == "MANUAL",
+            Position.is_active == True,
+        )
+        .first()
+    )
     if not pos:
         raise HTTPException(status_code=404, detail="Posición no encontrada")
 
@@ -217,11 +236,15 @@ def delete_manual_position(
     user_id: str = Depends(get_current_user),
 ):
     """Desactiva (soft delete) una posición manual."""
-    pos = db.query(Position).filter(
-        Position.id == position_id,
-        Position.user_id == user_id,
-        Position.source == "MANUAL",
-    ).first()
+    pos = (
+        db.query(Position)
+        .filter(
+            Position.id == position_id,
+            Position.user_id == user_id,
+            Position.source == "MANUAL",
+        )
+        .first()
+    )
     if not pos:
         raise HTTPException(status_code=404, detail="Posición no encontrada")
     pos.is_active = False
@@ -236,12 +259,16 @@ def refresh_manual_price(
     user_id: str = Depends(get_current_user),
 ):
     """Fuerza actualización de precio y yield para una posición manual."""
-    pos = db.query(Position).filter(
-        Position.id == position_id,
-        Position.user_id == user_id,
-        Position.source == "MANUAL",
-        Position.is_active == True,
-    ).first()
+    pos = (
+        db.query(Position)
+        .filter(
+            Position.id == position_id,
+            Position.user_id == user_id,
+            Position.source == "MANUAL",
+            Position.is_active == True,
+        )
+        .first()
+    )
     if not pos:
         raise HTTPException(status_code=404, detail="Posición no encontrada")
 

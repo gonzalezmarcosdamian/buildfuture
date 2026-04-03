@@ -14,7 +14,9 @@ class ProfileUpdate(BaseModel):
 
 
 @router.get("/")
-def get_profile(user_id: str = Depends(get_current_user), db: Session = Depends(get_db)):
+def get_profile(
+    user_id: str = Depends(get_current_user), db: Session = Depends(get_db)
+):
     profile = db.query(UserProfile).filter(UserProfile.user_id == user_id).first()
     if not profile:
         return {"risk_profile": None}

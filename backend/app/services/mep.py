@@ -9,6 +9,7 @@ Orden de prioridad:
 Usar get_mep() en todos los lugares que crean PortfolioSnapshot
 para garantizar que fx_mep nunca queda en 0.
 """
+
 from decimal import Decimal
 import logging
 
@@ -27,6 +28,7 @@ def get_mep(budget=None) -> Decimal:
 
     try:
         import httpx
+
         r = httpx.get("https://dolarapi.com/v1/dolares/bolsa", timeout=5)
         if r.status_code == 200:
             data = r.json()
@@ -36,6 +38,8 @@ def get_mep(budget=None) -> Decimal:
                 logger.info("MEP dolarapi: %.2f", float(mep))
                 return mep
     except Exception as e:
-        logger.warning("get_mep: dolarapi.com falló (%s) — usando fallback %s", e, MEP_FALLBACK)
+        logger.warning(
+            "get_mep: dolarapi.com falló (%s) — usando fallback %s", e, MEP_FALLBACK
+        )
 
     return MEP_FALLBACK

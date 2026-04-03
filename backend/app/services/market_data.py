@@ -2,6 +2,7 @@
 Snapshot del mercado argentino para alimentar las recomendaciones.
 Fuentes públicas — sin auth requerida.
 """
+
 import logging
 import httpx
 from dataclasses import dataclass, field
@@ -15,9 +16,9 @@ class MarketSnapshot:
     mep_usd: float = 1431.0
     blue_usd: float = 1415.0
     mep_source: str = "fallback"
-    lecap_tna_pct: float = 55.0       # TNA referencial LECAPs corto plazo
-    cer_tna_pct: float = 48.0         # TNA bonos CER
-    al30_price: float = 0.0           # Precio AL30 en USD (paridad)
+    lecap_tna_pct: float = 55.0  # TNA referencial LECAPs corto plazo
+    cer_tna_pct: float = 48.0  # TNA bonos CER
+    al30_price: float = 0.0  # Precio AL30 en USD (paridad)
     top_cedears: list[dict] = field(default_factory=list)
     inflation_monthly_pct: float = 2.5  # último dato INDEC
 
@@ -47,11 +48,26 @@ def fetch_market_snapshot() -> MarketSnapshot:
     # 3. Top CEDEARs por volumen — Rava/IOL no tienen API pública fácil,
     #    usamos lista curada actualizada periódicamente
     snap.top_cedears = [
-        {"ticker": "SPY",  "name": "S&P 500 ETF",     "sector": "mercado_usa",  "ytd_pct": 8.5},
-        {"ticker": "QQQ",  "name": "Nasdaq 100 ETF",   "sector": "tech_usa",     "ytd_pct": 6.2},
-        {"ticker": "XLE",  "name": "Energy Sector ETF","sector": "energia",      "ytd_pct": 4.1},
-        {"ticker": "GGAL", "name": "Galicia",           "sector": "bancos_ar",   "ytd_pct": 22.0},
-        {"ticker": "YPF",  "name": "YPF",               "sector": "energia_ar",  "ytd_pct": 18.3},
+        {
+            "ticker": "SPY",
+            "name": "S&P 500 ETF",
+            "sector": "mercado_usa",
+            "ytd_pct": 8.5,
+        },
+        {
+            "ticker": "QQQ",
+            "name": "Nasdaq 100 ETF",
+            "sector": "tech_usa",
+            "ytd_pct": 6.2,
+        },
+        {
+            "ticker": "XLE",
+            "name": "Energy Sector ETF",
+            "sector": "energia",
+            "ytd_pct": 4.1,
+        },
+        {"ticker": "GGAL", "name": "Galicia", "sector": "bancos_ar", "ytd_pct": 22.0},
+        {"ticker": "YPF", "name": "YPF", "sector": "energia_ar", "ytd_pct": 18.3},
     ]
 
     logger.info("Market snapshot OK: MEP=%s blue=%s", snap.mep_usd, snap.blue_usd)

@@ -9,12 +9,29 @@ from sqlalchemy.orm import Session, selectinload
 from app.database import get_db
 from app.auth import get_current_user
 from pydantic import BaseModel
-from app.models import Position, BudgetConfig, BudgetCategory, FreedomGoal, InvestmentMonth, PortfolioSnapshot, CapitalGoal, PositionSnapshot
-from app.services.freedom_calculator import calculate_freedom_score, calculate_milestone_projections, split_portfolio_buckets
+from app.models import (
+    Position,
+    BudgetConfig,
+    BudgetCategory,
+    FreedomGoal,
+    InvestmentMonth,
+    PortfolioSnapshot,
+    CapitalGoal,
+    PositionSnapshot,
+)
+from app.services.freedom_calculator import (
+    calculate_freedom_score,
+    calculate_milestone_projections,
+    split_portfolio_buckets,
+)
 from app.services.ai_recommendations import get_ai_recommendations
 from app.services.market_data import fetch_market_snapshot
 from app.services.smart_recommendations import get_smart_recommendations
-from app.services.expert_committee import get_committee_recommendations, get_sections_recommendations, UNIVERSE
+from app.services.expert_committee import (
+    get_committee_recommendations,
+    get_sections_recommendations,
+    UNIVERSE,
+)
 
 router = APIRouter(prefix="/portfolio", tags=["portfolio"])
 
@@ -26,7 +43,10 @@ _score_cache: dict[str, tuple[dict, datetime]] = {}
 _score_lock = threading.Lock()
 _SCORE_TTL = 120  # segundos
 
-def _get_freedom_score(user_id: str, positions: list, monthly_expenses_usd: Decimal) -> dict:
+
+def _get_freedom_score(
+    user_id: str, positions: list, monthly_expenses_usd: Decimal
+) -> dict:
     """Calcula o devuelve desde cache el freedom score del usuario."""
     with _score_lock:
         cached = _score_cache.get(user_id)
@@ -37,9 +57,11 @@ def _get_freedom_score(user_id: str, positions: list, monthly_expenses_usd: Deci
         _score_cache[user_id] = (score, datetime.utcnow())
     return score
 
+
 def _invalidate_score_cache(user_id: str) -> None:
     with _score_lock:
         _score_cache.pop(user_id, None)
+
 
 def save_position_snapshots(db: Session, user_id: str, positions: list) -> None:
     """
@@ -67,16 +89,18 @@ def save_position_snapshots(db: Session, user_id: str, positions: list) -> None:
             existing.asset_type = p.asset_type
             existing.source = p.source or ""
         else:
-            db.add(PositionSnapshot(
-                user_id=user_id,
-                ticker=p.ticker,
-                snapshot_date=today,
-                value_usd=p.current_value_usd,
-                price_usd=p.current_price_usd,
-                quantity=p.quantity,
-                asset_type=p.asset_type,
-                source=p.source or "",
-            ))
+            db.add(
+                PositionSnapshot(
+                    user_id=user_id,
+                    ticker=p.ticker,
+                    snapshot_date=today,
+                    value_usd=p.current_value_usd,
+                    price_usd=p.current_price_usd,
+                    quantity=p.quantity,
+                    asset_type=p.asset_type,
+                    source=p.source or "",
+                )
+            )
 
 
 def _query_budget(db: Session, user_id: str) -> BudgetConfig | None:
@@ -115,20 +139,29 @@ def _auto_sync_iol(user_id: str) -> None:
                 Integration.provider == "IOL",
                 Integration.user_id == user_id,
                 Integration.is_connected == True,
-                or_(Integration.last_synced_at == None, Integration.last_synced_at < threshold),
+                or_(
+                    Integration.last_synced_at == None,
+                    Integration.last_synced_at < threshold,
+                ),
             )
             .values(last_synced_at=now)
             .execution_options(synchronize_session=False)
         )
         db.commit()
         if result.rowcount == 0:
-            logger.debug("Auto-sync IOL skipped — lock no adquirido para user %s", user_id)
+            logger.debug(
+                "Auto-sync IOL skipped — lock no adquirido para user %s", user_id
+            )
             return
 
-        integration = db.query(Integration).filter(
-            Integration.provider == "IOL",
-            Integration.user_id == user_id,
-        ).first()
+        integration = (
+            db.query(Integration)
+            .filter(
+                Integration.provider == "IOL",
+                Integration.user_id == user_id,
+            )
+            .first()
+        )
         if not integration or not integration.encrypted_credentials:
             return
 
@@ -141,16 +174,24 @@ def _auto_sync_iol(user_id: str) -> None:
             result = _sync_iol(client, db, user_id)
             integration.last_error = ""
             db.commit()
-            logger.info("Auto-sync IOL OK: %d posiciones para user %s", result["positions_synced"], user_id)
+            logger.info(
+                "Auto-sync IOL OK: %d posiciones para user %s",
+                result["positions_synced"],
+                user_id,
+            )
         except Exception as inner_e:
             logger.warning("Auto-sync IOL falló para user %s: %s", user_id, inner_e)
             try:
                 db.rollback()
                 # Restaurar last_synced_at para que el próximo auto-sync pueda reintentar
-                integration2 = db.query(Integration).filter(
-                    Integration.provider == "IOL",
-                    Integration.user_id == user_id,
-                ).first()
+                integration2 = (
+                    db.query(Integration)
+                    .filter(
+                        Integration.provider == "IOL",
+                        Integration.user_id == user_id,
+                    )
+                    .first()
+                )
                 if integration2:
                     integration2.last_synced_at = prev_synced_at
                     db.commit()
@@ -171,10 +212,14 @@ def get_portfolio(
     db: Session = Depends(get_db),
     current_user: str = Depends(get_current_user),
 ):
-    positions = db.query(Position).filter(
-        Position.is_active == True,
-        Position.user_id == current_user,
-    ).all()
+    positions = (
+        db.query(Position)
+        .filter(
+            Position.is_active == True,
+            Position.user_id == current_user,
+        )
+        .all()
+    )
     budget = _query_budget(db, current_user)
     monthly_expenses_usd = budget.total_monthly_usd if budget else Decimal("2000")
 
@@ -201,20 +246,27 @@ def get_portfolio(
                 "avg_purchase_price_usd": float(p.avg_purchase_price_usd),
                 "current_price_usd": float(p.current_price_usd),
                 "current_value_usd": float(p.current_value_usd),
-                "current_value_ars": float(p.current_value_ars) if p.current_value_ars else None,
+                "current_value_ars": (
+                    float(p.current_value_ars) if p.current_value_ars else None
+                ),
                 "cost_basis_usd": float(p.cost_basis_usd),
                 "performance_pct": float(p.performance_pct),
                 "performance_ars_pct": float(p.performance_ars_pct),
                 "purchase_fx_rate": float(p.purchase_fx_rate),
                 "ppc_ars": float(p.ppc_ars),
                 "annual_yield_pct": float(p.annual_yield_pct),
-                "snapshot_date": p.snapshot_date.isoformat() if p.snapshot_date else None,
+                "snapshot_date": (
+                    p.snapshot_date.isoformat() if p.snapshot_date else None
+                ),
             }
             for p in positions
         ],
         "summary": {
             "total_usd": float(score["portfolio_total_usd"]),
-            "total_ars": float(sum(p.current_value_ars for p in positions if p.current_value_ars)) or None,
+            "total_ars": float(
+                sum(p.current_value_ars for p in positions if p.current_value_ars)
+            )
+            or None,
             "monthly_return_usd": float(buckets["renta_monthly_usd"]),
             "renta_monthly_usd": float(buckets["renta_monthly_usd"]),
             "renta_total_usd": float(buckets["renta_total_usd"]),
@@ -241,12 +293,18 @@ def get_portfolio_recommendations(
     db: Session = Depends(get_db),
     current_user: str = Depends(get_current_user),
 ):
-    positions = db.query(Position).filter(
-        Position.is_active == True,
-        Position.user_id == current_user,
-    ).all()
+    positions = (
+        db.query(Position)
+        .filter(
+            Position.is_active == True,
+            Position.user_id == current_user,
+        )
+        .all()
+    )
     budget = _query_budget(db, current_user)
-    score = _get_freedom_score(current_user, positions, budget.total_monthly_usd if budget else Decimal("2000"))
+    score = _get_freedom_score(
+        current_user, positions, budget.total_monthly_usd if budget else Decimal("2000")
+    )
 
     current_tickers = [p.ticker for p in positions]
     monthly_savings_usd = float(budget.savings_monthly_usd) if budget else 1250.0
@@ -284,12 +342,18 @@ def get_portfolio_sections(
     No requiere risk_profile — cada card devuelve recommended_for.
     6 instrumentos por sección, ordenados por score del comité.
     """
-    positions = db.query(Position).filter(
-        Position.is_active == True,
-        Position.user_id == current_user,
-    ).all()
+    positions = (
+        db.query(Position)
+        .filter(
+            Position.is_active == True,
+            Position.user_id == current_user,
+        )
+        .all()
+    )
     budget = _query_budget(db, current_user)
-    score = _get_freedom_score(current_user, positions, budget.total_monthly_usd if budget else Decimal("2000"))
+    score = _get_freedom_score(
+        current_user, positions, budget.total_monthly_usd if budget else Decimal("2000")
+    )
 
     current_tickers = [p.ticker for p in positions]
     monthly_savings_usd = float(budget.savings_monthly_usd) if budget else 1250.0
@@ -310,10 +374,14 @@ def get_gamification(
     current_user: str = Depends(get_current_user),
 ):
     background_tasks.add_task(_auto_sync_iol, current_user)
-    positions = db.query(Position).filter(
-        Position.is_active == True,
-        Position.user_id == current_user,
-    ).all()
+    positions = (
+        db.query(Position)
+        .filter(
+            Position.is_active == True,
+            Position.user_id == current_user,
+        )
+        .all()
+    )
     budget = _query_budget(db, current_user)
 
     # ── 1. ¿Qué paga tu portafolio? ──────────────────────────────────────────
@@ -341,20 +409,24 @@ def get_gamification(
             else:
                 status = "pending"
                 covered_pct = 0.0
-            portfolio_covers.append({
-                "name": c.name,
-                "icon": c.icon,
-                "amount_usd": round(cat_usd, 1),
-                "status": status,
-                "covered_pct": covered_pct,
-            })
+            portfolio_covers.append(
+                {
+                    "name": c.name,
+                    "icon": c.icon,
+                    "amount_usd": round(cat_usd, 1),
+                    "status": status,
+                    "covered_pct": covered_pct,
+                }
+            )
 
     # ── 2. Racha mensual ─────────────────────────────────────────────────────
     # Fuente primaria: tabla investment_months (operaciones reales de IOL).
     # Fallback: proxy por snapshot_date si no hay datos reales aún.
-    real_months = db.query(InvestmentMonth.month).filter(
-        InvestmentMonth.user_id == current_user
-    ).all()
+    real_months = (
+        db.query(InvestmentMonth.month)
+        .filter(InvestmentMonth.user_id == current_user)
+        .all()
+    )
     if real_months:
         invested_months = {row.month.replace(day=1) for row in real_months}
     else:
@@ -369,10 +441,12 @@ def get_gamification(
             m += 12
             y -= 1
         month_date = date(y, m, 1)
-        calendar.append({
-            "month": month_date.isoformat(),
-            "invested": month_date in invested_months,
-        })
+        calendar.append(
+            {
+                "month": month_date.isoformat(),
+                "invested": month_date in invested_months,
+            }
+        )
 
     current_streak = 0
     for entry in reversed(calendar):
@@ -404,7 +478,20 @@ def get_gamification(
     }
 
 
-_MONTH_NAMES = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"]
+_MONTH_NAMES = [
+    "Ene",
+    "Feb",
+    "Mar",
+    "Abr",
+    "May",
+    "Jun",
+    "Jul",
+    "Ago",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dic",
+]
 
 
 @router.get("/positions/delta")
@@ -430,10 +517,12 @@ def get_positions_delta(
     # Snapshots de hoy
     today_snaps = {
         s.ticker: s
-        for s in db.query(PositionSnapshot).filter(
+        for s in db.query(PositionSnapshot)
+        .filter(
             PositionSnapshot.user_id == current_user,
             PositionSnapshot.snapshot_date == today,
-        ).all()
+        )
+        .all()
     }
 
     if not today_snaps:
@@ -464,16 +553,18 @@ def get_positions_delta(
         delta_usd = float(today_snap.value_usd) - float(prev.value_usd)
         prev_val = float(prev.value_usd)
         delta_pct = (delta_usd / prev_val) if prev_val != 0 else 0.0
-        results.append({
-            "ticker": ticker,
-            "asset_type": today_snap.asset_type,
-            "source": today_snap.source,
-            "value_usd_now": float(today_snap.value_usd),
-            "value_usd_prev": prev_val,
-            "delta_usd": round(delta_usd, 2),
-            "delta_pct": round(delta_pct, 6),
-            "from_date": prev.snapshot_date.isoformat(),
-        })
+        results.append(
+            {
+                "ticker": ticker,
+                "asset_type": today_snap.asset_type,
+                "source": today_snap.source,
+                "value_usd_now": float(today_snap.value_usd),
+                "value_usd_prev": prev_val,
+                "delta_usd": round(delta_usd, 2),
+                "delta_pct": round(delta_pct, 6),
+                "from_date": prev.snapshot_date.isoformat(),
+            }
+        )
 
     return {
         "period": period,
@@ -498,11 +589,17 @@ def get_portfolio_history(
     from app.scheduler import trigger_snapshot_now
 
     # Posiciones activas — necesarias tanto para el snapshot live como para el costo base
-    live_positions = db.query(Position).filter(
-        Position.is_active == True,
-        Position.user_id == current_user,
-    ).all()
-    total_cost_basis = sum(float(p.cost_basis_usd) for p in live_positions) if live_positions else 0
+    live_positions = (
+        db.query(Position)
+        .filter(
+            Position.is_active == True,
+            Position.user_id == current_user,
+        )
+        .all()
+    )
+    total_cost_basis = (
+        sum(float(p.cost_basis_usd) for p in live_positions) if live_positions else 0
+    )
     total_cost_basis_decimal = Decimal(str(round(total_cost_basis, 2)))
 
     # Actualizar snapshot de hoy solo si no fue actualizado en los últimos 5 min
@@ -514,12 +611,17 @@ def get_portfolio_history(
             score = _get_freedom_score(current_user, live_positions, monthly_expenses)
 
             from app.services.mep import get_mep
+
             fx_mep = get_mep(budget)  # budget → dolarapi.com → 1430, nunca 0
 
-            snapshot_today = db.query(PortfolioSnapshot).filter(
-                PortfolioSnapshot.snapshot_date == today,
-                PortfolioSnapshot.user_id == current_user,
-            ).first()
+            snapshot_today = (
+                db.query(PortfolioSnapshot)
+                .filter(
+                    PortfolioSnapshot.snapshot_date == today,
+                    PortfolioSnapshot.user_id == current_user,
+                )
+                .first()
+            )
             if snapshot_today:
                 snapshot_today.total_usd = score["portfolio_total_usd"]
                 snapshot_today.monthly_return_usd = score["monthly_return_usd"]
@@ -527,18 +629,23 @@ def get_portfolio_history(
                 snapshot_today.cost_basis_usd = total_cost_basis_decimal
                 snapshot_today.fx_mep = fx_mep
             else:
-                db.add(PortfolioSnapshot(
-                    user_id=current_user,
-                    snapshot_date=today,
-                    total_usd=score["portfolio_total_usd"],
-                    monthly_return_usd=score["monthly_return_usd"],
-                    positions_count=len(live_positions),
-                    fx_mep=fx_mep,
-                    cost_basis_usd=total_cost_basis_decimal,
-                ))
+                db.add(
+                    PortfolioSnapshot(
+                        user_id=current_user,
+                        snapshot_date=today,
+                        total_usd=score["portfolio_total_usd"],
+                        monthly_return_usd=score["monthly_return_usd"],
+                        positions_count=len(live_positions),
+                        fx_mep=fx_mep,
+                        cost_basis_usd=total_cost_basis_decimal,
+                    )
+                )
             db.commit()
             db.expire_all()
-            logger.info("Snapshot hoy actualizado: USD %.4f", float(score["portfolio_total_usd"]))
+            logger.info(
+                "Snapshot hoy actualizado: USD %.4f",
+                float(score["portfolio_total_usd"]),
+            )
     except Exception as e:
         logger.warning("Refresh snapshot hoy fallo: %s", e, exc_info=True)
         db.rollback()  # sin esto la sesión queda rota y toda query posterior falla
@@ -578,7 +685,11 @@ def get_portfolio_history(
 
         # cost_basis guardado en el snapshot (histórico real) o fallback al actual
         cost_now = float(s.cost_basis_usd) if s.cost_basis_usd else total_cost_basis
-        cost_prev = float(points_raw[i - 1]["snapshot"].cost_basis_usd) if i > 0 and points_raw[i - 1]["snapshot"].cost_basis_usd else cost_now
+        cost_prev = (
+            float(points_raw[i - 1]["snapshot"].cost_basis_usd)
+            if i > 0 and points_raw[i - 1]["snapshot"].cost_basis_usd
+            else cost_now
+        )
 
         # capital_in = cuánto capital nuevo entró ese período
         capital_in_usd = round(cost_now - cost_prev, 2) if i > 0 else 0
@@ -588,18 +699,20 @@ def get_portfolio_history(
         pnl_usd = round(total - cost_now, 2) if cost_now > 0 else 0
         pnl_pct = round(pnl_usd / cost_now * 100, 2) if cost_now > 0 else 0
 
-        points.append({
-            "label": item["label"],
-            "date": item["date_iso"],
-            "total_usd": round(total, 2),
-            "monthly_return_usd": round(float(s.monthly_return_usd), 2),
-            "fx_mep": round(float(s.fx_mep), 2) if s.fx_mep else 0,
-            "delta_usd": delta_usd,
-            "pnl_usd": pnl_usd,
-            "pnl_pct": pnl_pct,
-            "market_gain_usd": market_gain_usd,
-            "capital_in_usd": capital_in_usd,
-        })
+        points.append(
+            {
+                "label": item["label"],
+                "date": item["date_iso"],
+                "total_usd": round(total, 2),
+                "monthly_return_usd": round(float(s.monthly_return_usd), 2),
+                "fx_mep": round(float(s.fx_mep), 2) if s.fx_mep else 0,
+                "delta_usd": delta_usd,
+                "pnl_usd": pnl_usd,
+                "pnl_pct": pnl_pct,
+                "market_gain_usd": market_gain_usd,
+                "capital_in_usd": capital_in_usd,
+            }
+        )
 
     return {"period": period, "points": points, "has_data": len(points) >= 1}
 
@@ -609,10 +722,14 @@ def get_next_goal(
     db: Session = Depends(get_db),
     current_user: str = Depends(get_current_user),
 ):
-    positions = db.query(Position).filter(
-        Position.is_active == True,
-        Position.user_id == current_user,
-    ).all()
+    positions = (
+        db.query(Position)
+        .filter(
+            Position.is_active == True,
+            Position.user_id == current_user,
+        )
+        .all()
+    )
     budget = _query_budget(db, current_user)
     if not budget:
         return None
@@ -654,11 +771,15 @@ def get_next_goal(
 
     # Capital necesario para generar missing_return_usd/mes
     # missing_return = capital × annual_yield / 12  →  capital = missing_return × 12 / annual_yield
-    capital_needed_usd = (next_cat["missing_monthly_usd"] * 12 / annual_yield) if annual_yield > 0 else 0
+    capital_needed_usd = (
+        (next_cat["missing_monthly_usd"] * 12 / annual_yield) if annual_yield > 0 else 0
+    )
     capital_needed_ars = round(capital_needed_usd * mep)
 
     # Meses de ahorro necesarios
-    months_to_unlock = round(capital_needed_usd / savings_usd) if savings_usd > 0 else None
+    months_to_unlock = (
+        round(capital_needed_usd / savings_usd) if savings_usd > 0 else None
+    )
 
     return {
         "all_unlocked": False,
@@ -680,10 +801,14 @@ def get_freedom_score(
     db: Session = Depends(get_db),
     current_user: str = Depends(get_current_user),
 ):
-    positions = db.query(Position).filter(
-        Position.is_active == True,
-        Position.user_id == current_user,
-    ).all()
+    positions = (
+        db.query(Position)
+        .filter(
+            Position.is_active == True,
+            Position.user_id == current_user,
+        )
+        .all()
+    )
     budget = _query_budget(db, current_user)
     goal = (
         db.query(FreedomGoal)
@@ -703,7 +828,11 @@ def get_freedom_score(
         current_portfolio_usd=score["portfolio_total_usd"],
         monthly_savings_usd=monthly_savings_usd,
         monthly_expenses_usd=monthly_expenses_usd,
-        annual_return_pct=score["annual_return_pct"] if score["annual_return_pct"] > 0 else annual_return_pct,
+        annual_return_pct=(
+            score["annual_return_pct"]
+            if score["annual_return_pct"] > 0
+            else annual_return_pct
+        ),
     )
 
     return {
@@ -801,12 +930,16 @@ def save_goal(
     )
     if goal:
         goal.monthly_savings_usd = Decimal(str(round(body.monthly_savings_usd, 2)))
-        goal.target_annual_return_pct = Decimal(str(round(body.target_annual_return_pct, 4)))
+        goal.target_annual_return_pct = Decimal(
+            str(round(body.target_annual_return_pct, 4))
+        )
     else:
         goal = FreedomGoal(
             user_id=current_user,
             monthly_savings_usd=Decimal(str(round(body.monthly_savings_usd, 2))),
-            target_annual_return_pct=Decimal(str(round(body.target_annual_return_pct, 4))),
+            target_annual_return_pct=Decimal(
+                str(round(body.target_annual_return_pct, 4))
+            ),
         )
         db.add(goal)
     db.commit()
@@ -824,10 +957,14 @@ def list_capital_goals(
         .order_by(CapitalGoal.created_at)
         .all()
     )
-    positions = db.query(Position).filter(
-        Position.is_active == True,
-        Position.user_id == current_user,
-    ).all()
+    positions = (
+        db.query(Position)
+        .filter(
+            Position.is_active == True,
+            Position.user_id == current_user,
+        )
+        .all()
+    )
     portfolio_usd = float(sum(p.current_value_usd for p in positions))
     budget = _query_budget(db, current_user)
     freedom_goal = (
@@ -867,21 +1004,25 @@ def list_capital_goals(
                 months += 1
             months_to_goal = months if bal >= target else None
         elif monthly_savings_usd > 0:
-            months_to_goal = max(0, round(max(0.0, target - remaining_usd) / monthly_savings_usd))
+            months_to_goal = max(
+                0, round(max(0.0, target - remaining_usd) / monthly_savings_usd)
+            )
         else:
             months_to_goal = None
 
-        result.append({
-            "id": g.id,
-            "name": g.name,
-            "emoji": g.emoji,
-            "target_usd": target,
-            "target_years": g.target_years,
-            "portfolio_usd": allocated,
-            "progress_pct": progress_pct,
-            "months_to_goal": months_to_goal,
-            "monthly_savings_usd": round(monthly_savings_usd, 2),
-        })
+        result.append(
+            {
+                "id": g.id,
+                "name": g.name,
+                "emoji": g.emoji,
+                "target_usd": target,
+                "target_years": g.target_years,
+                "portfolio_usd": allocated,
+                "progress_pct": progress_pct,
+                "months_to_goal": months_to_goal,
+                "monthly_savings_usd": round(monthly_savings_usd, 2),
+            }
+        )
         remaining_usd = max(0.0, remaining_usd - target)
 
     return result
@@ -913,10 +1054,14 @@ def update_capital_goal(
     db: Session = Depends(get_db),
     current_user: str = Depends(get_current_user),
 ):
-    goal = db.query(CapitalGoal).filter(
-        CapitalGoal.id == goal_id,
-        CapitalGoal.user_id == current_user,
-    ).first()
+    goal = (
+        db.query(CapitalGoal)
+        .filter(
+            CapitalGoal.id == goal_id,
+            CapitalGoal.user_id == current_user,
+        )
+        .first()
+    )
     if not goal:
         raise HTTPException(status_code=404, detail="Goal not found")
     goal.name = body.name
@@ -933,10 +1078,14 @@ def delete_capital_goal(
     db: Session = Depends(get_db),
     current_user: str = Depends(get_current_user),
 ):
-    goal = db.query(CapitalGoal).filter(
-        CapitalGoal.id == goal_id,
-        CapitalGoal.user_id == current_user,
-    ).first()
+    goal = (
+        db.query(CapitalGoal)
+        .filter(
+            CapitalGoal.id == goal_id,
+            CapitalGoal.user_id == current_user,
+        )
+        .first()
+    )
     if not goal:
         raise HTTPException(status_code=404, detail="Goal not found")
     db.delete(goal)
@@ -955,10 +1104,14 @@ def get_portfolio_projection(
     - 'without_savings': solo portafolio actual + rendimiento, sin nuevos aportes
     Permite visualizar el impacto del DCA y el interés compuesto.
     """
-    positions = db.query(Position).filter(
-        Position.is_active == True,
-        Position.user_id == current_user,
-    ).all()
+    positions = (
+        db.query(Position)
+        .filter(
+            Position.is_active == True,
+            Position.user_id == current_user,
+        )
+        .all()
+    )
     budget = _query_budget(db, current_user)
     goal = (
         db.query(FreedomGoal)
@@ -972,7 +1125,11 @@ def get_portfolio_projection(
     # Excluir LETRA/FCI: su rendimiento nominal ARS no es comparable con USD compuesto.
     proj_buckets = split_portfolio_buckets(positions)
     capital_usd = float(proj_buckets["capital_total_usd"])
-    current_usd = capital_usd if capital_usd > 0 else float(sum(p.current_value_usd for p in positions))
+    current_usd = (
+        capital_usd
+        if capital_usd > 0
+        else float(sum(p.current_value_usd for p in positions))
+    )
     monthly_savings_usd = float(goal.monthly_savings_usd) if goal else 1250.0
     if budget:
         ars = float(budget.savings_monthly_ars)
@@ -982,16 +1139,27 @@ def get_portfolio_projection(
 
     # Yield anual: prioridad → goal configurado, luego yield del bucket capital (cap 15%)
     MAX_REALISTIC_YIELD = 0.15  # 15% anual USD — muy agresivo, rara vez superado
-    MIN_YIELD = 0.06            # 6% — piso conservador
+    MIN_YIELD = 0.06  # 6% — piso conservador
     if goal and goal.target_annual_return_pct and goal.target_annual_return_pct > 0:
         annual_return_pct = float(goal.target_annual_return_pct)
     else:
         # Yield del bucket capital: weighted average solo sobre posiciones de crecimiento
-        cap_positions = [p for p in positions if getattr(p, "asset_type", "").upper() in {"CEDEAR", "ETF", "CRYPTO", "BOND"}]
+        cap_positions = [
+            p
+            for p in positions
+            if getattr(p, "asset_type", "").upper()
+            in {"CEDEAR", "ETF", "CRYPTO", "BOND"}
+        ]
         if cap_positions:
             cap_total = sum(float(p.current_value_usd) for p in cap_positions)
             if cap_total > 0:
-                raw_yield = sum(float(p.current_value_usd) * float(p.annual_yield_pct) for p in cap_positions) / cap_total
+                raw_yield = (
+                    sum(
+                        float(p.current_value_usd) * float(p.annual_yield_pct)
+                        for p in cap_positions
+                    )
+                    / cap_total
+                )
             else:
                 raw_yield = 0.08
         else:
@@ -1001,19 +1169,21 @@ def get_portfolio_projection(
 
     # Generar puntos: año 0 al 10 (anual)
     points = []
-    bal_with    = current_usd
+    bal_with = current_usd
     bal_without = current_usd
 
     for year in range(0, 11):
-        points.append({
-            "year": year,
-            "with_savings_usd":    round(bal_with,    0),
-            "without_savings_usd": round(bal_without,  0),
-            "label": f"Año {year}" if year > 0 else "Hoy",
-        })
+        points.append(
+            {
+                "year": year,
+                "with_savings_usd": round(bal_with, 0),
+                "without_savings_usd": round(bal_without, 0),
+                "label": f"Año {year}" if year > 0 else "Hoy",
+            }
+        )
         # Proyectar 12 meses hacia adelante
         for _ in range(12):
-            bal_with    = bal_with    * (1 + monthly_rate) + monthly_savings_usd
+            bal_with = bal_with * (1 + monthly_rate) + monthly_savings_usd
             bal_without = bal_without * (1 + monthly_rate)
 
     extra_usd = points[-1]["with_savings_usd"] - points[-1]["without_savings_usd"]
@@ -1034,11 +1204,15 @@ def get_instrument_detail(
     db: Session = Depends(get_db),
     current_user: str = Depends(get_current_user),
 ):
-    position = db.query(Position).filter(
-        Position.ticker == ticker,
-        Position.is_active == True,
-        Position.user_id == current_user,
-    ).first()
+    position = (
+        db.query(Position)
+        .filter(
+            Position.ticker == ticker,
+            Position.is_active == True,
+            Position.user_id == current_user,
+        )
+        .first()
+    )
 
     if not position:
         raise HTTPException(status_code=404, detail="Instrumento no encontrado")
@@ -1052,21 +1226,27 @@ def get_instrument_detail(
     mep = float(budget.fx_rate) if budget and budget.fx_rate else 1430.0
 
     pnl_usd = float(position.current_value_usd) - float(position.cost_basis_usd)
-    monthly_return_usd = float(position.current_value_usd) * float(position.annual_yield_pct) / 12
+    monthly_return_usd = (
+        float(position.current_value_usd) * float(position.annual_yield_pct) / 12
+    )
 
-    context = _ASSET_CONTEXT.get(position.asset_type, {
-        "type_label": position.asset_type,
-        "full_name": position.asset_type,
-        "description": "Activo financiero.",
-        "currency_note": "",
-        "liquidity": "Variable.",
-    })
+    context = _ASSET_CONTEXT.get(
+        position.asset_type,
+        {
+            "type_label": position.asset_type,
+            "full_name": position.asset_type,
+            "description": "Activo financiero.",
+            "currency_note": "",
+            "liquidity": "Variable.",
+        },
+    )
 
     # LECAP: fecha de vencimiento decodificada del ticker
     maturity_date = None
     days_to_maturity = None
     if position.asset_type == "LETRA":
         from app.services.yield_updater import _parse_lecap_maturity
+
         mat = _parse_lecap_maturity(position.ticker)
         if mat:
             maturity_date = mat.isoformat()
@@ -1088,7 +1268,9 @@ def get_instrument_detail(
         "pnl_usd": round(pnl_usd, 2),
         "annual_yield_pct": float(position.annual_yield_pct),
         "monthly_return_usd": round(monthly_return_usd, 4),
-        "last_updated": position.snapshot_date.isoformat() if position.snapshot_date else None,
+        "last_updated": (
+            position.snapshot_date.isoformat() if position.snapshot_date else None
+        ),
         "mep": round(mep, 2),
         "context": context,
         "maturity_date": maturity_date,

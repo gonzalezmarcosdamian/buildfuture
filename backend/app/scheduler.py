@@ -87,6 +87,7 @@ def _daily_close_job() -> None:
     try:
         _backup_db()
         from app.database import SessionLocal
+
         db = SessionLocal()
         try:
             _maybe_sync_iol(db)
@@ -95,6 +96,7 @@ def _daily_close_job() -> None:
             _maybe_sync_binance(db)
             _refresh_manual_prices(db)
             from app.services.mep import get_mep as _get_mep
+
             _daily_mep = float(_get_mep())
             _update_yields(db, mep=_daily_mep)
             _save_portfolio_snapshot(db)
@@ -110,10 +112,14 @@ def _maybe_sync_iol(db) -> None:
     from app.services.iol_client import IOLClient
     from app.routers.integrations import _sync_iol
 
-    integrations = db.query(Integration).filter(
-        Integration.provider == "IOL",
-        Integration.is_connected == True,
-    ).all()
+    integrations = (
+        db.query(Integration)
+        .filter(
+            Integration.provider == "IOL",
+            Integration.is_connected == True,
+        )
+        .all()
+    )
 
     if not integrations:
         logger.info("IOL no conectado — skip sync")
@@ -127,15 +133,20 @@ def _maybe_sync_iol(db) -> None:
             client = IOLClient(creds[0], creds[1])
             result = _sync_iol(client, db, integration.user_id)
             from datetime import datetime
+
             integration.last_synced_at = datetime.utcnow()
             integration.last_error = ""
             db.commit()
-            logger.info("IOL sync OK user=%s — posiciones: %d, meses: %d",
-                        integration.user_id,
-                        result.get("positions_synced", 0),
-                        result.get("months_synced", 0))
+            logger.info(
+                "IOL sync OK user=%s — posiciones: %d, meses: %d",
+                integration.user_id,
+                result.get("positions_synced", 0),
+                result.get("months_synced", 0),
+            )
         except Exception as e:
-            logger.warning("IOL sync falló en scheduler user=%s: %s", integration.user_id, e)
+            logger.warning(
+                "IOL sync falló en scheduler user=%s: %s", integration.user_id, e
+            )
             integration.last_error = str(e)[:200]
             db.commit()
 
@@ -146,10 +157,14 @@ def _maybe_sync_ppi(db) -> None:
     from app.services.ppi_client import PPIClient
     from app.routers.integrations import _sync_ppi
 
-    integrations = db.query(Integration).filter(
-        Integration.provider == "PPI",
-        Integration.is_connected == True,
-    ).all()
+    integrations = (
+        db.query(Integration)
+        .filter(
+            Integration.provider == "PPI",
+            Integration.is_connected == True,
+        )
+        .all()
+    )
 
     if not integrations:
         logger.info("PPI no conectado — skip sync")
@@ -163,15 +178,20 @@ def _maybe_sync_ppi(db) -> None:
             client = PPIClient(pub, priv)
             result = _sync_ppi(client, acct, db, integration.user_id)
             from datetime import datetime
+
             integration.last_synced_at = datetime.utcnow()
             integration.last_error = ""
             db.commit()
-            logger.info("PPI sync OK user=%s — posiciones: %d, meses: %d",
-                        integration.user_id,
-                        result.get("positions_synced", 0),
-                        result.get("months_synced", 0))
+            logger.info(
+                "PPI sync OK user=%s — posiciones: %d, meses: %d",
+                integration.user_id,
+                result.get("positions_synced", 0),
+                result.get("months_synced", 0),
+            )
         except Exception as e:
-            logger.warning("PPI sync falló en scheduler user=%s: %s", integration.user_id, e)
+            logger.warning(
+                "PPI sync falló en scheduler user=%s: %s", integration.user_id, e
+            )
             integration.last_error = str(e)[:200]
             db.commit()
 
@@ -182,10 +202,14 @@ def _maybe_sync_cocos(db) -> None:
     from app.services.cocos_client import CocosClient
     from app.routers.integrations import _sync_cocos
 
-    integrations = db.query(Integration).filter(
-        Integration.provider == "COCOS",
-        Integration.is_connected == True,
-    ).all()
+    integrations = (
+        db.query(Integration)
+        .filter(
+            Integration.provider == "COCOS",
+            Integration.is_connected == True,
+        )
+        .all()
+    )
 
     if not integrations:
         logger.info("Cocos no conectado — skip sync")
@@ -198,7 +222,9 @@ def _maybe_sync_cocos(db) -> None:
         email, password, totp_secret = parts[0], parts[1], parts[2]
 
         if not totp_secret:
-            logger.info("Cocos user=%s sin TOTP secret — skip auto-sync", integration.user_id)
+            logger.info(
+                "Cocos user=%s sin TOTP secret — skip auto-sync", integration.user_id
+            )
             continue
 
         try:
@@ -206,13 +232,19 @@ def _maybe_sync_cocos(db) -> None:
             client.authenticate()
             result = _sync_cocos(client, db, integration.user_id)
             from datetime import datetime as _dt
+
             integration.last_synced_at = _dt.utcnow()
             integration.last_error = ""
             db.commit()
-            logger.info("Cocos sync OK user=%s — posiciones: %d",
-                        integration.user_id, result.get("positions_synced", 0))
+            logger.info(
+                "Cocos sync OK user=%s — posiciones: %d",
+                integration.user_id,
+                result.get("positions_synced", 0),
+            )
         except Exception as e:
-            logger.warning("Cocos sync falló en scheduler user=%s: %s", integration.user_id, e)
+            logger.warning(
+                "Cocos sync falló en scheduler user=%s: %s", integration.user_id, e
+            )
             integration.last_error = str(e)[:200]
             db.commit()
 
@@ -223,10 +255,14 @@ def _maybe_sync_binance(db) -> None:
     from app.services.binance_client import BinanceClient, BinanceAuthError
     from app.routers.integrations import _sync_binance
 
-    integrations = db.query(Integration).filter(
-        Integration.provider == "BINANCE",
-        Integration.is_connected == True,  # noqa: E712
-    ).all()
+    integrations = (
+        db.query(Integration)
+        .filter(
+            Integration.provider == "BINANCE",
+            Integration.is_connected == True,  # noqa: E712
+        )
+        .all()
+    )
 
     if not integrations:
         logger.info("Binance no conectado — skip sync")
@@ -240,18 +276,26 @@ def _maybe_sync_binance(db) -> None:
             client = BinanceClient(api_key=api_key, secret=secret)
             result = _sync_binance(client, db, integration.user_id)
             from datetime import datetime as _dt
+
             integration.last_synced_at = _dt.utcnow()
             integration.last_error = ""
             db.commit()
-            logger.info("Binance sync OK user=%s — posiciones: %d",
-                        integration.user_id, result.get("positions_synced", 0))
+            logger.info(
+                "Binance sync OK user=%s — posiciones: %d",
+                integration.user_id,
+                result.get("positions_synced", 0),
+            )
         except BinanceAuthError as e:
-            logger.warning("Binance API key revocada user=%s: %s", integration.user_id, e)
+            logger.warning(
+                "Binance API key revocada user=%s: %s", integration.user_id, e
+            )
             integration.last_error = str(e)[:200]
             integration.is_connected = False
             db.commit()
         except Exception as e:
-            logger.warning("Binance sync falló en scheduler user=%s: %s", integration.user_id, e)
+            logger.warning(
+                "Binance sync falló en scheduler user=%s: %s", integration.user_id, e
+            )
             integration.last_error = str(e)[:200]
             db.commit()
 
@@ -262,15 +306,20 @@ def _refresh_manual_prices(db) -> None:
     from app.models import Position
     from app.services import crypto_prices, fci_prices, external_prices
 
-    manual = db.query(Position).filter(
-        Position.source == "MANUAL",
-        Position.is_active == True,
-    ).all()
+    manual = (
+        db.query(Position)
+        .filter(
+            Position.source == "MANUAL",
+            Position.is_active == True,
+        )
+        .all()
+    )
 
     if not manual:
         return
 
     from app.services.mep import get_mep
+
     fx_mep = float(get_mep())  # nunca 0
 
     for pos in manual:
@@ -296,12 +345,17 @@ def _refresh_manual_prices(db) -> None:
                 yield_pct = external_prices.get_yield_30d(pos.external_id)
                 pos.annual_yield_pct = Decimal(str(yield_pct))
 
-            logger.info("Precio manual actualizado: %s %s → USD %.4f yield %.2f%%",
-                        pos.asset_type, pos.ticker,
-                        float(pos.current_price_usd), float(pos.annual_yield_pct) * 100)
+            logger.info(
+                "Precio manual actualizado: %s %s → USD %.4f yield %.2f%%",
+                pos.asset_type,
+                pos.ticker,
+                float(pos.current_price_usd),
+                float(pos.annual_yield_pct) * 100,
+            )
         except Exception as e:
-            logger.warning("Refresh precio manual falló (%s %s): %s",
-                           pos.asset_type, pos.ticker, e)
+            logger.warning(
+                "Refresh precio manual falló (%s %s): %s", pos.asset_type, pos.ticker, e
+            )
 
     db.commit()
 
@@ -311,6 +365,7 @@ def _update_yields(db, mep=None) -> None:
     Si se provee mep, también recalcula current_price_usd para posiciones ARS."""
     from app.services.yield_updater import update_yields
     from decimal import Decimal
+
     try:
         mep_dec = Decimal(str(mep)) if mep else None
         n = update_yields(db, mep=mep_dec)
@@ -329,10 +384,7 @@ def _save_portfolio_snapshot(db) -> None:
 
     # Obtener todos los user_ids distintos con posiciones activas
     user_ids = (
-        db.query(Position.user_id)
-        .filter(Position.is_active == True)
-        .distinct()
-        .all()
+        db.query(Position.user_id).filter(Position.is_active == True).distinct().all()
     )
 
     if not user_ids:
@@ -341,21 +393,33 @@ def _save_portfolio_snapshot(db) -> None:
 
     # MEP actual una sola vez para todos los usuarios del ciclo
     fx_mep = get_mep()  # dolarapi.com → fallback 1430, nunca 0
-    logger.info("_save_portfolio_snapshot: MEP=%.0f para %d usuarios", float(fx_mep), len(user_ids))
+    logger.info(
+        "_save_portfolio_snapshot: MEP=%.0f para %d usuarios",
+        float(fx_mep),
+        len(user_ids),
+    )
 
     for (user_id,) in user_ids:
-        existing = db.query(PortfolioSnapshot).filter(
-            PortfolioSnapshot.snapshot_date == today,
-            PortfolioSnapshot.user_id == user_id,
-        ).first()
+        existing = (
+            db.query(PortfolioSnapshot)
+            .filter(
+                PortfolioSnapshot.snapshot_date == today,
+                PortfolioSnapshot.user_id == user_id,
+            )
+            .first()
+        )
         if existing:
             logger.info("Snapshot de hoy ya existe para user=%s — skip", user_id)
             continue
 
-        positions = db.query(Position).filter(
-            Position.is_active == True,
-            Position.user_id == user_id,
-        ).all()
+        positions = (
+            db.query(Position)
+            .filter(
+                Position.is_active == True,
+                Position.user_id == user_id,
+            )
+            .all()
+        )
         if not positions:
             continue
 
@@ -373,8 +437,13 @@ def _save_portfolio_snapshot(db) -> None:
         )
         db.add(snapshot)
         db.commit()
-        logger.info("Snapshot guardado user=%s: USD %.2f | retorno %.2f/mes | MEP %.0f",
-                    user_id, float(total_usd), float(monthly_return), float(fx_mep))
+        logger.info(
+            "Snapshot guardado user=%s: USD %.2f | retorno %.2f/mes | MEP %.0f",
+            user_id,
+            float(total_usd),
+            float(monthly_return),
+            float(fx_mep),
+        )
 
 
 def trigger_snapshot_now() -> dict:

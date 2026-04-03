@@ -3,6 +3,7 @@ IOL (InvertirOnline) API client.
 Auth: OAuth2 password grant — bearer token + refresh token.
 Docs: https://api.invertironline.com
 """
+
 import logging
 import httpx
 from dataclasses import dataclass
@@ -14,14 +15,14 @@ logger = logging.getLogger("buildfuture.iol")
 IOL_BASE = "https://api.invertironline.com"
 
 DEFAULT_YIELDS = {
-    "accion":    Decimal("0.10"),
-    "cedear":    Decimal("0.10"),
-    "bono":      Decimal("0.09"),
-    "on":        Decimal("0.09"),
-    "letra":     Decimal("0.68"),
-    "fci":       Decimal("0.08"),
+    "accion": Decimal("0.10"),
+    "cedear": Decimal("0.10"),
+    "bono": Decimal("0.09"),
+    "on": Decimal("0.09"),
+    "letra": Decimal("0.68"),
+    "fci": Decimal("0.08"),
     "cauciones": Decimal("0.30"),
-    "default":   Decimal("0.08"),
+    "default": Decimal("0.08"),
 }
 
 
@@ -34,8 +35,10 @@ class IOLPosition:
     avg_price_usd: Decimal
     current_price_usd: Decimal
     annual_yield_pct: Decimal
-    ppc_ars: Decimal = Decimal("0")      # precio promedio de compra en ARS crudo
-    valorizado_ars: Decimal = Decimal("0")  # valor total ARS directo de IOL (sin conversión)
+    ppc_ars: Decimal = Decimal("0")  # precio promedio de compra en ARS crudo
+    valorizado_ars: Decimal = Decimal(
+        "0"
+    )  # valor total ARS directo de IOL (sin conversión)
 
 
 class IOLAuthError(Exception):
@@ -71,8 +74,11 @@ class IOLClient:
             logger.error("IOL timeout en auth")
             raise IOLAuthError("Timeout conectando con IOL")
 
-        logger.info("IOL auth response: status=%s body_preview=%s",
-                    resp.status_code, resp.text[:300])
+        logger.info(
+            "IOL auth response: status=%s body_preview=%s",
+            resp.status_code,
+            resp.text[:300],
+        )
 
         if resp.status_code != 200:
             raise IOLAuthError(
@@ -113,7 +119,9 @@ class IOLClient:
             self._access_token = data.get("access_token", self._access_token)
             self._refresh_token = data.get("refresh_token", self._refresh_token)
         else:
-            logger.warning("IOL refresh falló (%s) — reintentando auth completa", resp.status_code)
+            logger.warning(
+                "IOL refresh falló (%s) — reintentando auth completa", resp.status_code
+            )
             self.authenticate()
 
     def _get(self, path: str, retry: bool = True) -> dict:
@@ -149,8 +157,11 @@ class IOLClient:
             yield_key = next((k for k in DEFAULT_YIELDS if k in tipo_raw), None)
             if yield_key is None:
                 _asset_to_yield_key = {
-                    "BOND": "bono", "ON": "on", "CEDEAR": "cedear",
-                    "LETRA": "letra", "FCI": "fci",
+                    "BOND": "bono",
+                    "ON": "on",
+                    "CEDEAR": "cedear",
+                    "LETRA": "letra",
+                    "FCI": "fci",
                 }
                 yield_key = _asset_to_yield_key.get(asset_type, "default")
             annual_yield = DEFAULT_YIELDS[yield_key]
@@ -173,25 +184,33 @@ class IOLClient:
             # ppc sigue la misma convención de cotización que ultimoPrecio
             # Para letras: ppc≈101.85 → mismo ajuste
             avg_price_ars = (ppc / Decimal("100")) if asset_type == "LETRA" else ppc
-            avg_price_usd = avg_price_ars / mep_dec if avg_price_ars > 0 else current_price_usd
+            avg_price_usd = (
+                avg_price_ars / mep_dec if avg_price_ars > 0 else current_price_usd
+            )
 
             logger.info(
                 "  %s (%s) cant=%.0f valorizado=%.0f ARS → USD %.2f | yield=%.0f%%",
-                titulo.get("simbolo"), asset_type, float(cantidad),
-                float(valorizado), float(valorizado / mep_dec), annual_yield * 100,
+                titulo.get("simbolo"),
+                asset_type,
+                float(cantidad),
+                float(valorizado),
+                float(valorizado / mep_dec),
+                annual_yield * 100,
             )
 
-            positions.append(IOLPosition(
-                ticker=titulo.get("simbolo", ""),
-                description=titulo.get("descripcion", ""),
-                asset_type=asset_type,
-                quantity=cantidad,
-                avg_price_usd=avg_price_usd,
-                current_price_usd=current_price_usd,
-                annual_yield_pct=annual_yield,
-                ppc_ars=Decimal(str(ppc)),       # ARS crudo, sin convertir
-                valorizado_ars=valorizado,        # valor total ARS directo de IOL
-            ))
+            positions.append(
+                IOLPosition(
+                    ticker=titulo.get("simbolo", ""),
+                    description=titulo.get("descripcion", ""),
+                    asset_type=asset_type,
+                    quantity=cantidad,
+                    avg_price_usd=avg_price_usd,
+                    current_price_usd=current_price_usd,
+                    annual_yield_pct=annual_yield,
+                    ppc_ars=Decimal(str(ppc)),  # ARS crudo, sin convertir
+                    valorizado_ars=valorizado,  # valor total ARS directo de IOL
+                )
+            )
 
         return positions
 
@@ -240,9 +259,13 @@ class IOLClient:
         equiv = round(equiv_float)
         if equiv <= 0:
             equiv = 1
-        logger.info("CEDEAR %s: equiv derivado=%.2f→%d | CCL_actual=%.1f",
-                    ticker, equiv_float, equiv,
-                    price_bcba_ars * equiv / nyse_current)
+        logger.info(
+            "CEDEAR %s: equiv derivado=%.2f→%d | CCL_actual=%.1f",
+            ticker,
+            equiv_float,
+            equiv,
+            price_bcba_ars * equiv / nyse_current,
+        )
 
         # Precio NYSE en la fecha de compra
         nyse_at_purchase = nyse_current  # fallback: precio actual
@@ -252,6 +275,7 @@ class IOLClient:
                 closes = chart["indicators"]["quote"][0].get("close", [])
                 target = purchase_date  # "YYYY-MM-DD"
                 from datetime import datetime as _dt
+
                 target_ts = _dt.strptime(target, "%Y-%m-%d").timestamp()
                 # Buscar el timestamp más cercano a la fecha de compra
                 best_idx, best_diff = 0, float("inf")
@@ -261,9 +285,19 @@ class IOLClient:
                         best_diff = diff
                         best_idx = idx
                 nyse_at_purchase = closes[best_idx] or nyse_current
-                logger.info("CEDEAR %s precio NYSE en %s = %.2f", ticker, target, nyse_at_purchase)
+                logger.info(
+                    "CEDEAR %s precio NYSE en %s = %.2f",
+                    ticker,
+                    target,
+                    nyse_at_purchase,
+                )
             except Exception as e:
-                logger.debug("No se pudo traer precio histórico %s en %s: %s", ticker, purchase_date, e)
+                logger.debug(
+                    "No se pudo traer precio histórico %s en %s: %s",
+                    ticker,
+                    purchase_date,
+                    e,
+                )
 
         ccl = price_bcba_ars * equiv / nyse_at_purchase
         return round(ccl, 2)
@@ -276,6 +310,7 @@ class IOLClient:
         """
         try:
             import httpx as _httpx
+
             r = _httpx.get(
                 f"https://api.bluelytics.com.ar/v2/historical?day={fecha}",
                 timeout=8,
@@ -287,7 +322,9 @@ class IOLClient:
                 oficial_venta = data.get("official", {}).get("value_sell", 0)
                 if blue_venta and oficial_venta:
                     mep_approx = (blue_venta + oficial_venta) / 2
-                    logger.info("MEP histórico %s ≈ %.2f (blue+oficial/2)", fecha, mep_approx)
+                    logger.info(
+                        "MEP histórico %s ≈ %.2f (blue+oficial/2)", fecha, mep_approx
+                    )
                     return float(mep_approx)
         except Exception as e:
             logger.debug("No se pudo traer MEP histórico para %s: %s", fecha, e)
@@ -297,6 +334,7 @@ class IOLClient:
         """Trae el tipo de cambio MEP actual desde dolarapi.com."""
         try:
             import httpx as _httpx
+
             r = _httpx.get("https://dolarapi.com/v1/dolares/bolsa", timeout=6)
             if r.status_code == 200:
                 mep = r.json().get("venta") or r.json().get("compra") or 1430.0
@@ -328,11 +366,16 @@ class IOLClient:
             if isinstance(cuentas, list) and cuentas:
                 for cuenta in cuentas:
                     moneda = str(cuenta.get("moneda", "")).lower()
-                    disponible = Decimal(str(cuenta.get("disponible") or cuenta.get("saldo") or 0))
+                    disponible = Decimal(
+                        str(cuenta.get("disponible") or cuenta.get("saldo") or 0)
+                    )
                     if any(k in moneda for k in ("peso", "ars", "pesos", "argentino")):
                         logger.info("Cash ARS (cuenta): %.2f", float(disponible))
                         result["ars"] += disponible
-                    elif any(k in moneda for k in ("dolar", "usd", "dollar", "estadounidense")):
+                    elif any(
+                        k in moneda
+                        for k in ("dolar", "usd", "dollar", "estadounidense")
+                    ):
                         logger.info("Cash USD (cuenta): %.2f", float(disponible))
                         result["usd"] += disponible
                 return result
@@ -350,7 +393,9 @@ class IOLClient:
         """Compatibilidad: retorna solo el saldo ARS."""
         return self.get_cash_balances()["ars"]
 
-    def get_operations(self, fecha_desde: str | None = None, fecha_hasta: str | None = None) -> list[dict]:
+    def get_operations(
+        self, fecha_desde: str | None = None, fecha_hasta: str | None = None
+    ) -> list[dict]:
         """
         Trae historial de operaciones (compras/ventas).
         Fechas en formato 'YYYY-MM-DD'. Sin fechas devuelve los últimos 90 días.
@@ -389,7 +434,9 @@ class IOLClient:
             logger.warning("No se pudo traer letras: %s", e)
             return []
 
-    def get_live_yields(self, tickers: list[str], mercado: str = "bCBA") -> dict[str, float]:
+    def get_live_yields(
+        self, tickers: list[str], mercado: str = "bCBA"
+    ) -> dict[str, float]:
         """
         Retorna un dict {ticker: yield_anual_estimado} con datos reales de IOL.
         Para LECAPs: TNA calculada desde precio actual (VN=1000) + días reales al vencimiento
@@ -411,15 +458,19 @@ class IOLClient:
                     if maturity:
                         dias_restantes = (maturity - today).days
                     else:
-                        dias_restantes = 180  # fallback si el ticker no sigue el patrón S[DD][M][Y]
+                        dias_restantes = (
+                            180  # fallback si el ticker no sigue el patrón S[DD][M][Y]
+                        )
                     if dias_restantes > 1:
                         tna = ((1000 / ultimo) - 1) * (365 / dias_restantes)
                         results[ticker] = round(tna, 4)
                         logger.info(
                             "IOL live yield %s: precio=%.2f vto=%s días=%d TNA=%.2f%%",
-                            ticker, ultimo,
+                            ticker,
+                            ultimo,
                             maturity.isoformat() if maturity else "proxy",
-                            dias_restantes, tna * 100,
+                            dias_restantes,
+                            tna * 100,
                         )
                     else:
                         results[ticker] = 0.0  # vencida o vence hoy
@@ -436,18 +487,33 @@ class IOLClient:
 _TICKER_TYPE_OVERRIDES: dict[str, str] = {
     # IOL FCIs
     "IOLCAMA": "FCI",
-    "IOLCAM":  "FCI",
-    "IOLMMA":  "FCI",
-    "IOLMM":   "FCI",
+    "IOLCAM": "FCI",
+    "IOLMMA": "FCI",
+    "IOLMM": "FCI",
     # Bonos soberanos USD (IOL los puede clasificar como "STOCK")
-    "AL29": "BOND", "AL30": "BOND", "AL35": "BOND", "AL41": "BOND", "AE38": "BOND",
-    "GD29": "BOND", "GD30": "BOND", "GD35": "BOND", "GD38": "BOND",
-    "GD41": "BOND", "GD46": "BOND",
+    "AL29": "BOND",
+    "AL30": "BOND",
+    "AL35": "BOND",
+    "AL41": "BOND",
+    "AE38": "BOND",
+    "GD29": "BOND",
+    "GD30": "BOND",
+    "GD35": "BOND",
+    "GD38": "BOND",
+    "GD41": "BOND",
+    "GD46": "BOND",
     # Bopreales
-    "BPY26": "BOND", "BPJ25": "BOND", "BPA7": "BOND",
+    "BPY26": "BOND",
+    "BPJ25": "BOND",
+    "BPA7": "BOND",
     # Obligaciones negociables conocidas
-    "YCA6O": "ON", "YMCXO": "ON", "CA6O": "ON", "TECEO": "ON",
-    "MTCGO": "ON", "CRESO": "ON", "PNDCO": "ON",
+    "YCA6O": "ON",
+    "YMCXO": "ON",
+    "CA6O": "ON",
+    "TECEO": "ON",
+    "MTCGO": "ON",
+    "CRESO": "ON",
+    "PNDCO": "ON",
 }
 
 
@@ -457,15 +523,15 @@ def _normalize_asset_type(tipo_iol: str, ticker: str = "") -> str:
         return _TICKER_TYPE_OVERRIDES[ticker.upper()]
 
     mapping = {
-        "fci":       "FCI",
-        "fondo":     "FCI",
-        "cedear":    "CEDEAR",
-        "accion":    "CEDEAR",
-        "letra":     "LETRA",
-        "on":        "ON",
-        "bono":      "BOND",
+        "fci": "FCI",
+        "fondo": "FCI",
+        "cedear": "CEDEAR",
+        "accion": "CEDEAR",
+        "letra": "LETRA",
+        "on": "ON",
+        "bono": "BOND",
         "cauciones": "CAUCION",
-        "opcion":    "OPTION",
+        "opcion": "OPTION",
     }
     for key, value in mapping.items():
         if key in tipo_iol:

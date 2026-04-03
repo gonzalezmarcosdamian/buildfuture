@@ -2,6 +2,7 @@
 Motor de recomendaciones de inversión.
 Genera un carrusel de instrumentos según perfil, portafolio actual y capital disponible.
 """
+
 from decimal import Decimal
 from dataclasses import dataclass
 
@@ -10,13 +11,13 @@ from dataclasses import dataclass
 class InstrumentRecommendation:
     ticker: str
     name: str
-    asset_type: str        # CEDEAR | BOND | LETRA | ON | CRYPTO
-    market: str            # BCBA | CRYPTO
+    asset_type: str  # CEDEAR | BOND | LETRA | ON | CRYPTO
+    market: str  # BCBA | CRYPTO
     allocation_pct: float  # % del capital sugerido
     annual_yield_pct: float
     rationale: str
-    risk_level: str        # bajo | medio | alto
-    currency: str          # ARS | USD
+    risk_level: str  # bajo | medio | alto
+    currency: str  # ARS | USD
 
 
 # Universo de instrumentos recomendables — actualizar periódicamente
@@ -132,21 +133,23 @@ def get_recommendations(
 
         already_have = inst.ticker in current_tickers
 
-        results.append({
-            "ticker": inst.ticker,
-            "name": inst.name,
-            "asset_type": inst.asset_type,
-            "market": inst.market,
-            "allocation_pct": inst.allocation_pct,
-            "amount_ars": round(amount_ars),
-            "amount_usd": round(amount_usd, 2),
-            "annual_yield_pct": inst.annual_yield_pct,
-            "monthly_return_usd": round(monthly_return_usd, 2),
-            "rationale": inst.rationale,
-            "risk_level": inst.risk_level,
-            "currency": inst.currency,
-            "already_in_portfolio": already_have,
-        })
+        results.append(
+            {
+                "ticker": inst.ticker,
+                "name": inst.name,
+                "asset_type": inst.asset_type,
+                "market": inst.market,
+                "allocation_pct": inst.allocation_pct,
+                "amount_ars": round(amount_ars),
+                "amount_usd": round(amount_usd, 2),
+                "annual_yield_pct": inst.annual_yield_pct,
+                "monthly_return_usd": round(monthly_return_usd, 2),
+                "rationale": inst.rationale,
+                "risk_level": inst.risk_level,
+                "currency": inst.currency,
+                "already_in_portfolio": already_have,
+            }
+        )
 
     # Priorizar los que no tiene
     results.sort(key=lambda x: x["already_in_portfolio"])

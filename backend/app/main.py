@@ -6,7 +6,16 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import engine, SessionLocal
 from app.models import Base
-from app.routers import portfolio, budget, integrations, profile, positions, admin, waitlist
+from app.routers import (
+    portfolio,
+    budget,
+    integrations,
+    profile,
+    positions,
+    admin,
+    waitlist,
+)
+
 IS_SERVERLESS = os.environ.get("VERCEL", "") == "1"
 
 if not IS_SERVERLESS:
@@ -49,6 +58,7 @@ def startup():
     seed(db)
     if os.getenv("MOCK_SEED") == "true":
         from app.seed_mock import seed_mock
+
         seed_mock(db)
     _purge_bad_manual_positions(db)
     _dedup_positions(db)
@@ -60,6 +70,7 @@ def startup():
 def _run_migrations():
     """Migraciones incrementales — ALTER TABLE y CREATE INDEX para Postgres."""
     from sqlalchemy import text
+
     migrations = [
         (
             "ALTER TABLE positions ADD COLUMN IF NOT EXISTS current_value_ars NUMERIC(18,2) DEFAULT 0",
@@ -137,17 +148,27 @@ def _purge_bad_manual_positions(db):
     """One-time cleanup: desactiva posiciones manuales con valor absurdo (> 10M USD)."""
     from app.models import Position
     from decimal import Decimal
+
     try:
-        bad = db.query(Position).filter(
-            Position.source == "MANUAL",
-            Position.is_active == True,
-        ).all()
+        bad = (
+            db.query(Position)
+            .filter(
+                Position.source == "MANUAL",
+                Position.is_active == True,
+            )
+            .all()
+        )
         purged = 0
         for p in bad:
             if float(p.quantity) * float(p.current_price_usd) > 10_000_000:
                 p.is_active = False
                 purged += 1
-                logger.info("Purged bad manual position: %s id=%s value=%.0f", p.ticker, p.id, float(p.quantity * p.current_price_usd))
+                logger.info(
+                    "Purged bad manual position: %s id=%s value=%.0f",
+                    p.ticker,
+                    p.id,
+                    float(p.quantity * p.current_price_usd),
+                )
         if purged:
             db.commit()
             logger.info("Purged %d bad manual positions on startup", purged)
@@ -164,12 +185,17 @@ def _dedup_positions(db):
     """
     from app.models import Position
     from sqlalchemy import func
+
     try:
         # Encontrar grupos con más de una posición activa para el mismo ticker
         dupes = (
-            db.query(Position.user_id, Position.ticker, Position.source,
-                     func.count(Position.id).label("cnt"),
-                     func.max(Position.id).label("keep_id"))
+            db.query(
+                Position.user_id,
+                Position.ticker,
+                Position.source,
+                func.count(Position.id).label("cnt"),
+                func.max(Position.id).label("keep_id"),
+            )
             .filter(Position.is_active == True)
             .group_by(Position.user_id, Position.ticker, Position.source)
             .having(func.count(Position.id) > 1)
@@ -191,16 +217,19 @@ def _dedup_positions(db):
             total += deactivated
         if total:
             db.commit()
-            logger.info("_dedup_positions: %d posiciones duplicadas desactivadas", total)
+            logger.info(
+                "_dedup_positions: %d posiciones duplicadas desactivadas", total
+            )
     except Exception as e:
         logger.warning("_dedup_positions failed: %s", e)
         db.rollback()
 
 
 _DEFAULT_INTEGRATIONS = [
-    {"provider": "IOL",  "provider_type": "ALYC"},
-    {"provider": "PPI",  "provider_type": "ALYC"},
+    {"provider": "IOL", "provider_type": "ALYC"},
+    {"provider": "PPI", "provider_type": "ALYC"},
 ]
+
 
 def _backfill_integrations(db):
     """
@@ -210,6 +239,7 @@ def _backfill_integrations(db):
     """
     from app.models import Integration, Position
     from sqlalchemy import select, distinct
+
     try:
         # Recolectar todos los user_id conocidos en la DB
         user_ids = set()
@@ -227,17 +257,23 @@ def _backfill_integrations(db):
             }
             for spec in _DEFAULT_INTEGRATIONS:
                 if spec["provider"] not in existing_providers:
-                    db.add(Integration(
-                        user_id=user_id,
-                        provider=spec["provider"],
-                        provider_type=spec["provider_type"],
-                        is_active=True,
-                        is_connected=False,
-                    ))
+                    db.add(
+                        Integration(
+                            user_id=user_id,
+                            provider=spec["provider"],
+                            provider_type=spec["provider_type"],
+                            is_active=True,
+                            is_connected=False,
+                        )
+                    )
                     created += 1
         if created:
             db.commit()
-            logger.info("_backfill_integrations: %d registros creados para %d usuarios", created, len(user_ids))
+            logger.info(
+                "_backfill_integrations: %d registros creados para %d usuarios",
+                created,
+                len(user_ids),
+            )
     except Exception as e:
         logger.warning("_backfill_integrations failed: %s", e)
         db.rollback()
@@ -263,6 +299,5 @@ def health():
 def manual_snapshot():
     """Dispara el snapshot manualmente — útil para testing o sync forzado."""
     from app.scheduler import trigger_snapshot_now
+
     return trigger_snapshot_now()
-
-

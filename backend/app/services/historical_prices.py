@@ -14,6 +14,7 @@ Flujo por ticker:
 Esto hace que el segundo usuario que sincroniza IOL con los mismos
 tickers (GGAL, AL30...) no pague ningún costo de red.
 """
+
 import logging
 import time
 from datetime import date, timedelta
@@ -34,6 +35,7 @@ HISTORY_DAYS = 730
 
 # ── Yahoo Finance ─────────────────────────────────────────────────────────────
 
+
 def get_prices_cached(
     db: Session,
     ticker: str,
@@ -52,31 +54,41 @@ def get_prices_cached(
     }
 
     # 2. Qué ya está en la DB
-    cached_rows = db.query(PriceHistory).filter(
-        PriceHistory.ticker == ticker,
-        PriceHistory.price_date >= start,
-        PriceHistory.price_date <= end,
-    ).all()
+    cached_rows = (
+        db.query(PriceHistory)
+        .filter(
+            PriceHistory.ticker == ticker,
+            PriceHistory.price_date >= start,
+            PriceHistory.price_date <= end,
+        )
+        .all()
+    )
     cached: dict[date, float] = {r.price_date: float(r.price_usd) for r in cached_rows}
 
     # 3. Fechas que faltan
     missing_dates = needed - set(cached.keys())
 
     if missing_dates:
-        logger.info("PriceCache: %s — %d fechas en DB, %d a descargar",
-                    ticker, len(cached), len(missing_dates))
+        logger.info(
+            "PriceCache: %s — %d fechas en DB, %d a descargar",
+            ticker,
+            len(cached),
+            len(missing_dates),
+        )
         fetched = _fetch_yahoo_range(ticker, min(missing_dates), max(missing_dates))
 
         # INSERT solo las que realmente trajo Yahoo (puede no tener todas las laborables)
         new_rows = []
         for d, price in fetched.items():
             if d not in cached:
-                new_rows.append(PriceHistory(
-                    ticker=ticker,
-                    price_date=d,
-                    price_usd=Decimal(str(round(price, 4))),
-                    source="YAHOO",
-                ))
+                new_rows.append(
+                    PriceHistory(
+                        ticker=ticker,
+                        price_date=d,
+                        price_usd=Decimal(str(round(price, 4))),
+                        source="YAHOO",
+                    )
+                )
                 cached[d] = price
 
         if new_rows:
@@ -88,7 +100,11 @@ def get_prices_cached(
                     pass
             try:
                 db.flush()
-                logger.info("PriceCache: %s — %d nuevos precios guardados", ticker, len(new_rows))
+                logger.info(
+                    "PriceCache: %s — %d nuevos precios guardados",
+                    ticker,
+                    len(new_rows),
+                )
             except Exception as e:
                 db.rollback()
                 logger.warning("PriceCache flush falló (%s): %s", ticker, e)
@@ -167,6 +183,7 @@ def _fetch_yahoo_range(ticker: str, start: date, end: date) -> dict[date, float]
 
 # ── MEP histórico ─────────────────────────────────────────────────────────────
 
+
 def get_mep_cached(
     db: Session,
     start: date,
@@ -182,10 +199,14 @@ def get_mep_cached(
     month_starts = _month_starts_between(start, end)
 
     # 2. Qué meses ya están en DB
-    cached_mep = db.query(MepHistory).filter(
-        MepHistory.price_date >= start.replace(day=1),
-        MepHistory.price_date <= end,
-    ).all()
+    cached_mep = (
+        db.query(MepHistory)
+        .filter(
+            MepHistory.price_date >= start.replace(day=1),
+            MepHistory.price_date <= end,
+        )
+        .all()
+    )
     anchors: dict[date, float] = {r.price_date: float(r.mep_rate) for r in cached_mep}
 
     # 3. Fetch meses faltantes
@@ -196,11 +217,13 @@ def get_mep_cached(
             rate = _fetch_bluelytics_day(str(ms), fallback_mep)
             anchors[ms] = rate
             try:
-                db.merge(MepHistory(
-                    price_date=ms,
-                    mep_rate=Decimal(str(round(rate, 2))),
-                    source="BLUELYTICS",
-                ))
+                db.merge(
+                    MepHistory(
+                        price_date=ms,
+                        mep_rate=Decimal(str(round(rate, 2))),
+                        source="BLUELYTICS",
+                    )
+                )
             except Exception:
                 pass
             time.sleep(0.15)
@@ -224,7 +247,11 @@ def _month_starts_between(start: date, end: date) -> list[date]:
     cur = start.replace(day=1)
     while cur <= end:
         months.append(cur)
-        cur = cur.replace(month=cur.month + 1) if cur.month < 12 else cur.replace(year=cur.year + 1, month=1)
+        cur = (
+            cur.replace(month=cur.month + 1)
+            if cur.month < 12
+            else cur.replace(year=cur.year + 1, month=1)
+        )
     return months
 
 
@@ -242,9 +269,11 @@ def _fetch_bluelytics_day(fecha_str: str, fallback: float) -> float:
     return fallback
 
 
-def _interpolate(anchors: list[tuple[date, float]], target: date, fallback: float) -> float:
+def _interpolate(
+    anchors: list[tuple[date, float]], target: date, fallback: float
+) -> float:
     before = [(d, v) for d, v in anchors if d <= target]
-    after  = [(d, v) for d, v in anchors if d > target]
+    after = [(d, v) for d, v in anchors if d > target]
     if not before:
         return after[0][1] if after else fallback
     if not after:
@@ -257,8 +286,14 @@ def _interpolate(anchors: list[tuple[date, float]], target: date, fallback: floa
 
 # ── Precios estimados sin fuente externa ──────────────────────────────────────
 
-def letra_price_usd_at(ppc_ars: float, annual_yield: float,
-                        purchase_date: date, target_date: date, mep: float) -> float:
+
+def letra_price_usd_at(
+    ppc_ars: float,
+    annual_yield: float,
+    purchase_date: date,
+    target_date: date,
+    mep: float,
+) -> float:
     """
     Retorna el precio en USD por cada 1 VN nominal de LETRA.
     ppc_ars está expresado en ARS por cada 100 VN (convención IOL),
@@ -272,8 +307,13 @@ def letra_price_usd_at(ppc_ars: float, annual_yield: float,
     return price_per_vn_ars / mep
 
 
-def bond_price_usd_at(ppc_usd: float, current_usd: float,
-                       purchase_date: date, current_date: date, target_date: date) -> float:
+def bond_price_usd_at(
+    ppc_usd: float,
+    current_usd: float,
+    purchase_date: date,
+    current_date: date,
+    target_date: date,
+) -> float:
     total_days = max(1, (current_date - purchase_date).days)
     frac = min(1.0, max(0.0, (target_date - purchase_date).days / total_days))
     return ppc_usd + frac * (current_usd - ppc_usd)

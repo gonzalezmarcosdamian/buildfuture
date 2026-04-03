@@ -2,6 +2,7 @@
 CoinGecko free API — precios y yield histórico de criptomonedas.
 Sin API key requerida. Rate limit ~15 req/min en el tier público.
 """
+
 import logging
 import httpx
 from decimal import Decimal
@@ -15,8 +16,12 @@ _HEADERS = {"Accept": "application/json", "User-Agent": "BuildFuture/0.9"}
 def search_coins(query: str) -> list[dict]:
     """Busca monedas por nombre o símbolo. Retorna lista [{id, name, symbol, market_cap_rank}]."""
     try:
-        r = httpx.get(f"{COINGECKO_BASE}/search", params={"query": query},
-                      headers=_HEADERS, timeout=8)
+        r = httpx.get(
+            f"{COINGECKO_BASE}/search",
+            params={"query": query},
+            headers=_HEADERS,
+            timeout=8,
+        )
         r.raise_for_status()
         coins = r.json().get("coins", [])
         return [

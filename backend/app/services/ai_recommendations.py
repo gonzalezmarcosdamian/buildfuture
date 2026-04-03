@@ -3,6 +3,7 @@ Motor de recomendaciones IA — Claude Haiku 4.5.
 Genera recomendaciones semanales basadas en portafolio + mercado + objetivo.
 Cachea el resultado 7 días.
 """
+
 import json
 import logging
 import os
@@ -30,8 +31,8 @@ class AIRecommendation:
     rationale: str
     why_now: str
     annual_yield_pct: float
-    risk_level: str       # bajo | medio | alto
-    currency: str         # ARS | USD
+    risk_level: str  # bajo | medio | alto
+    currency: str  # ARS | USD
     allocation_pct: float
     amount_ars: float
     amount_usd: float
@@ -117,7 +118,9 @@ def get_ai_recommendations(
     if not force_refresh and cache_key in _cache:
         cached = _cache[cache_key]
         if time.time() - cached["ts"] < CACHE_TTL_SECONDS:
-            logger.info("Recomendaciones desde cache (age=%ds)", time.time() - cached["ts"])
+            logger.info(
+                "Recomendaciones desde cache (age=%ds)", time.time() - cached["ts"]
+            )
             return cached["data"]
 
     api_key = os.getenv("ANTHROPIC_API_KEY")
@@ -128,7 +131,9 @@ def get_ai_recommendations(
     logger.info("Generando recomendaciones IA — capital=ARS %s", capital_ars)
 
     client = anthropic.Anthropic(api_key=api_key)
-    prompt = _build_prompt(capital_ars, fx_rate, freedom_pct, monthly_savings_usd, current_tickers, market)
+    prompt = _build_prompt(
+        capital_ars, fx_rate, freedom_pct, monthly_savings_usd, current_tickers, market
+    )
 
     try:
         message = client.messages.create(
@@ -169,30 +174,51 @@ def _fallback_recommendations(capital_ars: float, fx_rate: float) -> dict:
         "context_summary": "Configurá tu ANTHROPIC_API_KEY para recomendaciones personalizadas con IA.",
         "recommendations": [
             {
-                "rank": 1, "ticker": "S15G5", "name": "LECAP corto plazo",
-                "asset_type": "LETRA", "rationale": "Tasa real positiva en ARS sin riesgo precio.",
+                "rank": 1,
+                "ticker": "S15G5",
+                "name": "LECAP corto plazo",
+                "asset_type": "LETRA",
+                "rationale": "Tasa real positiva en ARS sin riesgo precio.",
                 "why_now": "El carry trade en ARS sigue activo con tasas superiores a la inflación.",
-                "annual_yield_pct": 0.70, "risk_level": "bajo", "currency": "ARS",
-                "allocation_pct": 0.40, "amount_ars": capital_ars * 0.40,
-                "amount_usd": capital_usd * 0.40, "monthly_return_usd": capital_usd * 0.40 * 0.70 / 12,
+                "annual_yield_pct": 0.70,
+                "risk_level": "bajo",
+                "currency": "ARS",
+                "allocation_pct": 0.40,
+                "amount_ars": capital_ars * 0.40,
+                "amount_usd": capital_usd * 0.40,
+                "monthly_return_usd": capital_usd * 0.40 * 0.70 / 12,
                 "is_hero": True,
             },
             {
-                "rank": 2, "ticker": "QQQ", "name": "CEDEAR QQQ — Nasdaq 100",
-                "asset_type": "CEDEAR", "rationale": "Exposición dolarizada al tech de EE.UU. via CCL.",
+                "rank": 2,
+                "ticker": "QQQ",
+                "name": "CEDEAR QQQ — Nasdaq 100",
+                "asset_type": "CEDEAR",
+                "rationale": "Exposición dolarizada al tech de EE.UU. via CCL.",
                 "why_now": "Cobertura cambiaria ante posible aceleración del crawling peg.",
-                "annual_yield_pct": 0.15, "risk_level": "medio", "currency": "USD",
-                "allocation_pct": 0.35, "amount_ars": capital_ars * 0.35,
-                "amount_usd": capital_usd * 0.35, "monthly_return_usd": capital_usd * 0.35 * 0.15 / 12,
+                "annual_yield_pct": 0.15,
+                "risk_level": "medio",
+                "currency": "USD",
+                "allocation_pct": 0.35,
+                "amount_ars": capital_ars * 0.35,
+                "amount_usd": capital_usd * 0.35,
+                "monthly_return_usd": capital_usd * 0.35 * 0.15 / 12,
                 "is_hero": False,
             },
             {
-                "rank": 3, "ticker": "YCA6O", "name": "ON YPF USD",
-                "asset_type": "ON", "rationale": "Flujo fijo en dólares reales con emisor cuasi-soberano.",
+                "rank": 3,
+                "ticker": "YCA6O",
+                "name": "ON YPF USD",
+                "asset_type": "ON",
+                "rationale": "Flujo fijo en dólares reales con emisor cuasi-soberano.",
                 "why_now": "Spread comprimiendo post-acuerdo FMI, buen entry point.",
-                "annual_yield_pct": 0.09, "risk_level": "medio", "currency": "USD",
-                "allocation_pct": 0.25, "amount_ars": capital_ars * 0.25,
-                "amount_usd": capital_usd * 0.25, "monthly_return_usd": capital_usd * 0.25 * 0.09 / 12,
+                "annual_yield_pct": 0.09,
+                "risk_level": "medio",
+                "currency": "USD",
+                "allocation_pct": 0.25,
+                "amount_ars": capital_ars * 0.25,
+                "amount_usd": capital_usd * 0.25,
+                "monthly_return_usd": capital_usd * 0.25 * 0.09 / 12,
                 "is_hero": False,
             },
         ],

@@ -10,6 +10,7 @@ Scope Iter 1:
 - PPC desde myTrades
 - Historial 30d via accountSnapshot
 """
+
 import hashlib
 import hmac as _hmac
 import logging
@@ -21,7 +22,10 @@ from decimal import Decimal
 
 import httpx
 
-from app.services.crypto_prices import get_price_usd, get_yield_30d  # noqa: F401 — re-exported for mocking in tests
+from app.services.crypto_prices import (
+    get_price_usd,
+    get_yield_30d,
+)  # noqa: F401 — re-exported for mocking in tests
 
 logger = logging.getLogger("buildfuture.binance")
 
@@ -29,38 +33,38 @@ _BASE = "https://api.binance.com"
 
 # Mapping asset Binance → coingecko_id
 _COINGECKO_ID: dict[str, str] = {
-    "BTC":   "bitcoin",
-    "ETH":   "ethereum",
-    "BNB":   "binancecoin",
-    "SOL":   "solana",
-    "ADA":   "cardano",
-    "XRP":   "ripple",
+    "BTC": "bitcoin",
+    "ETH": "ethereum",
+    "BNB": "binancecoin",
+    "SOL": "solana",
+    "ADA": "cardano",
+    "XRP": "ripple",
     "MATIC": "matic-network",
-    "DOT":   "polkadot",
-    "AVAX":  "avalanche-2",
-    "LINK":  "chainlink",
-    "DOGE":  "dogecoin",
-    "LTC":   "litecoin",
-    "UNI":   "uniswap",
-    "ATOM":  "cosmos",
-    "TRX":   "tron",
+    "DOT": "polkadot",
+    "AVAX": "avalanche-2",
+    "LINK": "chainlink",
+    "DOGE": "dogecoin",
+    "LTC": "litecoin",
+    "UNI": "uniswap",
+    "ATOM": "cosmos",
+    "TRX": "tron",
 }
 
 _STABLECOINS: set[str] = {"USDT", "USDC", "BUSD", "DAI", "TUSD", "FDUSD"}
-_SKIP_PREFIXES: tuple[str, ...] = ("LD",)   # Flexible Earn
+_SKIP_PREFIXES: tuple[str, ...] = ("LD",)  # Flexible Earn
 _SKIP_ASSETS: set[str] = {"ARS", "BRL", "EUR", "GBP"}  # fiat
 
 
 @dataclass
 class BinancePosition:
     ticker: str
-    asset_type: str               # siempre "CRYPTO"
+    asset_type: str  # siempre "CRYPTO"
     quantity: Decimal
     current_price_usd: Decimal
     avg_purchase_price_usd: Decimal  # PPC en USD desde myTrades (0 si no hay trades)
-    ppc_ars: Decimal              # siempre 0 — Binance no maneja ARS
-    annual_yield_pct: Decimal     # yield 30d anualizado de CoinGecko (0 para stablecoins)
-    current_value_ars: Decimal    # 0 — sin MEP en esta capa; se calcula en sync
+    ppc_ars: Decimal  # siempre 0 — Binance no maneja ARS
+    annual_yield_pct: Decimal  # yield 30d anualizado de CoinGecko (0 para stablecoins)
+    current_value_ars: Decimal  # 0 — sin MEP en esta capa; se calcula en sync
     raw_data: dict = field(default_factory=dict)
 
 
@@ -129,28 +133,35 @@ class BinanceClient:
                 cg_id = _COINGECKO_ID[asset]
                 raw_price = get_price_usd(cg_id)
                 if raw_price is None:
-                    logger.warning("BinanceClient: %s sin precio CoinGecko — skip", asset)
+                    logger.warning(
+                        "BinanceClient: %s sin precio CoinGecko — skip", asset
+                    )
                     continue
                 price = Decimal(str(raw_price))
                 raw_yield = get_yield_30d(cg_id)
                 yield_pct = Decimal(str(raw_yield))
             else:
                 logger.warning(
-                    "BinanceClient: asset '%s' no mapeado en _COINGECKO_ID — skip", asset
+                    "BinanceClient: asset '%s' no mapeado en _COINGECKO_ID — skip",
+                    asset,
                 )
                 continue
 
-            positions.append(BinancePosition(
-                ticker=asset,
-                asset_type="CRYPTO",
-                quantity=qty,
-                current_price_usd=price,
-                avg_purchase_price_usd=Decimal("0"),  # se enriquece luego con _get_ppc_usd
-                ppc_ars=Decimal("0"),
-                annual_yield_pct=yield_pct,
-                current_value_ars=Decimal("0"),
-                raw_data=b,
-            ))
+            positions.append(
+                BinancePosition(
+                    ticker=asset,
+                    asset_type="CRYPTO",
+                    quantity=qty,
+                    current_price_usd=price,
+                    avg_purchase_price_usd=Decimal(
+                        "0"
+                    ),  # se enriquece luego con _get_ppc_usd
+                    ppc_ars=Decimal("0"),
+                    annual_yield_pct=yield_pct,
+                    current_value_ars=Decimal("0"),
+                    raw_data=b,
+                )
+            )
 
         logger.info("BinanceClient: %d posiciones obtenidas", len(positions))
         return positions
@@ -165,7 +176,9 @@ class BinanceClient:
         # Intentar par directo contra USDT
         for symbol in [f"{asset}USDT"]:
             try:
-                trades = self._signed_get("/api/v3/myTrades", {"symbol": symbol, "limit": 500})
+                trades = self._signed_get(
+                    "/api/v3/myTrades", {"symbol": symbol, "limit": 500}
+                )
                 if not isinstance(trades, list) or not trades:
                     continue
                 buys = [t for t in trades if t.get("isBuyer")]
@@ -181,12 +194,16 @@ class BinanceClient:
         # USDT comprado con ARS
         if asset == "USDT":
             try:
-                trades = self._signed_get("/api/v3/myTrades", {"symbol": "USDTARS", "limit": 500})
+                trades = self._signed_get(
+                    "/api/v3/myTrades", {"symbol": "USDTARS", "limit": 500}
+                )
                 if isinstance(trades, list):
                     buys = [t for t in trades if t.get("isBuyer")]
                     if buys:
                         total_qty = sum(float(t["qty"]) for t in buys)
-                        total_ars = sum(float(t["qty"]) * float(t["price"]) for t in buys)
+                        total_ars = sum(
+                            float(t["qty"]) * float(t["price"]) for t in buys
+                        )
                         avg_ars = total_ars / total_qty
                         return avg_ars / mep if mep > 0 else 0.0
             except Exception:
@@ -200,7 +217,9 @@ class BinanceClient:
         Cada snapshot: {"date": date, "balances": {asset: float}}
         Filtra LD*, ARS y balances <= 0.
         """
-        data = self._signed_get("/sapi/v1/accountSnapshot", {"type": "SPOT", "limit": 30})
+        data = self._signed_get(
+            "/sapi/v1/accountSnapshot", {"type": "SPOT", "limit": 30}
+        )
         if isinstance(data, list):
             snap_list = data
         else:

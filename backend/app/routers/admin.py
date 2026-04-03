@@ -3,6 +3,7 @@ Endpoints de administración interna — sólo para soporte/equipo BuildFuture.
 Protegidos con X-Admin-Key (env ADMIN_SECRET_KEY).
 NO exponer a clientes ni documentar en el API público.
 """
+
 import logging
 import os
 from datetime import date
@@ -32,12 +33,16 @@ def get_db():
 
 def verify_admin(x_admin_key: str = Header(..., alias="X-Admin-Key")):
     if not ADMIN_KEY:
-        raise HTTPException(status_code=503, detail="Admin endpoints no configurados (ADMIN_SECRET_KEY ausente)")
+        raise HTTPException(
+            status_code=503,
+            detail="Admin endpoints no configurados (ADMIN_SECRET_KEY ausente)",
+        )
     if x_admin_key != ADMIN_KEY:
         raise HTTPException(status_code=403, detail="Clave de administrador incorrecta")
 
 
 # ── Snapshots ────────────────────────────────────────────────────────────────
+
 
 @router.get("/snapshots/info")
 def snapshots_info(
@@ -62,7 +67,11 @@ def snapshots_info(
     for r in rows:
         uid = r.user_id
         if uid not in by_user:
-            by_user[uid] = {"count": 0, "oldest": r.snapshot_date, "newest": r.snapshot_date}
+            by_user[uid] = {
+                "count": 0,
+                "oldest": r.snapshot_date,
+                "newest": r.snapshot_date,
+            }
         by_user[uid]["count"] += 1
         if r.snapshot_date < by_user[uid]["oldest"]:
             by_user[uid]["oldest"] = r.snapshot_date
@@ -86,8 +95,13 @@ def snapshots_info(
 
 @router.delete("/snapshots/purge")
 def snapshots_purge(
-    user_id: Optional[str] = Query(None, description="Si se omite, purga TODOS los usuarios"),
-    before_date: Optional[date] = Query(None, description="Borrar snapshots anteriores a esta fecha (YYYY-MM-DD). Por defecto: hoy"),
+    user_id: Optional[str] = Query(
+        None, description="Si se omite, purga TODOS los usuarios"
+    ),
+    before_date: Optional[date] = Query(
+        None,
+        description="Borrar snapshots anteriores a esta fecha (YYYY-MM-DD). Por defecto: hoy",
+    ),
     db: Session = Depends(get_db),
     _: None = Depends(verify_admin),
 ):
@@ -111,7 +125,12 @@ def snapshots_purge(
         logger.error("snapshots_purge commit error: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
-    logger.info("admin/snapshots/purge: %d rows deleted (user=%s, before=%s)", deleted, user_id, cutoff)
+    logger.info(
+        "admin/snapshots/purge: %d rows deleted (user=%s, before=%s)",
+        deleted,
+        user_id,
+        cutoff,
+    )
     return {
         "deleted": deleted,
         "user_id": user_id or "ALL",
@@ -132,11 +151,15 @@ def reconstruct_raw_ops(
     from app.services.historical_prices import HISTORY_DAYS
     from datetime import timedelta
 
-    integration = db.query(Integration).filter(
-        Integration.user_id == user_id,
-        Integration.provider == "IOL",
-        Integration.is_connected == True,  # noqa: E712
-    ).first()
+    integration = (
+        db.query(Integration)
+        .filter(
+            Integration.user_id == user_id,
+            Integration.provider == "IOL",
+            Integration.is_connected == True,  # noqa: E712
+        )
+        .first()
+    )
     if not integration or not integration.encrypted_credentials:
         raise HTTPException(status_code=404, detail="IOL no conectado")
 
@@ -149,24 +172,26 @@ def reconstruct_raw_ops(
     result = []
     for op in raw_ops:
         titulo = op.get("titulo") or {}
-        result.append({
-            "fechaOrden":       op.get("fechaOrden") or op.get("fecha"),
-            "simbolo":          op.get("simbolo") or op.get("ticker"),
-            "tipo":             op.get("tipo"),
-            "estado":           op.get("estado"),
-            # Orden
-            "cantidad":         op.get("cantidad"),
-            "precio":           op.get("precio"),
-            "monto":            op.get("monto"),
-            # Fill real (lo que se ejecutó)
-            "cantidadOperada":  op.get("cantidadOperada"),
-            "precioOperado":    op.get("precioOperado"),
-            "montoOperado":     op.get("montoOperado"),
-            # Instrumento
-            "inst_tipo":        titulo.get("tipo"),
-            "inst_mercado":     titulo.get("mercado"),
-            "_raw_keys":        list(op.keys()),
-        })
+        result.append(
+            {
+                "fechaOrden": op.get("fechaOrden") or op.get("fecha"),
+                "simbolo": op.get("simbolo") or op.get("ticker"),
+                "tipo": op.get("tipo"),
+                "estado": op.get("estado"),
+                # Orden
+                "cantidad": op.get("cantidad"),
+                "precio": op.get("precio"),
+                "monto": op.get("monto"),
+                # Fill real (lo que se ejecutó)
+                "cantidadOperada": op.get("cantidadOperada"),
+                "precioOperado": op.get("precioOperado"),
+                "montoOperado": op.get("montoOperado"),
+                # Instrumento
+                "inst_tipo": titulo.get("tipo"),
+                "inst_mercado": titulo.get("mercado"),
+                "_raw_keys": list(op.keys()),
+            }
+        )
     return {"total": len(result), "ops": result}
 
 
@@ -184,21 +209,34 @@ def reconstruct_dry_run(
     from app.models import Integration, Position
     from app.services.iol_client import IOLClient
     from app.services.historical_reconstructor import (
-        _parse_operations_v2, _build_reliable_timeline, _qty_at, _yahoo_ticker_for,
+        _parse_operations_v2,
+        _build_reliable_timeline,
+        _qty_at,
+        _yahoo_ticker_for,
     )
     from app.services.historical_prices import (
-        get_prices_batch_cached, get_mep_cached, lookup_price,
-        letra_price_usd_at, bond_price_usd_at, HISTORY_DAYS,
+        get_prices_batch_cached,
+        get_mep_cached,
+        lookup_price,
+        letra_price_usd_at,
+        bond_price_usd_at,
+        HISTORY_DAYS,
     )
     from datetime import timedelta
 
-    integration = db.query(Integration).filter(
-        Integration.user_id == user_id,
-        Integration.provider == "IOL",
-        Integration.is_connected == True,  # noqa: E712
-    ).first()
+    integration = (
+        db.query(Integration)
+        .filter(
+            Integration.user_id == user_id,
+            Integration.provider == "IOL",
+            Integration.is_connected == True,  # noqa: E712
+        )
+        .first()
+    )
     if not integration or not integration.encrypted_credentials:
-        raise HTTPException(status_code=404, detail="IOL no conectado para este usuario")
+        raise HTTPException(
+            status_code=404, detail="IOL no conectado para este usuario"
+        )
 
     creds = integration.encrypted_credentials.split(":", 1)
     client = IOLClient(creds[0], creds[1])
@@ -209,11 +247,15 @@ def reconstruct_dry_run(
 
     parsed = _parse_operations_v2(raw_ops)
 
-    current_positions = db.query(Position).filter(
-        Position.is_active == True,  # noqa: E712
-        Position.user_id == user_id,
-        Position.source == "IOL",
-    ).all()
+    current_positions = (
+        db.query(Position)
+        .filter(
+            Position.is_active == True,  # noqa: E712
+            Position.user_id == user_id,
+            Position.source == "IOL",
+        )
+        .all()
+    )
 
     current_qty_map = {
         p.ticker.upper(): float(p.quantity)
@@ -268,10 +310,22 @@ def reconstruct_dry_run(
                 price = lookup_price(yahoo_prices.get(ticker, {}), target_date)
                 price_method = "yahoo"
             elif at == "LETRA":
-                price = letra_price_usd_at(info["ppc_ars"], info["annual_yield"], info["purchase_date"], target_date, mep)
+                price = letra_price_usd_at(
+                    info["ppc_ars"],
+                    info["annual_yield"],
+                    info["purchase_date"],
+                    target_date,
+                    mep,
+                )
                 price_method = "letra_capitalize"
             elif at in ("BOND", "ON"):
-                price = bond_price_usd_at(info["ppc_usd"], info["current_usd"], info["purchase_date"], date.today(), target_date)
+                price = bond_price_usd_at(
+                    info["ppc_usd"],
+                    info["current_usd"],
+                    info["purchase_date"],
+                    date.today(),
+                    target_date,
+                )
                 price_method = "bond_interpolate"
             elif at == "FCI":
                 if mep > 0 and info["ppc_ars"] > 0:
@@ -280,14 +334,16 @@ def reconstruct_dry_run(
 
         contrib = (qty * price) if (price and price > 0 and qty > 0) else 0.0
         total_usd += contrib
-        breakdown.append({
-            "ticker": ticker,
-            "asset_type": at,
-            "qty_at_date": qty,
-            "price_usd": round(price, 6) if price else None,
-            "price_method": price_method,
-            "contribution_usd": round(contrib, 2),
-        })
+        breakdown.append(
+            {
+                "ticker": ticker,
+                "asset_type": at,
+                "qty_at_date": qty,
+                "price_usd": round(price, 6) if price else None,
+                "price_method": price_method,
+                "contribution_usd": round(contrib, 2),
+            }
+        )
 
     return {
         "target_date": target_date.isoformat(),
@@ -297,7 +353,12 @@ def reconstruct_dry_run(
         "breakdown": sorted(breakdown, key=lambda x: -x["contribution_usd"]),
         "raw_ops_count": len(raw_ops),
         "parsed_ops": [
-            {"date": str(op["date"]), "ticker": op["ticker"], "qty": op["qty"], "tipo": op["tipo"]}
+            {
+                "date": str(op["date"]),
+                "ticker": op["ticker"],
+                "qty": op["qty"],
+                "tipo": op["tipo"],
+            }
             for op in parsed[:50]
         ],
     }
@@ -310,16 +371,20 @@ def snapshots_purge_all_for_user(
     _: None = Depends(verify_admin),
 ):
     """Elimina TODOS los snapshots de un usuario (reset completo de historial)."""
-    deleted = db.query(PortfolioSnapshot).filter(
-        PortfolioSnapshot.user_id == user_id
-    ).delete(synchronize_session=False)
+    deleted = (
+        db.query(PortfolioSnapshot)
+        .filter(PortfolioSnapshot.user_id == user_id)
+        .delete(synchronize_session=False)
+    )
     try:
         db.commit()
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
-    logger.info("admin/snapshots/purge-user-all: %d rows deleted for user=%s", deleted, user_id)
+    logger.info(
+        "admin/snapshots/purge-user-all: %d rows deleted for user=%s", deleted, user_id
+    )
     return {"deleted": deleted, "user_id": user_id}
 
 
@@ -355,6 +420,7 @@ def snapshots_values(
 
 # ── Price / MEP cache ─────────────────────────────────────────────────────────
 
+
 @router.get("/cache/price-info")
 def price_cache_info(
     ticker: Optional[str] = Query(None),
@@ -379,7 +445,11 @@ def price_cache_info(
     return {
         "total_rows": len(rows),
         "by_ticker": {
-            t: {**v, "oldest": v["oldest"].isoformat(), "newest": v["newest"].isoformat()}
+            t: {
+                **v,
+                "oldest": v["oldest"].isoformat(),
+                "newest": v["newest"].isoformat(),
+            }
             for t, v in by_ticker.items()
         },
     }
@@ -387,8 +457,12 @@ def price_cache_info(
 
 @router.delete("/cache/price-purge")
 def price_cache_purge(
-    ticker: Optional[str] = Query(None, description="Si se omite, purga TODA la caché de precios"),
-    before_date: Optional[date] = Query(None, description="Borrar entradas anteriores a esta fecha"),
+    ticker: Optional[str] = Query(
+        None, description="Si se omite, purga TODA la caché de precios"
+    ),
+    before_date: Optional[date] = Query(
+        None, description="Borrar entradas anteriores a esta fecha"
+    ),
     db: Session = Depends(get_db),
     _: None = Depends(verify_admin),
 ):
@@ -416,7 +490,9 @@ def positions_inspect(
     _: None = Depends(verify_admin),
 ):
     """Muestra las posiciones activas de un usuario con todos los campos relevantes para debug."""
-    q = db.query(Position).filter(Position.user_id == user_id, Position.is_active == True)  # noqa: E712
+    q = db.query(Position).filter(
+        Position.user_id == user_id, Position.is_active == True
+    )  # noqa: E712
     if source:
         q = q.filter(Position.source == source.upper())
     rows = q.all()
@@ -434,7 +510,9 @@ def positions_inspect(
                 "current_price_usd": float(r.current_price_usd or 0),
                 "current_value_ars": float(r.current_value_ars or 0),
                 "annual_yield_pct": float(r.annual_yield_pct or 0),
-                "implied_total_usd": round(float(r.quantity) * float(r.current_price_usd or 0), 2),
+                "implied_total_usd": round(
+                    float(r.quantity) * float(r.current_price_usd or 0), 2
+                ),
                 "implied_ppc_total_usd": round(float(r.ppc_ars or 0) / 1436, 4),
             }
             for r in rows
@@ -465,13 +543,23 @@ def positions_dupes(
     rows = q.all()
     return {
         "duplicates_found": len(rows),
-        "items": [{"user_id": r.user_id, "ticker": r.ticker, "source": r.source, "count": r.cnt} for r in rows],
+        "items": [
+            {
+                "user_id": r.user_id,
+                "ticker": r.ticker,
+                "source": r.source,
+                "count": r.cnt,
+            }
+            for r in rows
+        ],
     }
 
 
 @router.delete("/positions/dedup")
 def positions_dedup(
-    user_id: Optional[str] = Query(None, description="Si se omite, dedup para todos los usuarios"),
+    user_id: Optional[str] = Query(
+        None, description="Si se omite, dedup para todos los usuarios"
+    ),
     db: Session = Depends(get_db),
     _: None = Depends(verify_admin),
 ):
@@ -574,15 +662,20 @@ def yields_diagnose(
                 expected_yield = 0.0
             elif p.quantity <= 0:
                 skip_reason = "quantity=0"
-            elif (p.current_value_ars is None or p.current_value_ars <= 0):
+            elif p.current_value_ars is None or p.current_value_ars <= 0:
                 if p.current_price_usd > 0:
                     synthetic_ars = float(p.quantity) * float(p.current_price_usd) * mep
                     price_per_100 = (synthetic_ars / float(p.quantity)) * 100
                     days = (maturity - today).days
-                    skip_reason = "current_value_ars=0 (reconstruible desde price_usd×mep)"
+                    skip_reason = (
+                        "current_value_ars=0 (reconstruible desde price_usd×mep)"
+                    )
                     from decimal import Decimal as D
                     from app.services.yield_updater import _lecap_tir
-                    expected_yield = float(_lecap_tir(D(str(round(price_per_100, 4))), days))
+
+                    expected_yield = float(
+                        _lecap_tir(D(str(round(price_per_100, 4))), days)
+                    )
                 else:
                     skip_reason = "current_value_ars=0 y current_price_usd=0"
 
@@ -596,19 +689,23 @@ def yields_diagnose(
         elif p.asset_type == "FCI":
             expected_yield = None  # se calcula en runtime desde ArgentinaDatos
 
-        rows.append({
-            "user_id": p.user_id,
-            "ticker": p.ticker,
-            "asset_type": p.asset_type,
-            "source": p.source,
-            "quantity": float(p.quantity),
-            "current_price_usd": float(p.current_price_usd),
-            "current_value_ars": float(p.current_value_ars) if p.current_value_ars else 0,
-            "annual_yield_pct_now": float(p.annual_yield_pct),
-            "expected_yield": expected_yield,
-            "will_update": skip_reason is None and expected_yield is not None,
-            "skip_reason": skip_reason,
-        })
+        rows.append(
+            {
+                "user_id": p.user_id,
+                "ticker": p.ticker,
+                "asset_type": p.asset_type,
+                "source": p.source,
+                "quantity": float(p.quantity),
+                "current_price_usd": float(p.current_price_usd),
+                "current_value_ars": (
+                    float(p.current_value_ars) if p.current_value_ars else 0
+                ),
+                "annual_yield_pct_now": float(p.annual_yield_pct),
+                "expected_yield": expected_yield,
+                "will_update": skip_reason is None and expected_yield is not None,
+                "skip_reason": skip_reason,
+            }
+        )
 
     skipped = [r for r in rows if r["skip_reason"]]
     updatable = [r for r in rows if r["will_update"]]
@@ -618,7 +715,9 @@ def yields_diagnose(
         "total": len(rows),
         "updatable": len(updatable),
         "skipped": len(skipped),
-        "positions": sorted(rows, key=lambda r: (r["skip_reason"] is None, r["asset_type"], r["ticker"])),
+        "positions": sorted(
+            rows, key=lambda r: (r["skip_reason"] is None, r["asset_type"], r["ticker"])
+        ),
     }
 
 
@@ -639,7 +738,9 @@ def yields_run(
 
 @router.delete("/cache/mep-purge")
 def mep_cache_purge(
-    before_date: Optional[date] = Query(None, description="Borrar entradas de MEP anteriores a esta fecha"),
+    before_date: Optional[date] = Query(
+        None, description="Borrar entradas de MEP anteriores a esta fecha"
+    ),
     db: Session = Depends(get_db),
     _: None = Depends(verify_admin),
 ):
