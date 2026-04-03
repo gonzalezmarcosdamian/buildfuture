@@ -181,9 +181,12 @@ class IOLClient:
             price_ars = valorizado / cantidad
             current_price_usd = price_ars / mep_dec
 
-            # ppc sigue la misma convención de cotización que ultimoPrecio
-            # Para letras: ppc≈101.85 → mismo ajuste
-            avg_price_ars = (ppc / Decimal("100")) if asset_type == "LETRA" else ppc
+            # ppc sigue la misma convención de cotización que ultimoPrecio:
+            # - LETRA/BOND/ON: cotiza por 100 VN nominal → dividir por 100 para obtener precio por VN
+            # - CEDEAR/FCI/etc.: cotiza por unidad → sin ajuste
+            # current_price_usd = valorizado / cantidad / mep → siempre por VN
+            # Esta normalización garantiza que avg_price_usd y current_price_usd estén en la misma unidad.
+            avg_price_ars = (ppc / Decimal("100")) if asset_type in ("LETRA", "BOND", "ON") else ppc
             avg_price_usd = (
                 avg_price_ars / mep_dec if avg_price_ars > 0 else current_price_usd
             )
