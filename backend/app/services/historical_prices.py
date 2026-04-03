@@ -21,6 +21,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 import httpx
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.models import PriceHistory, MepHistory
@@ -328,37 +329,47 @@ def bond_price_usd_at(
 # ── Precios históricos de bonos/ONs vía IOL seriehistorica ────────────────────
 
 
-def get_bond_prices_iol_cached(
+def get_iol_prices_cached(
     iol_client,
     db: Session,
     ticker: str,
     start: date,
     end: date,
+    divide_by_100: bool = False,
 ) -> dict[date, float]:
     """
-    Precios históricos en USD/VN para un ticker BOND/ON desde IOL seriehistorica.
+    Precios históricos en USD desde IOL seriehistorica (bCBA), con caché en price_history.
 
-    IOL cotiza bonos en ARS por 100 VN nominal (convención BYMA).
-    Esta función:
-      1. Consulta price_history (source='IOL_BOND') para fechas ya cacheadas.
-      2. Llama a /api/v2/bCBA/Titulos/{ticker}/Cotizacion/seriehistorica para el resto.
-      3. Convierte ARS/100VN → USD/VN usando mep_history.
-      4. Persiste en price_history para que el siguiente usuario no pague el costo de red.
+    Parámetros:
+      divide_by_100: True para BOND/ON (IOL cotiza ARS/100VN → necesita /100 para obtener ARS/VN).
+                     False para CEDEAR/FCI (IOL cotiza ARS por unidad directamente).
 
-    Retorna {date: price_usd_per_vn} solo para fechas con dato disponible.
+    Flujo:
+      1. Consulta price_history para fechas ya cacheadas.
+      2. Llama a IOL seriehistorica para fechas que faltan.
+      3. Convierte ARS → USD/unidad usando mep_history.
+      4. Persiste con UPSERT (sobrescribe Yahoo si existía para el mismo ticker+fecha).
+
+    Cache compartido entre usuarios — solo el primer usuario paga el costo de red.
+    Retorna {date: price_usd} solo para fechas con dato disponible.
     """
-    # 1. Qué fechas ya están cacheadas
+    source_tag = "IOL_BOND" if divide_by_100 else "IOL"
+    # 1. Qué fechas ya están cacheadas (cualquier fuente — UPSERT las sobreescribe)
     cached_rows = (
         db.query(PriceHistory)
         .filter(
             PriceHistory.ticker == ticker,
             PriceHistory.price_date >= start,
             PriceHistory.price_date <= end,
-            PriceHistory.source == "IOL_BOND",
         )
         .all()
     )
-    cached: dict[date, float] = {r.price_date: float(r.price_usd) for r in cached_rows}
+    # Solo reusar filas de IOL (las de YAHOO son el precio NYSE, no útiles para CEDEARs)
+    cached: dict[date, float] = {
+        r.price_date: float(r.price_usd)
+        for r in cached_rows
+        if r.source in ("IOL_BOND", "IOL")
+    }
 
     # 2. Fechas laborables que faltan
     needed = {
@@ -375,7 +386,7 @@ def get_bond_prices_iol_cached(
     fetch_start = min(missing_dates)
     fetch_end = max(missing_dates)
     logger.info(
-        "BondCache IOL: %s — %d en DB, %d a descargar (%s → %s)",
+        "IOLCache: %s — %d en DB, %d a descargar (%s → %s)",
         ticker,
         len(cached),
         len(missing_dates),
@@ -393,14 +404,16 @@ def get_bond_prices_iol_cached(
             f"/{fetch_start.isoformat()}/{fetch_end.isoformat()}/sinAjustar"
         )
         items = data if isinstance(data, list) else []
-        logger.info("BondCache IOL: %s — %d registros recibidos", ticker, len(items))
+        logger.info("IOLCache: %s — %d registros recibidos", ticker, len(items))
 
-        new_rows = []
+        upsert_params = []
         for item in items:
             fecha_str = (item.get("fechaHora") or item.get("fecha") or "")[:10]
             if not fecha_str:
                 continue
-            # ultimoPrecio: precio cierre en ARS por 100 VN nominal
+            # ultimoPrecio en ARS:
+            #   BOND/ON: ARS por 100 VN nominal → divide_by_100=True
+            #   CEDEAR:  ARS por unidad de cantidad → divide_by_100=False
             precio_ars = float(
                 item.get("ultimoPrecio") or item.get("precioPromedio") or 0
             )
@@ -419,34 +432,51 @@ def get_bond_prices_iol_cached(
             if mep <= 0:
                 continue
 
-            # Convertir: ARS/100VN → USD/VN
-            price_usd_per_vn = (precio_ars / 100.0) / mep
-            cached[d] = price_usd_per_vn
-            new_rows.append(
-                PriceHistory(
-                    ticker=ticker,
-                    price_date=d,
-                    price_usd=Decimal(str(round(price_usd_per_vn, 6))),
-                    source="IOL_BOND",
-                )
-            )
+            price_usd = ((precio_ars / 100.0) if divide_by_100 else precio_ars) / mep
+            cached[d] = price_usd
+            upsert_params.append({
+                "ticker": ticker,
+                "price_date": d,
+                "price_usd": round(price_usd, 6),
+                "source": source_tag,
+            })
 
-        if new_rows:
-            for row in new_rows:
-                try:
-                    db.merge(row)
-                except Exception:
-                    pass
+        if upsert_params:
+            # UPSERT: sobrescribe Yahoo si existía (precio NYSE no es útil para CEDEARs)
+            db.execute(
+                text("""
+                    INSERT INTO price_history (ticker, price_date, price_usd, source)
+                    VALUES (:ticker, :price_date, :price_usd, :source)
+                    ON CONFLICT (ticker, price_date) DO UPDATE
+                    SET price_usd = EXCLUDED.price_usd, source = EXCLUDED.source
+                """),
+                upsert_params,
+            )
             try:
                 db.flush()
                 logger.info(
-                    "BondCache IOL: %s — %d precios guardados", ticker, len(new_rows)
+                    "IOLCache: %s — %d precios guardados (source=%s)",
+                    ticker,
+                    len(upsert_params),
+                    source_tag,
                 )
             except Exception as e:
                 db.rollback()
-                logger.warning("BondCache IOL flush falló (%s): %s", ticker, e)
+                logger.warning("IOLCache flush falló (%s): %s", ticker, e)
 
     except Exception as e:
-        logger.warning("BondCache IOL: %s fetch falló: %s", ticker, e)
+        logger.warning("IOLCache: %s fetch falló: %s", ticker, e)
 
     return cached
+
+
+# Alias de compatibilidad para el código existente
+def get_bond_prices_iol_cached(
+    iol_client,
+    db: Session,
+    ticker: str,
+    start: date,
+    end: date,
+) -> dict[date, float]:
+    """Alias: llama a get_iol_prices_cached con divide_by_100=True (para BOND/ON)."""
+    return get_iol_prices_cached(iol_client, db, ticker, start, end, divide_by_100=True)

@@ -491,8 +491,8 @@ def positions_inspect(
 ):
     """Muestra las posiciones activas de un usuario con todos los campos relevantes para debug."""
     q = db.query(Position).filter(
-        Position.user_id == user_id, Position.is_active == True
-    )  # noqa: E712
+        Position.user_id == user_id, Position.is_active.is_(True)
+    )
     if source:
         q = q.filter(Position.source == source.upper())
     rows = q.all()
@@ -641,7 +641,7 @@ def yields_diagnose(
     mep = float(get_mep())
 
     q = db.query(Position).filter(
-        Position.is_active == True,
+        Position.is_active.is_(True),
         Position.asset_type.in_(["LETRA", "BOND", "ON", "FCI"]),
     )
     if user_id:
@@ -756,3 +756,177 @@ def mep_cache_purge(
         raise HTTPException(status_code=500, detail=str(e))
     logger.info("admin/cache/mep-purge: %d rows deleted", deleted)
     return {"deleted": deleted}
+
+
+# ── Soporte de usuario (repair) ───────────────────────────────────────────────
+
+
+@router.post("/support/repair-user")
+def support_repair_user(
+    user_id: str = Query(..., description="UUID del usuario a reparar"),
+    purge_snapshots: bool = Query(True, description="Purgar snapshots históricos antes de reconstruir"),
+    db: Session = Depends(get_db),
+    _: None = Depends(verify_admin),
+):
+    """
+    Operación de soporte completa para un usuario con históricos incorrectos.
+
+    Flujo:
+    1. Purga snapshots históricos del usuario (todos, excepto hoy si se quiere conservar).
+    2. Re-sincroniza IOL: actualiza posiciones con ppc_usd correcto y reconstruye histórico.
+
+    Usar cuando:
+    - El gráfico de tenencia muestra valores inflados (millones en vez de miles).
+    - Se deployó un fix de precios (unit mismatch, fuente de datos nueva).
+    - El cliente reporta que su portfolio histórico no coincide con la realidad.
+
+    POST /admin/support/repair-user?user_id=<uuid>&purge_snapshots=true
+    Header: X-Admin-Key: <ADMIN_SECRET_KEY>
+    """
+    from app.models import Integration
+    from app.services.iol_client import IOLClient
+    from app.routers.integrations import _sync_iol
+
+    integration = (
+        db.query(Integration)
+        .filter(
+            Integration.user_id == user_id,
+            Integration.provider == "IOL",
+            Integration.is_connected == True,  # noqa: E712
+        )
+        .first()
+    )
+    if not integration or not integration.encrypted_credentials:
+        raise HTTPException(
+            status_code=404,
+            detail=f"IOL no conectado para user_id={user_id}. Solo soportado para usuarios IOL.",
+        )
+
+    # 1. Purgar snapshots
+    deleted_snaps = 0
+    if purge_snapshots:
+        deleted_snaps = (
+            db.query(PortfolioSnapshot)
+            .filter(PortfolioSnapshot.user_id == user_id)
+            .delete(synchronize_session=False)
+        )
+        db.flush()
+        logger.info("support/repair-user: %d snapshots purgados para user=%s", deleted_snaps, user_id)
+
+    # 2. Re-sync IOL (actualiza posiciones + reconstruye histórico)
+    try:
+        creds = integration.encrypted_credentials.split(":", 1)
+        client = IOLClient(creds[0], creds[1])
+        result = _sync_iol(client, db, user_id)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.error("support/repair-user: sync falló para user=%s: %s", user_id, e)
+        raise HTTPException(status_code=502, detail=f"Sync IOL falló: {e}")
+
+    logger.info(
+        "support/repair-user: user=%s — %d snaps purgados, %d posiciones sync, %d snaps reconstruidos",
+        user_id,
+        deleted_snaps,
+        result.get("positions_synced", 0),
+        result.get("snapshots_reconstructed", 0),
+    )
+    return {
+        "user_id": user_id,
+        "snapshots_purged": deleted_snaps,
+        "positions_synced": result.get("positions_synced", 0),
+        "snapshots_reconstructed": result.get("snapshots_reconstructed", 0),
+        "mep": result.get("mep"),
+        "message": "Repair completado. El cliente puede recargar la app.",
+    }
+
+
+@router.get("/support/snapshot-health")
+def support_snapshot_health(
+    user_id: str = Query(...),
+    db: Session = Depends(get_db),
+    _: None = Depends(verify_admin),
+):
+    """
+    Diagnóstico rápido del estado de snapshots de un usuario.
+    Muestra rango de fechas, valores min/max/avg y los últimos 10 snapshots.
+    Usar para confirmar si un repair fue exitoso o si los valores son coherentes.
+    """
+    from sqlalchemy import func as sqlfunc
+
+    stats = (
+        db.query(
+            sqlfunc.count(PortfolioSnapshot.id),
+            sqlfunc.min(PortfolioSnapshot.total_usd),
+            sqlfunc.max(PortfolioSnapshot.total_usd),
+            sqlfunc.avg(PortfolioSnapshot.total_usd),
+            sqlfunc.min(PortfolioSnapshot.snapshot_date),
+            sqlfunc.max(PortfolioSnapshot.snapshot_date),
+        )
+        .filter(PortfolioSnapshot.user_id == user_id)
+        .first()
+    )
+
+    recent = (
+        db.query(PortfolioSnapshot)
+        .filter(PortfolioSnapshot.user_id == user_id)
+        .order_by(PortfolioSnapshot.snapshot_date.desc())
+        .limit(10)
+        .all()
+    )
+
+    count = stats[0] or 0
+    max_val = float(stats[2]) if stats[2] else 0
+    avg_val = float(stats[3]) if stats[3] else 0
+
+    # Heurística: si max > 10x avg, probablemente hay snapshots inflados
+    inflation_suspected = count > 5 and max_val > avg_val * 5
+
+    return {
+        "user_id": user_id,
+        "count": count,
+        "min_usd": float(stats[1]) if stats[1] else None,
+        "max_usd": max_val or None,
+        "avg_usd": avg_val or None,
+        "oldest": stats[4].isoformat() if stats[4] else None,
+        "newest": stats[5].isoformat() if stats[5] else None,
+        "inflation_suspected": inflation_suspected,
+        "recent_10": [
+            {
+                "date": s.snapshot_date.isoformat(),
+                "total_usd": float(s.total_usd),
+                "positions": s.positions_count,
+            }
+            for s in recent
+        ],
+    }
+
+
+@router.delete("/cache/price-source-purge")
+def price_source_purge(
+    ticker: Optional[str] = Query(None, description="Ticker específico o todos"),
+    source: str = Query(..., description="Fuente a purgar: YAHOO | IOL_BOND | IOL"),
+    db: Session = Depends(get_db),
+    _: None = Depends(verify_admin),
+):
+    """
+    Purga entradas de price_history por fuente (YAHOO, IOL_BOND, IOL).
+    Útil para forzar re-fetch desde una fuente cuando los precios cacheados son incorrectos.
+    Ejemplo: purgar YAHOO para un ticker CEDEAR para que el próximo sync use IOL.
+    """
+    q = db.query(PriceHistory).filter(PriceHistory.source == source)
+    if ticker:
+        q = q.filter(PriceHistory.ticker == ticker.upper())
+    deleted = q.delete(synchronize_session=False)
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    logger.info(
+        "admin/cache/price-source-purge: %d rows deleted (source=%s, ticker=%s)",
+        deleted,
+        source,
+        ticker or "ALL",
+    )
+    return {"deleted": deleted, "source": source, "ticker": ticker or "ALL"}

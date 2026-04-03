@@ -28,7 +28,7 @@ from sqlalchemy.orm import Session
 from app.models import PortfolioSnapshot
 from app.services.historical_prices import (
     get_prices_batch_cached,
-    get_bond_prices_iol_cached,
+    get_iol_prices_cached,
     get_mep_cached,
     lookup_price,
     letra_price_usd_at,
@@ -274,32 +274,63 @@ def reconstruct_portfolio_history(
         if yt:
             yahoo_map[ticker] = yt
 
-    yahoo_prices: dict[str, dict[date, float]] = {}
-    if yahoo_map:
-        unique_yahoo = list(set(yahoo_map.values()))
+    # Pre-fetch IOL seriehistorica para BOND/ON y CEDEARs
+    # IOL (fuente primaria) → Yahoo (fallback si IOL no devuelve datos para el ticker)
+    iol_prices: dict[str, dict[date, float]] = {}
+    iol_tickers = [
+        t for t in holdings_tl
+        if pos_info.get(t, {}).get("asset_type") in ("BOND", "ON", "CEDEAR", "ETF", "CRYPTO")
+    ]
+    if iol_tickers:
         logger.info(
-            "Reconstructor: %d tickers Yahoo (cache DB first)", len(unique_yahoo)
+            "Reconstructor: %d tickers — fetching IOL seriehistorica (BOND/ON/CEDEAR)",
+            len(iol_tickers),
+        )
+        for ticker in iol_tickers:
+            at = pos_info.get(ticker, {}).get("asset_type", "")
+            divide = at in ("BOND", "ON")
+            prices = get_iol_prices_cached(client, db, ticker, first_date, today, divide_by_100=divide)
+            if prices:
+                iol_prices[ticker] = prices
+            time.sleep(0.3)
+
+    # Yahoo como fallback para tickers sin datos en IOL (CRYPTO, ETF extranjero, etc.)
+    # Se aplica corrección de equiv para CEDEARs: Yahoo devuelve precio NYSE (por acción),
+    # pero la posición tiene N CEDEARs por cada acción → dividir por equiv para obtener
+    # precio correcto por unidad de CEDEAR.
+    # equiv = round(yahoo_actual / current_price_usd) — ratio estable en el tiempo.
+    yahoo_prices: dict[str, dict[date, float]] = {}
+    yahoo_equivs: dict[str, int] = {}
+    yahoo_fallback_tickers = [t for t in yahoo_map if not iol_prices.get(t)]
+    if yahoo_fallback_tickers:
+        unique_yahoo = list({yahoo_map[t] for t in yahoo_fallback_tickers})
+        logger.info(
+            "Reconstructor: %d tickers sin IOL → fallback Yahoo (con equiv correction)",
+            len(yahoo_fallback_tickers),
         )
         raw_yahoo = get_prices_batch_cached(db, unique_yahoo, first_date, today)
-        for iol_t, yah_t in yahoo_map.items():
-            yahoo_prices[iol_t] = raw_yahoo.get(yah_t, {})
+        for iol_t in yahoo_fallback_tickers:
+            yah_t = yahoo_map[iol_t]
+            prices = raw_yahoo.get(yah_t, {})
+            yahoo_prices[iol_t] = prices
 
-    # Pre-fetch precios históricos reales para BOND/ON vía IOL seriehistorica
-    bond_prices: dict[str, dict[date, float]] = {}
-    bond_tickers = [
-        t for t in holdings_tl
-        if pos_info.get(t, {}).get("asset_type") in ("BOND", "ON")
-    ]
-    if bond_tickers:
-        logger.info(
-            "Reconstructor: %d tickers BOND/ON — fetching IOL seriehistorica",
-            len(bond_tickers),
-        )
-        for ticker in bond_tickers:
-            bond_prices[ticker] = get_bond_prices_iol_cached(
-                client, db, ticker, first_date, today
-            )
-            time.sleep(0.3)  # rate limit gentil entre calls IOL
+            # Calcular equiv para corregir escala NYSE→CEDEAR
+            cur_usd = pos_info.get(iol_t, {}).get("current_usd", 0.0)
+            if cur_usd > 0 and prices:
+                yah_recent = lookup_price(prices, today) or lookup_price(prices, today - timedelta(days=7))
+                if yah_recent and yah_recent > cur_usd * 1.5:
+                    # El precio Yahoo es significativamente mayor → hay un ratio
+                    yahoo_equivs[iol_t] = max(1, round(yah_recent / cur_usd))
+                    logger.info(
+                        "Reconstructor: %s equiv=%d (yahoo=%.2f / cur_usd=%.4f)",
+                        iol_t,
+                        yahoo_equivs[iol_t],
+                        yah_recent,
+                        cur_usd,
+                    )
+
+    # Alias retrocompatible
+    bond_prices = {t: v for t, v in iol_prices.items() if pos_info.get(t, {}).get("asset_type") in ("BOND", "ON")}
 
     current_mep = float(client._get_mep())
     mep_by_date = get_mep_cached(db, first_date, today, fallback_mep=current_mep)
@@ -346,7 +377,14 @@ def reconstruct_portfolio_history(
             price: float | None = None
 
             if at in _YAHOO_TYPES:
-                price = lookup_price(yahoo_prices.get(ticker, {}), target)
+                # IOL primero (ARS/MEP = precio real del CEDEAR en USD)
+                price = lookup_price(iol_prices.get(ticker, {}), target)
+                if price is None:
+                    # Fallback Yahoo — dividir por equiv para corregir escala NYSE→CEDEAR
+                    raw = lookup_price(yahoo_prices.get(ticker, {}), target)
+                    if raw is not None:
+                        equiv = yahoo_equivs.get(ticker, 1)
+                        price = raw / equiv
 
             elif at == "LETRA":
                 price = letra_price_usd_at(
