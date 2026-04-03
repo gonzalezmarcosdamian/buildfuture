@@ -14,7 +14,7 @@ from app.services.freedom_calculator import calculate_freedom_score, calculate_m
 from app.services.ai_recommendations import get_ai_recommendations
 from app.services.market_data import fetch_market_snapshot
 from app.services.smart_recommendations import get_smart_recommendations
-from app.services.expert_committee import get_committee_recommendations, UNIVERSE
+from app.services.expert_committee import get_committee_recommendations, get_sections_recommendations, UNIVERSE
 
 router = APIRouter(prefix="/portfolio", tags=["portfolio"])
 
@@ -214,6 +214,36 @@ def get_portfolio_recommendations(
     return get_committee_recommendations(
         capital_ars=capital_ars,
         risk_profile=risk_profile,
+        freedom_pct=freedom_pct,
+        monthly_savings_usd=monthly_savings_usd,
+        current_tickers=current_tickers,
+    )
+
+
+@router.get("/recommendations/sections")
+def get_portfolio_sections(
+    capital_ars: float = Query(default=500000),
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    """
+    Recomendaciones cross-perfil divididas en renta y capital.
+    No requiere risk_profile — cada card devuelve recommended_for.
+    6 instrumentos por sección, ordenados por score del comité.
+    """
+    positions = db.query(Position).filter(
+        Position.is_active == True,
+        Position.user_id == current_user,
+    ).all()
+    budget = _query_budget(db, current_user)
+    score = _get_freedom_score(current_user, positions, budget.total_monthly_usd if budget else Decimal("2000"))
+
+    current_tickers = [p.ticker for p in positions]
+    monthly_savings_usd = float(budget.savings_monthly_usd) if budget else 1250.0
+    freedom_pct = float(score["freedom_pct"])
+
+    return get_sections_recommendations(
+        capital_ars=capital_ars,
         freedom_pct=freedom_pct,
         monthly_savings_usd=monthly_savings_usd,
         current_tickers=current_tickers,
