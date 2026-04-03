@@ -509,6 +509,10 @@ _TICKER_TYPE_OVERRIDES: dict[str, str] = {
     "BPY26": "BOND",
     "BPJ25": "BOND",
     "BPA7": "BOND",
+    # Bonos duales soberanos (IOL los puede retornar como STOCK)
+    "NDT25": "BOND",
+    "NDT26": "BOND",
+    "NDT27": "BOND",
     # Obligaciones negociables conocidas
     "YCA6O": "ON",
     "YMCXO": "ON",
