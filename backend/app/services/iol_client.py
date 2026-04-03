@@ -313,47 +313,42 @@ class IOLClient:
             logger.warning("No se pudo traer estado de cuenta: %s", e)
             return {}
 
-    def get_cash_balance_ars(self) -> Decimal:
+    def get_cash_balances(self) -> dict[str, Decimal]:
         """
-        Extrae el saldo disponible en pesos (no invertido) del estado de cuenta.
-        IOL puede devolver la estructura como lista de cuentas o un objeto flat.
-        Retorna Decimal("0") si no puede determinarlo — nunca falla.
+        Extrae saldos disponibles en ARS y USD del estado de cuenta.
+        Retorna {"ars": Decimal, "usd": Decimal} — nunca falla.
+        IOL estructura: {"cuentas": [{"moneda": "peso_Argentino"|"dolar_Estadounidense", "disponible": N}, ...]}
         """
+        result = {"ars": Decimal("0"), "usd": Decimal("0")}
         try:
             data = self.get_account_balance()
             logger.info("estadocuenta raw: %s", str(data)[:500])
 
-            # Estructura 1: {"cuentas": [{"moneda": "peso_Argentino", "disponible": 50000}, ...]}
             cuentas = data.get("cuentas") or data.get("cuenta") or []
             if isinstance(cuentas, list) and cuentas:
                 for cuenta in cuentas:
                     moneda = str(cuenta.get("moneda", "")).lower()
+                    disponible = Decimal(str(cuenta.get("disponible") or cuenta.get("saldo") or 0))
                     if any(k in moneda for k in ("peso", "ars", "pesos", "argentino")):
-                        disponible = cuenta.get("disponible") or cuenta.get("saldo") or 0
                         logger.info("Cash ARS (cuenta): %.2f", float(disponible))
-                        return Decimal(str(disponible))
-                # Si no encontramos por moneda, tomar la primera cuenta
-                disponible = cuentas[0].get("disponible") or 0
-                logger.info("Cash ARS (primera cuenta fallback): %.2f", float(disponible))
-                return Decimal(str(disponible))
+                        result["ars"] = disponible
+                    elif any(k in moneda for k in ("dolar", "usd", "dollar", "estadounidense")):
+                        logger.info("Cash USD (cuenta): %.2f", float(disponible))
+                        result["usd"] = disponible
+                return result
 
-            # Estructura 2: {"disponible": 50000, ...} (flat)
+            # Estructura flat: solo ARS
             if "disponible" in data:
-                disponible = data["disponible"] or 0
-                logger.info("Cash ARS (flat): %.2f", float(disponible))
-                return Decimal(str(disponible))
+                result["ars"] = Decimal(str(data["disponible"] or 0))
+                logger.info("Cash ARS (flat): %.2f", float(result["ars"]))
 
-            # Estructura 3: {"saldo": [...]} u otras variantes
-            for key in ("saldo", "saldoDisponible", "saldo_disponible"):
-                if key in data and isinstance(data[key], (int, float)):
-                    logger.info("Cash ARS (%s): %.2f", key, float(data[key]))
-                    return Decimal(str(data[key]))
-
-            logger.warning("No se encontró saldo disponible en estadocuenta: keys=%s", list(data.keys()))
-            return Decimal("0")
         except Exception as e:
-            logger.warning("get_cash_balance_ars falló: %s", e)
-            return Decimal("0")
+            logger.warning("get_cash_balances falló: %s", e)
+        return result
+
+    def get_cash_balance_ars(self) -> Decimal:
+        """Compatibilidad: retorna solo el saldo ARS."""
+        return self.get_cash_balances()["ars"]
 
     def get_operations(self, fecha_desde: str | None = None, fecha_hasta: str | None = None) -> list[dict]:
         """
