@@ -26,6 +26,97 @@ logger = logging.getLogger("buildfuture.experts")
 _market_cache: dict = {}
 MARKET_CACHE_TTL = 3600
 
+# ── Cache de rangos de retorno para CEDEARs/ETFs (yfinance, TTL 30 min) ───────
+
+_equity_range_cache: dict[str, tuple[float, float]] = {}  # yahoo_ticker -> (low, high)
+_equity_range_ts: float = 0.0
+_EQUITY_CACHE_TTL = 1800  # 30 min
+
+# CEDEAR ticker → subyacente Yahoo Finance
+_CEDEAR_YAHOO_MAP: dict[str, str] = {
+    "MELI": "MELI",
+    "SPY":  "SPY",
+    "QQQ":  "QQQ",
+    "XLE":  "XLE",
+    "GGAL": "GGAL",
+    "YPFD": "YPF",
+    "VIST": "VIST",
+    "GLOB": "GLOB",
+}
+
+
+def _refresh_equity_ranges() -> None:
+    """Descarga historial 3Y en un solo request batch y calcula rangos percentil 15–85."""
+    global _equity_range_ts
+    if time.time() - _equity_range_ts < _EQUITY_CACHE_TTL:
+        return
+    try:
+        import yfinance as yf
+        tickers = list(_CEDEAR_YAHOO_MAP.values())
+        raw = yf.download(
+            tickers, period="3y", auto_adjust=True,
+            progress=False, group_by="ticker",
+        )
+        for ticker in tickers:
+            try:
+                if len(tickers) == 1:
+                    closes = raw["Close"]
+                else:
+                    closes = raw[ticker]["Close"]
+                rolling = closes.pct_change(252).dropna()
+                if len(rolling) < 50:
+                    continue
+                _equity_range_cache[ticker] = (
+                    float(rolling.quantile(0.15)),
+                    float(rolling.quantile(0.85)),
+                )
+            except Exception:
+                pass
+        _equity_range_ts = time.time()
+        logger.info("Equity ranges refreshed for %d tickers", len(_equity_range_cache))
+    except Exception as e:
+        logger.warning("Could not refresh equity ranges: %s", e)
+
+
+def _compute_yield_range(
+    inst: "Instrument", riesgo_pais: int
+) -> tuple[float, float, str]:
+    """
+    Devuelve (range_low, range_high, label) dinámicos para cada instrumento.
+    - Renta fija: spread formula ajustado por riesgo país live.
+    - CEDEARs/ETFs: distribución real de retornos anuales vía yfinance (cacheado).
+    """
+    y = inst.base_yield_pct
+
+    if inst.asset_type in ("LETRA", "FCI"):
+        # Curva LECAP: distintos vencimientos ~±8% relativo alrededor del punto actual
+        spread = y * 0.08
+        return (max(0.0, y - spread), y + spread, "TNA ARS")
+
+    if inst.asset_type == "ON":
+        # Credit spread ±150bps + pequeño ajuste por riesgo soberano
+        rp_adj = min(0.008, riesgo_pais / 80_000)
+        return (max(0.03, y - 0.015 - rp_adj), y + 0.018 + rp_adj, "TIR USD")
+
+    if inst.asset_type == "BOND":
+        # Spread soberano más ancho, escala con riesgo país live
+        rp_spread = riesgo_pais / 45_000
+        return (max(0.05, y - 0.04 - rp_spread), y + 0.06 + rp_spread, "TIR USD")
+
+    if inst.asset_type in ("CEDEAR", "ETF"):
+        yahoo = _CEDEAR_YAHOO_MAP.get(inst.ticker)
+        if yahoo and yahoo in _equity_range_cache:
+            low, high = _equity_range_cache[yahoo]
+            return (low, high, "ret. USD/año")
+        # Fallback por risk_level si el cache aún no calentó
+        if inst.risk_level == "alto":
+            return (y - 0.20, y + 0.35, "ret. USD/año")
+        if inst.risk_level == "medio":
+            return (y - 0.12, y + 0.22, "ret. USD/año")
+        return (y - 0.08, y + 0.15, "ret. USD/año")
+
+    return (y * 0.90, y * 1.10, "rendimiento est.")
+
 
 # ── Instrumento con datos enriquecidos ────────────────────────────────────────
 
@@ -1180,6 +1271,13 @@ def get_sections_recommendations(
     """
     market = _fetch_market()
     fx_rate = market["mep"]
+    riesgo_pais = market.get("riesgo_pais", 700)
+
+    # Calentar rangos de equity en batch (yfinance, cacheado 30 min, falla silenciosa)
+    try:
+        _refresh_equity_ranges()
+    except Exception:
+        pass
 
     universe = UNIVERSE.copy()
     if live_yields:
@@ -1244,6 +1342,7 @@ def get_sections_recommendations(
         monthly_return_usd = alloc_usd * inst.base_yield_pct / 12
 
         rationale, why_now = _build_rationale(inst, votes, market)
+        yield_low, yield_high, yield_label = _compute_yield_range(inst, riesgo_pais)
 
         rec = {
             "ticker": inst.ticker,
@@ -1255,6 +1354,9 @@ def get_sections_recommendations(
             "rationale": rationale,
             "why_now": why_now,
             "annual_yield_pct": inst.base_yield_pct,
+            "yield_range_low": round(yield_low, 4),
+            "yield_range_high": round(yield_high, 4),
+            "yield_label": yield_label,
             "risk_level": inst.risk_level,
             "currency": inst.currency,
             "amount_ars": round(alloc_ars),
