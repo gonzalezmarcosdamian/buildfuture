@@ -286,9 +286,13 @@ def reconstruct_portfolio_history(
     batch: list[PortfolioSnapshot] = []
     created = 0
 
+    _RENTA_TYPES = {"LETRA", "FCI"}
+    _AMBOS_TYPES = {"BOND", "ON"}
+
     for target in dates_needed:
         mep = mep_by_date.get(target, current_mep)
         total_usd = 0.0
+        renta_monthly_usd = 0.0
         n_pos = 0
 
         for ticker, tl in holdings_tl.items():
@@ -328,8 +332,15 @@ def reconstruct_portfolio_history(
                     price = info["ppc_ars"] / mep
 
             if price and price > 0:
-                total_usd += qty * price
+                value_usd = qty * price
+                total_usd += value_usd
                 n_pos += 1
+                # Renta mensual solo desde activos de renta real
+                annual_yield = info["annual_yield"]
+                if at in _RENTA_TYPES:
+                    renta_monthly_usd += value_usd * annual_yield / 12
+                elif at in _AMBOS_TYPES:
+                    renta_monthly_usd += value_usd * annual_yield / 12 * 0.5
 
         if total_usd <= 0:
             continue
@@ -338,7 +349,7 @@ def reconstruct_portfolio_history(
             user_id=user_id,
             snapshot_date=target,
             total_usd=Decimal(str(round(total_usd, 2))),
-            monthly_return_usd=Decimal(str(round(total_usd * 0.008, 2))),
+            monthly_return_usd=Decimal(str(round(renta_monthly_usd, 2))),
             positions_count=n_pos,
             fx_mep=Decimal(str(round(mep, 2))),
             cost_basis_usd=Decimal("0"),

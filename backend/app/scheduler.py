@@ -92,6 +92,7 @@ def _daily_close_job() -> None:
             _maybe_sync_iol(db)
             _maybe_sync_ppi(db)
             _maybe_sync_cocos(db)
+            _maybe_sync_binance(db)
             _refresh_manual_prices(db)
             from app.services.mep import get_mep as _get_mep
             _daily_mep = float(_get_mep())
@@ -212,6 +213,45 @@ def _maybe_sync_cocos(db) -> None:
                         integration.user_id, result.get("positions_synced", 0))
         except Exception as e:
             logger.warning("Cocos sync falló en scheduler user=%s: %s", integration.user_id, e)
+            integration.last_error = str(e)[:200]
+            db.commit()
+
+
+def _maybe_sync_binance(db) -> None:
+    """Sync Binance para todos los usuarios conectados. auto_sync siempre habilitado."""
+    from app.models import Integration
+    from app.services.binance_client import BinanceClient, BinanceAuthError
+    from app.routers.integrations import _sync_binance
+
+    integrations = db.query(Integration).filter(
+        Integration.provider == "BINANCE",
+        Integration.is_connected == True,  # noqa: E712
+    ).all()
+
+    if not integrations:
+        logger.info("Binance no conectado — skip sync")
+        return
+
+    for integration in integrations:
+        if not integration.encrypted_credentials:
+            continue
+        try:
+            api_key, secret = integration.encrypted_credentials.split(":", 1)
+            client = BinanceClient(api_key=api_key, secret=secret)
+            result = _sync_binance(client, db, integration.user_id)
+            from datetime import datetime as _dt
+            integration.last_synced_at = _dt.utcnow()
+            integration.last_error = ""
+            db.commit()
+            logger.info("Binance sync OK user=%s — posiciones: %d",
+                        integration.user_id, result.get("positions_synced", 0))
+        except BinanceAuthError as e:
+            logger.warning("Binance API key revocada user=%s: %s", integration.user_id, e)
+            integration.last_error = str(e)[:200]
+            integration.is_connected = False
+            db.commit()
+        except Exception as e:
+            logger.warning("Binance sync falló en scheduler user=%s: %s", integration.user_id, e)
             integration.last_error = str(e)[:200]
             db.commit()
 

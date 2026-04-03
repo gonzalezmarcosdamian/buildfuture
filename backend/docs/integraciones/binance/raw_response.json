@@ -1,0 +1,63 @@
+{
+  "total_snapshots": 30,
+  "oldest": "2026-03-04",
+  "newest": "2026-04-02",
+  "sample_newest": {
+    "type": "spot",
+    "updateTime": 1775174399000,
+    "data": {
+      "totalAssetOfBtc": "0.00000106",
+      "balances": [
+        {
+          "asset": "ETHW",
+          "free": "0.2903772",
+          "locked": "0"
+        },
+        {
+          "asset": "LDBNB",
+          "free": "0.00122623",
+          "locked": "0"
+        },
+        {
+          "asset": "LDBTC",
+          "free": "0.00000001",
+          "locked": "0"
+        },
+        {
+          "asset": "LDUSDC",
+          "free": "0.08617267",
+          "locked": "0"
+        }
+      ]
+    }
+  },
+  "sample_oldest": {
+    "type": "spot",
+    "updateTime": 1772668799000,
+    "data": {
+      "totalAssetOfBtc": "0.00000228",
+      "balances": [
+        {
+          "asset": "ETHW",
+          "free": "0.2903772",
+          "locked": "0"
+        },
+        {
+          "asset": "LDBNB",
+          "free": "0.00122623",
+          "locked": "0"
+        },
+        {
+          "asset": "LDBTC",
+          "free": "0.00000001",
+          "locked": "0"
+        },
+        {
+          "asset": "LDUSDC",
+          "free": "0.08585459",
+          "locked": "0"
+        }
+      ]
+    }
+  }
+}

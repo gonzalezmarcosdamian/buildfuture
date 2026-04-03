@@ -14,34 +14,59 @@ def split_portfolio_buckets(positions: list) -> dict:
     - renta_monthly_usd: ingreso mensual del bucket renta usando el yield real del instrumento
     - renta_total_usd: valor total del bucket renta
     - capital_total_usd: valor total del bucket capital (CEDEAR/ETF/CRYPTO + 50% BOND)
+    - crypto_total_usd: subset de capital — solo CRYPTO
+    - by_source: desglose {source: {total_usd, capital_usd, renta_usd, crypto_usd}}
 
-    LETRA y FCI: yield directo de IOL (TNA nominal ARS).
-    BOND (AL30, GD30): split 50/50 — el cupón va a renta, la apreciación va a capital.
+    LETRA y FCI: yield directo del ALYC (TNA nominal ARS).
+    BOND/ON: split 50/50 — cupón a renta, apreciación a capital.
     CASH → neutral (no computa en ningún bucket).
+    CRYPTO → capital únicamente, nunca renta (apreciación especulativa).
     """
     renta_monthly = Decimal("0")
     renta_total = Decimal("0")
     capital_total = Decimal("0")
+    crypto_total = Decimal("0")
+    by_source: dict[str, dict] = {}
 
     for p in positions:
         asset_type = getattr(p, "asset_type", "").upper()
         value = p.current_value_usd
         raw_yield = p.annual_yield_pct
+        source = getattr(p, "source", "MANUAL") or "MANUAL"
+
+        if source not in by_source:
+            by_source[source] = {
+                "total_usd": Decimal("0"),
+                "capital_usd": Decimal("0"),
+                "renta_usd": Decimal("0"),
+                "crypto_usd": Decimal("0"),
+            }
+        by_source[source]["total_usd"] += value
 
         if asset_type in RENTA_ASSET_TYPES:
             renta_monthly += value * raw_yield / 12
             renta_total += value
+            by_source[source]["renta_usd"] += value
         elif asset_type in CAPITAL_ASSET_TYPES:
             capital_total += value
+            by_source[source]["capital_usd"] += value
+            if asset_type == "CRYPTO":
+                crypto_total += value
+                by_source[source]["crypto_usd"] += value
         elif asset_type in AMBOS_ASSET_TYPES:
             renta_monthly += value * raw_yield / 12 * Decimal("0.5")
+            renta_total += value * Decimal("0.5")
             capital_total += value * Decimal("0.5")
-        # CASH, OTHER → neutral
+            by_source[source]["renta_usd"] += value * Decimal("0.5")
+            by_source[source]["capital_usd"] += value * Decimal("0.5")
+        # CASH, OTHER, STOCK → neutral
 
     return {
         "renta_monthly_usd": renta_monthly,
         "renta_total_usd": renta_total,
         "capital_total_usd": capital_total,
+        "crypto_total_usd": crypto_total,
+        "by_source": by_source,
     }
 
 
@@ -60,6 +85,9 @@ def calculate_freedom_score(
     """
     Core metric: qué % de los gastos mensuales cubre el rendimiento del portafolio.
     freedom_pct = portfolio_monthly_return / monthly_expenses
+
+    Solo activos de renta (LETRA, FCI, BOND, ON) contribuyen a monthly_return_usd.
+    CEDEAR, ETF y CRYPTO son capital — su apreciación no es renta mensual predecible.
     """
     if not positions or monthly_expenses_usd == 0:
         return FreedomScore(
@@ -72,7 +100,6 @@ def calculate_freedom_score(
 
     portfolio_total = sum(p.current_value_usd for p in positions)
 
-    # Weighted average annual yield por tipo de activo
     if portfolio_total == 0:
         return FreedomScore(
             portfolio_total_usd=Decimal("0"),
@@ -82,11 +109,14 @@ def calculate_freedom_score(
             annual_return_pct=Decimal("0"),
         )
 
-    weighted_yield = sum(
-        p.current_value_usd * p.annual_yield_pct for p in positions
-    ) / portfolio_total
+    # monthly_return solo desde buckets de renta real
+    buckets = split_portfolio_buckets(positions)
+    monthly_return = buckets["renta_monthly_usd"]
 
-    monthly_return = portfolio_total * (weighted_yield / 12)
+    # annual_return_pct: rendimiento anual del portfolio completo (para proyecciones)
+    renta_total = buckets["renta_total_usd"]
+    annual_return_pct = (monthly_return * 12 / renta_total) if renta_total > 0 else Decimal("0")
+
     freedom_pct = monthly_return / monthly_expenses_usd
 
     return FreedomScore(
@@ -94,7 +124,7 @@ def calculate_freedom_score(
         monthly_return_usd=monthly_return,
         monthly_expenses_usd=monthly_expenses_usd,
         freedom_pct=freedom_pct,
-        annual_return_pct=weighted_yield,
+        annual_return_pct=annual_return_pct,
     )
 
 
