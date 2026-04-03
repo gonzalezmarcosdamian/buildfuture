@@ -10,7 +10,7 @@ Algoritmo backwards-anchored:
    - CEDEAR/ETF/CRYPTO : Yahoo Finance (cache DB)
    - LETRA             : capitalizacion diaria desde ppc_ars/100 (por VN)
    - FCI               : ppc_ars / MEP historico (por cuotaparte)
-   - BOND/ON           : interpolacion lineal ppc a current
+   - BOND/ON           : IOL seriehistorica (ARS/100VN → USD/VN via MEP); fallback interpolacion lineal
 4. Crear PortfolioSnapshot para cada dia lunes-viernes faltante.
 
 Resultado: snapshots que reflejan solo la historia verificable, sin inflacion
@@ -18,6 +18,7 @@ por operaciones fuera de la ventana o por importes ARS interpretados como unidad
 """
 
 import logging
+import time
 from collections import defaultdict
 from datetime import date, timedelta
 from decimal import Decimal
@@ -27,6 +28,7 @@ from sqlalchemy.orm import Session
 from app.models import PortfolioSnapshot
 from app.services.historical_prices import (
     get_prices_batch_cached,
+    get_bond_prices_iol_cached,
     get_mep_cached,
     lookup_price,
     letra_price_usd_at,
@@ -282,6 +284,23 @@ def reconstruct_portfolio_history(
         for iol_t, yah_t in yahoo_map.items():
             yahoo_prices[iol_t] = raw_yahoo.get(yah_t, {})
 
+    # Pre-fetch precios históricos reales para BOND/ON vía IOL seriehistorica
+    bond_prices: dict[str, dict[date, float]] = {}
+    bond_tickers = [
+        t for t in holdings_tl
+        if pos_info.get(t, {}).get("asset_type") in ("BOND", "ON")
+    ]
+    if bond_tickers:
+        logger.info(
+            "Reconstructor: %d tickers BOND/ON — fetching IOL seriehistorica",
+            len(bond_tickers),
+        )
+        for ticker in bond_tickers:
+            bond_prices[ticker] = get_bond_prices_iol_cached(
+                client, db, ticker, first_date, today
+            )
+            time.sleep(0.3)  # rate limit gentil entre calls IOL
+
     current_mep = float(client._get_mep())
     mep_by_date = get_mep_cached(db, first_date, today, fallback_mep=current_mep)
 
@@ -339,13 +358,17 @@ def reconstruct_portfolio_history(
                 )
 
             elif at in ("BOND", "ON"):
-                price = bond_price_usd_at(
-                    ppc_usd=info["ppc_usd"],
-                    current_usd=info["current_usd"],
-                    purchase_date=info["purchase_date"],
-                    current_date=today,
-                    target_date=target,
-                )
+                # Preferir precios reales de IOL seriehistorica
+                price = lookup_price(bond_prices.get(ticker, {}), target)
+                if price is None:
+                    # Fallback: interpolación lineal (ppc_usd ya está en USD/VN tras unit fix)
+                    price = bond_price_usd_at(
+                        ppc_usd=info["ppc_usd"],
+                        current_usd=info["current_usd"],
+                        purchase_date=info["purchase_date"],
+                        current_date=today,
+                        target_date=target,
+                    )
 
             elif at == "FCI":
                 if mep > 0 and info["ppc_ars"] > 0:

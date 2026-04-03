@@ -314,6 +314,139 @@ def bond_price_usd_at(
     current_date: date,
     target_date: date,
 ) -> float:
+    """
+    Fallback: interpolación lineal entre precio de compra y precio actual.
+    Usar solo cuando IOL seriehistorica no devuelva datos para el ticker.
+    Tanto ppc_usd como current_usd deben estar expresados en USD por VN nominal
+    (después del fix de unidades en iol_client.py).
+    """
     total_days = max(1, (current_date - purchase_date).days)
     frac = min(1.0, max(0.0, (target_date - purchase_date).days / total_days))
     return ppc_usd + frac * (current_usd - ppc_usd)
+
+
+# ── Precios históricos de bonos/ONs vía IOL seriehistorica ────────────────────
+
+
+def get_bond_prices_iol_cached(
+    iol_client,
+    db: Session,
+    ticker: str,
+    start: date,
+    end: date,
+) -> dict[date, float]:
+    """
+    Precios históricos en USD/VN para un ticker BOND/ON desde IOL seriehistorica.
+
+    IOL cotiza bonos en ARS por 100 VN nominal (convención BYMA).
+    Esta función:
+      1. Consulta price_history (source='IOL_BOND') para fechas ya cacheadas.
+      2. Llama a /api/v2/bCBA/Titulos/{ticker}/Cotizacion/seriehistorica para el resto.
+      3. Convierte ARS/100VN → USD/VN usando mep_history.
+      4. Persiste en price_history para que el siguiente usuario no pague el costo de red.
+
+    Retorna {date: price_usd_per_vn} solo para fechas con dato disponible.
+    """
+    # 1. Qué fechas ya están cacheadas
+    cached_rows = (
+        db.query(PriceHistory)
+        .filter(
+            PriceHistory.ticker == ticker,
+            PriceHistory.price_date >= start,
+            PriceHistory.price_date <= end,
+            PriceHistory.source == "IOL_BOND",
+        )
+        .all()
+    )
+    cached: dict[date, float] = {r.price_date: float(r.price_usd) for r in cached_rows}
+
+    # 2. Fechas laborables que faltan
+    needed = {
+        start + timedelta(days=i)
+        for i in range((end - start).days + 1)
+        if (start + timedelta(days=i)).weekday() < 5
+    }
+    missing_dates = needed - set(cached.keys())
+
+    if not missing_dates:
+        logger.debug("BondCache IOL: %s — todo cacheado (%d fechas)", ticker, len(cached))
+        return cached
+
+    fetch_start = min(missing_dates)
+    fetch_end = max(missing_dates)
+    logger.info(
+        "BondCache IOL: %s — %d en DB, %d a descargar (%s → %s)",
+        ticker,
+        len(cached),
+        len(missing_dates),
+        fetch_start,
+        fetch_end,
+    )
+
+    # 3. MEP histórico para conversión ARS → USD
+    mep_by_date = get_mep_cached(db, fetch_start, fetch_end)
+
+    # 4. Fetch IOL seriehistorica
+    try:
+        data = iol_client._get(
+            f"/api/v2/bCBA/Titulos/{ticker}/Cotizacion/seriehistorica"
+            f"/{fetch_start.isoformat()}/{fetch_end.isoformat()}/sinAjustar"
+        )
+        items = data if isinstance(data, list) else []
+        logger.info("BondCache IOL: %s — %d registros recibidos", ticker, len(items))
+
+        new_rows = []
+        for item in items:
+            fecha_str = (item.get("fechaHora") or item.get("fecha") or "")[:10]
+            if not fecha_str:
+                continue
+            # ultimoPrecio: precio cierre en ARS por 100 VN nominal
+            precio_ars = float(
+                item.get("ultimoPrecio") or item.get("precioPromedio") or 0
+            )
+            if precio_ars <= 0:
+                continue
+
+            try:
+                d = date.fromisoformat(fecha_str)
+            except ValueError:
+                continue
+
+            if d in cached:
+                continue
+
+            mep = mep_by_date.get(d, 0.0)
+            if mep <= 0:
+                continue
+
+            # Convertir: ARS/100VN → USD/VN
+            price_usd_per_vn = (precio_ars / 100.0) / mep
+            cached[d] = price_usd_per_vn
+            new_rows.append(
+                PriceHistory(
+                    ticker=ticker,
+                    price_date=d,
+                    price_usd=Decimal(str(round(price_usd_per_vn, 6))),
+                    source="IOL_BOND",
+                )
+            )
+
+        if new_rows:
+            for row in new_rows:
+                try:
+                    db.merge(row)
+                except Exception:
+                    pass
+            try:
+                db.flush()
+                logger.info(
+                    "BondCache IOL: %s — %d precios guardados", ticker, len(new_rows)
+                )
+            except Exception as e:
+                db.rollback()
+                logger.warning("BondCache IOL flush falló (%s): %s", ticker, e)
+
+    except Exception as e:
+        logger.warning("BondCache IOL: %s fetch falló: %s", ticker, e)
+
+    return cached
