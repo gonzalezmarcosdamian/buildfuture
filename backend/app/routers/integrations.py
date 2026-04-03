@@ -679,6 +679,26 @@ def _sync_iol(client: IOLClient, db: Session, user_id: str) -> dict:
             )
             logger.info("CASH_IOL_USD: guardado USD %.2f", float(cash_usd_direct))
             synced += 1
+
+        if cash_usd_direct > 0:
+            db.add(Position(
+                user_id=user_id,
+                ticker="CASH_IOL_USD",
+                description="Saldo disponible en dólares · IOL",
+                asset_type="CASH",
+                source="IOL",
+                quantity=Decimal("1"),
+                avg_purchase_price_usd=cash_usd_direct,
+                current_price_usd=cash_usd_direct,
+                annual_yield_pct=Decimal("0"),
+                snapshot_date=today,
+                is_active=True,
+                ppc_ars=cash_usd_direct * mep_dec if mep_dec > 0 else Decimal("0"),
+                purchase_fx_rate=mep_dec,
+                current_value_ars=cash_usd_direct * mep_dec if mep_dec > 0 else Decimal("0"),
+            ))
+            logger.info("CASH_IOL_USD: guardado USD %.2f", float(cash_usd_direct))
+            synced += 1
     except Exception as e:
         logger.error("CASH_IOL: error en sección cash: %s", e, exc_info=True)
 
