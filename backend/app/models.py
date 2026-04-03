@@ -302,3 +302,16 @@ class PositionSnapshot(Base):
     quantity: Mapped[Decimal] = mapped_column(Numeric(18, 6))
     asset_type: Mapped[str] = mapped_column(String(20), default="")
     source: Mapped[str] = mapped_column(String(20), default="")
+
+
+class WaitlistEntry(Base):
+    """
+    Emails interesados en BuildFuture — registrados desde la landing pública.
+    No requiere autenticación. Email único (upsert silencioso en caso de duplicado).
+    """
+    __tablename__ = "waitlist"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[str] = mapped_column(String(254), unique=True, index=True)
+    source: Mapped[str] = mapped_column(String(50), default="landing")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
