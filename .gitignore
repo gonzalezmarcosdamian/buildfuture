@@ -50,3 +50,10 @@ backend/scripts/cocos_*.py
 
 # Respuestas raw de APIs — pueden contener datos personales
 backend/docs/integraciones/cocos/*.json
+
+# Backups locales de SQLite — generados por el scheduler, no van al repo
+backend/backups/
+
+# Scripts de diagnóstico de auth — contienen llamadas con credenciales reales
+backend/scripts/test_iol_auth.py
+backend/scripts/test_nexo_auth.py
