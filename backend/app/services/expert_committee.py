@@ -125,10 +125,11 @@ UNIVERSE: list[Instrument] = [
         job="capital",
     ),
     # YPF ON hard dollar — renta fija privada con respaldo en exportaciones
+    # risk_level="bajo": ON corporativa IG, menor riesgo que soberano. Apto conservador/moderado.
     Instrument(
         ticker="YCA6O", name="YPF ON USD 2026",
         asset_type="ON", currency="USD",
-        base_yield_pct=0.085, risk_level="medio", min_capital_ars=50_000,
+        base_yield_pct=0.085, risk_level="bajo", min_capital_ars=50_000,
         affinity_carry=0.1, affinity_dolar=0.6, affinity_renta_fija=0.95,
         tags=["on", "hard_dollar", "ypf", "vaca_muerta", "flujo_fijo"],
         job="renta",
@@ -791,6 +792,12 @@ def get_committee_recommendations(
     total_score = sum(s for s, _ in ranked) or 1
     recommendations = []
 
+    _recommended_for_map = {
+        "bajo": ["conservador", "moderado"],
+        "medio": ["moderado", "agresivo"],
+        "alto": ["agresivo"],
+    }
+
     for rank, (score, inst) in enumerate(ranked, 1):
         alloc_pct = score / total_score
         amount_ars = capital_ars * alloc_pct
@@ -804,6 +811,7 @@ def get_committee_recommendations(
             "name": inst.name,
             "asset_type": inst.asset_type,
             "job": inst.job,
+            "recommended_for": _recommended_for_map.get(inst.risk_level, ["moderado"]),
             "rationale": rationale,
             "why_now": why_now,
             "annual_yield_pct": inst.base_yield_pct,
