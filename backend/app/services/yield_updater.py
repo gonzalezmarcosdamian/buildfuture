@@ -85,6 +85,7 @@ def _lecap_tir(price_per_100: Decimal, days: int) -> Decimal:
 # Actualizar cuando haya cambios estructurales de precios (±5% en precio).
 # Fase 3B: reemplazar con data912 para YTM calculada desde flujos reales.
 _BOND_YTM: dict[str, Decimal] = {
+    # ── Soberanos ─────────────────────────────────────────────────────────────
     # Corto plazo (vto. < 2030)
     "AL29":  Decimal("0.16"), "AL29D": Decimal("0.16"),
     "GD29":  Decimal("0.14"),
@@ -100,6 +101,27 @@ _BOND_YTM: dict[str, Decimal] = {
     "GD46":  Decimal("0.14"),
     # Bopreales
     "BPY26": Decimal("0.12"), "BPJ25": Decimal("0.10"), "BPA7": Decimal("0.11"),
+
+    # ── ONs corporativas USD (calibradas abril 2026) ───────────────────────────
+    # Precios observados en IOL. YTM estimada desde precio de mercado.
+    # Fórmula proxy: si precio ≈ par (1.0), YTM ≈ cupón. Ajustar ±5% si cambia el precio.
+    #
+    # Telecom Argentina (TLCMO ~1.11, TLCPO ~1.11, TLCTO ~1.07) — investment grade corp
+    "TLCMO": Decimal("0.07"), "TLCPO": Decimal("0.07"), "TLCTO": Decimal("0.08"),
+    # Arcor (ARC1O ~1.08) — food corp, sólido
+    "ARC1O": Decimal("0.07"),
+    # DNC series (DNC5O ~1.06, DNC7O ~1.09) — corporativa mediana
+    "DNC5O": Decimal("0.08"), "DNC7O": Decimal("0.07"),
+    # LOC6O ~1.03 — cerca de par, plazo medio
+    "LOC6O": Decimal("0.09"),
+    # MR39O ~0.66 — precio con descuento significativo, mayor duration o riesgo
+    "MR39O": Decimal("0.12"),
+    # RUCDO ~1.07
+    "RUCDO": Decimal("0.08"),
+    # Vista Oil & Gas (VSCVO ~1.12) — energía, buen crédito
+    "VSCVO": Decimal("0.07"),
+    # YPF Metrogas series (YM34O ~1.08, YM39O ~1.12, YMCJO ~1.04)
+    "YM34O": Decimal("0.08"), "YM39O": Decimal("0.07"), "YMCJO": Decimal("0.09"),
 }
 
 

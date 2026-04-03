@@ -396,6 +396,52 @@ def _sync_nexo(client: NexoClient, db: Session, user_id: str) -> dict:
     return {"positions_synced": synced}
 
 
+def _get_enrichment(db: Session, user_id: str, source: str) -> dict[str, dict]:
+    """
+    Lee los campos platform-owned de las posiciones activas actuales ANTES de desactivarlas.
+    Retorna un dict {ticker: {annual_yield_pct, external_id, fci_categoria}} por source+user.
+
+    Esto garantiza que cada re-sync preserve el enriquecimiento calculado por yield_updater
+    y _fci_external_id, en lugar de pisarlo con los DEFAULT del ALYC.
+
+    Solo preserva annual_yield_pct si es diferente al DEFAULT por tipo de activo — así
+    posiciones nuevas sin enriquecimiento previo siguen usando el default del ALYC.
+    """
+    from app.services.iol_client import DEFAULT_YIELDS
+    _TYPE_TO_KEY = {
+        "BOND": "bono", "ON": "on", "CEDEAR": "cedear",
+        "LETRA": "letra", "FCI": "fci", "CASH": "default",
+    }
+    rows = db.query(
+        Position.ticker,
+        Position.asset_type,
+        Position.annual_yield_pct,
+        Position.external_id,
+        Position.fci_categoria,
+    ).filter(
+        Position.source == source,
+        Position.user_id == user_id,
+        Position.is_active == True,
+    ).all()
+
+    result: dict[str, dict] = {}
+    for row in rows:
+        yield_key = _TYPE_TO_KEY.get(row.asset_type, "default")
+        default_yield = DEFAULT_YIELDS.get(yield_key, DEFAULT_YIELDS["default"])
+        # Solo preservar si es valor enriquecido (diferente al default del tipo)
+        enriched_yield = (
+            row.annual_yield_pct
+            if row.annual_yield_pct != default_yield
+            else None
+        )
+        result[row.ticker] = {
+            "annual_yield_pct": enriched_yield,
+            "external_id": row.external_id,
+            "fci_categoria": row.fci_categoria,
+        }
+    return result
+
+
 def _fci_external_id(description: str) -> tuple[str | None, str | None]:
     """
     Intenta resolver external_id + fci_categoria para un FCI desde su descripción.
@@ -432,6 +478,9 @@ def _sync_iol(client: IOLClient, db: Session, user_id: str) -> dict:
 
     positions = client.get_portfolio()
 
+    # Leer enriquecimiento previo ANTES de desactivar — preserva yield real y FCI metadata
+    enrichment = _get_enrichment(db, user_id, "IOL")
+
     # Desactivar posiciones IOL anteriores del usuario
     db.query(Position).filter(
         Position.source == "IOL",
@@ -454,6 +503,7 @@ def _sync_iol(client: IOLClient, db: Session, user_id: str) -> dict:
         if not purchase_fx:
             purchase_fx = client._get_mep()
 
+        prior = enrichment.get(p.ticker, {})
         fci_ext_id, fci_cat = (
             _fci_external_id(p.description)
             if p.asset_type == "FCI" else (None, None)
@@ -467,14 +517,16 @@ def _sync_iol(client: IOLClient, db: Session, user_id: str) -> dict:
             quantity=p.quantity,
             avg_purchase_price_usd=p.avg_price_usd,
             current_price_usd=p.current_price_usd,
-            annual_yield_pct=p.annual_yield_pct,
+            # Preservar yield enriquecido por yield_updater; si no hay, usar el del ALYC
+            annual_yield_pct=prior.get("annual_yield_pct") or p.annual_yield_pct,
             snapshot_date=today,
             is_active=True,
             ppc_ars=p.ppc_ars,
             purchase_fx_rate=Decimal(str(round(purchase_fx, 2))),
             current_value_ars=p.valorizado_ars,
-            external_id=fci_ext_id,
-            fci_categoria=fci_cat,
+            # Preservar external_id/fci_categoria si ya estaban resueltos
+            external_id=prior.get("external_id") or fci_ext_id,
+            fci_categoria=prior.get("fci_categoria") or fci_cat,
         )
         db.add(pos)
         synced += 1
@@ -552,6 +604,15 @@ def _sync_iol(client: IOLClient, db: Session, user_id: str) -> dict:
             db.flush()
     except Exception as e:
         logger.warning("Reconstruct histórico falló (no crítico): %s", e, exc_info=True)
+
+    # Enriquecer yields inmediatamente post-sync (no esperar al scheduler de 17:30)
+    try:
+        from app.services.yield_updater import update_yields
+        mep_dec = Decimal(str(current_mep))
+        yields_updated = update_yields(db, mep=mep_dec)
+        logger.info("_sync_iol: yield_updater post-sync → %d posiciones actualizadas", yields_updated)
+    except Exception as e:
+        logger.warning("_sync_iol: yield_updater post-sync falló (no crítico): %s", e)
 
     return {
         "positions_synced": synced,
@@ -877,6 +938,9 @@ def _sync_ppi(client: PPIClient, account_number: str, db: Session, user_id: str)
     current_mep = client._get_mep()
     positions = client.get_portfolio(account_number)
 
+    # Leer enriquecimiento previo ANTES de desactivar — preserva yield real y FCI metadata
+    enrichment = _get_enrichment(db, user_id, "PPI")
+
     # Desactivar posiciones PPI anteriores (evitar duplicados en re-sync)
     db.query(Position).filter(
         Position.source == "PPI",
@@ -898,6 +962,7 @@ def _sync_ppi(client: PPIClient, account_number: str, db: Session, user_id: str)
         if not purchase_fx:
             purchase_fx = current_mep
 
+        prior = enrichment.get(p.ticker, {})
         fci_ext_id, fci_cat = (
             _fci_external_id(p.description)
             if p.asset_type == "FCI" else (None, None)
@@ -911,14 +976,16 @@ def _sync_ppi(client: PPIClient, account_number: str, db: Session, user_id: str)
             quantity=p.quantity,
             avg_purchase_price_usd=p.avg_price_usd,
             current_price_usd=p.current_price_usd,
-            annual_yield_pct=p.annual_yield_pct,
+            # Preservar yield enriquecido por yield_updater; si no hay, usar el del ALYC
+            annual_yield_pct=prior.get("annual_yield_pct") or p.annual_yield_pct,
             snapshot_date=today,
             is_active=True,
             ppc_ars=p.ppc_ars,
             purchase_fx_rate=Decimal(str(round(purchase_fx, 2))),
             current_value_ars=p.current_value_ars,
-            external_id=fci_ext_id,
-            fci_categoria=fci_cat,
+            # Preservar external_id/fci_categoria si ya estaban resueltos
+            external_id=prior.get("external_id") or fci_ext_id,
+            fci_categoria=prior.get("fci_categoria") or fci_cat,
         ))
         synced += 1
 
@@ -990,6 +1057,15 @@ def _sync_ppi(client: PPIClient, account_number: str, db: Session, user_id: str)
         _invalidate_score_cache(user_id)
     except Exception:
         pass
+
+    # Enriquecer yields inmediatamente post-sync (no esperar al scheduler de 17:30)
+    try:
+        from app.services.yield_updater import update_yields
+        mep_dec = Decimal(str(current_mep))
+        yields_updated = update_yields(db, mep=mep_dec)
+        logger.info("_sync_ppi: yield_updater post-sync → %d posiciones actualizadas", yields_updated)
+    except Exception as e:
+        logger.warning("_sync_ppi: yield_updater post-sync falló (no crítico): %s", e)
 
     db.flush()
     return {"positions_synced": synced, "months_synced": months_synced, "mep": round(current_mep, 2)}
@@ -1425,8 +1501,8 @@ def _sync_cocos(client: CocosClient, db: Session, user_id: str) -> dict:
     positions = client.get_positions()
     cash = client.get_cash()
 
-    # Capturar purchase_fx_rate de las posiciones actuales ANTES de desactivarlas.
-    # Así lo preservamos entre syncs — no perdemos el MEP histórico en cada resync.
+    # Leer enriquecimiento previo ANTES de desactivar — preserva yield real, FCI metadata y MEP
+    enrichment = _get_enrichment(db, user_id, "COCOS")
     existing_fx: dict[str, Decimal] = {
         row.ticker: row.purchase_fx_rate
         for row in db.query(Position.ticker, Position.purchase_fx_rate).filter(
@@ -1454,15 +1530,18 @@ def _sync_cocos(client: CocosClient, db: Session, user_id: str) -> dict:
             continue
 
         # Preservar MEP histórico si ya conocíamos esta posición.
-        # Si es nueva: derivar MEP del sync actual (ppc_ars / avg_purchase_price_usd = MEP usado).
-        # Esto evita que cada resync sobreescriba el MEP de compra real.
         if p.ticker in existing_fx:
             purchase_fx_rate = existing_fx[p.ticker]
         elif p.ppc_ars > 0 and p.avg_purchase_price_usd > 0:
-            purchase_fx_rate = p.ppc_ars / p.avg_purchase_price_usd  # = MEP del sync
+            purchase_fx_rate = p.ppc_ars / p.avg_purchase_price_usd
         else:
             purchase_fx_rate = Decimal("0")
 
+        prior = enrichment.get(p.ticker, {})
+        fci_ext_id, fci_cat = (
+            _fci_external_id(p.description)
+            if p.asset_type == "FCI" else (None, None)
+        )
         db.add(Position(
             user_id=user_id,
             ticker=p.ticker,
@@ -1472,12 +1551,16 @@ def _sync_cocos(client: CocosClient, db: Session, user_id: str) -> dict:
             quantity=p.quantity,
             avg_purchase_price_usd=p.avg_purchase_price_usd,
             current_price_usd=p.current_price_usd,
-            annual_yield_pct=p.annual_yield_pct,
+            # Preservar yield enriquecido por yield_updater; si no hay, usar el del ALYC
+            annual_yield_pct=prior.get("annual_yield_pct") or p.annual_yield_pct,
             snapshot_date=today,
             is_active=True,
             ppc_ars=p.ppc_ars,
             purchase_fx_rate=purchase_fx_rate,
             current_value_ars=p.current_value_ars,
+            # Preservar external_id/fci_categoria si ya estaban resueltos
+            external_id=prior.get("external_id") or fci_ext_id,
+            fci_categoria=prior.get("fci_categoria") or fci_cat,
         ))
         synced += 1
 
@@ -1514,6 +1597,16 @@ def _sync_cocos(client: CocosClient, db: Session, user_id: str) -> dict:
     # No podemos reconstruir meses históricos (Cocos no expone operaciones),
     # pero sí podemos confirmar que el usuario está invertido este mes.
     _mark_cocos_investment_month(db, positions, user_id, today)
+
+    # Enriquecer yields inmediatamente post-sync (no esperar al scheduler de 17:30)
+    try:
+        from app.services.yield_updater import update_yields
+        from app.services.mep import get_mep
+        mep_dec = Decimal(str(get_mep()))
+        yields_updated = update_yields(db, mep=mep_dec)
+        logger.info("_sync_cocos: yield_updater post-sync → %d posiciones actualizadas", yields_updated)
+    except Exception as e:
+        logger.warning("_sync_cocos: yield_updater post-sync falló (no crítico): %s", e)
 
     db.flush()
     if discovered:
