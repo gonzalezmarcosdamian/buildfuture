@@ -493,7 +493,6 @@ class AgenteRentaFija:
 
     def vote(self, market: dict, portfolio_tickers: list[str], capital_ars: float) -> AgentVote:
         riesgo_pais = market.get("riesgo_pais", 700)
-        spread = market["spread_pct"]
 
         scores: dict[str, float] = {}
         for inst in UNIVERSE:
@@ -791,8 +790,8 @@ def _build_rationale(inst: Instrument, winning_agents: list[AgentVote], market: 
             f"Emisor privado con respaldo en exportaciones — menor riesgo que soberano."
         )
         why_now = (
-            f"Las ONs son el 'plazo fijo en dolares' del mercado de capitales argentino. "
-            f"Cupones regulares en USD con menor volatilidad que bonos soberanos."
+            "Las ONs son el 'plazo fijo en dolares' del mercado de capitales argentino. "
+            "Cupones regulares en USD con menor volatilidad que bonos soberanos."
         )
     elif inst.asset_type == "BOND":
         rationale = (
@@ -968,8 +967,6 @@ def get_sections_recommendations(
             RISK_PROFILE_FILTERS[profile],
             capital_ars, freedom_pct,
         )
-
-    ticker_map = {inst.ticker: inst for inst in universe}
 
     # Construir entrada por instrumento
     recs_renta: list[dict] = []
