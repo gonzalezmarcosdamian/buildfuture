@@ -173,6 +173,7 @@ def get_portfolio(
             "renta_monthly_usd": float(buckets["renta_monthly_usd"]),
             "renta_total_usd": float(buckets["renta_total_usd"]),
             "capital_total_usd": float(buckets["capital_total_usd"]),
+            "cedear_total_usd": float(buckets["cedear_total_usd"]),
             "crypto_total_usd": float(buckets["crypto_total_usd"]),
             "by_source": {
                 src: {k: float(v) for k, v in vals.items()}

@@ -25,6 +25,7 @@ def split_portfolio_buckets(positions: list) -> dict:
     renta_monthly = Decimal("0")
     renta_total = Decimal("0")
     capital_total = Decimal("0")
+    cedear_total = Decimal("0")   # capital puro: solo CEDEAR/ETF (sin BOND split)
     crypto_total = Decimal("0")
     by_source: dict[str, dict] = {}
 
@@ -53,6 +54,8 @@ def split_portfolio_buckets(positions: list) -> dict:
             if asset_type == "CRYPTO":
                 crypto_total += value
                 by_source[source]["crypto_usd"] += value
+            else:
+                cedear_total += value   # CEDEAR / ETF puro
         elif asset_type in AMBOS_ASSET_TYPES:
             renta_monthly += value * raw_yield / 12 * Decimal("0.5")
             renta_total += value * Decimal("0.5")
@@ -65,6 +68,7 @@ def split_portfolio_buckets(positions: list) -> dict:
         "renta_monthly_usd": renta_monthly,
         "renta_total_usd": renta_total,
         "capital_total_usd": capital_total,
+        "cedear_total_usd": cedear_total,
         "crypto_total_usd": crypto_total,
         "by_source": by_source,
     }
