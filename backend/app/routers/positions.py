@@ -16,6 +16,7 @@ from app.database import get_db
 from app.auth import get_current_user
 from app.models import Position, BudgetConfig
 from app.services import crypto_prices, fci_prices, external_prices
+from app.routers.portfolio import _invalidate_score_cache
 
 logger = logging.getLogger("buildfuture.positions")
 
@@ -125,6 +126,38 @@ def search_etf(ticker: str = Query(min_length=1)):
     return info
 
 
+@router.get("/manual")
+def list_manual_positions(
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user),
+):
+    """Lista las posiciones manuales activas del usuario."""
+    positions = (
+        db.query(Position)
+        .filter(
+            Position.user_id == user_id,
+            Position.source == "MANUAL",
+            Position.is_active == True,
+        )
+        .order_by(Position.id.desc())
+        .all()
+    )
+    return [
+        {
+            "id": p.id,
+            "ticker": p.ticker,
+            "description": p.description,
+            "asset_type": p.asset_type,
+            "quantity": float(p.quantity),
+            "current_value_usd": float(p.current_value_usd),
+            "ppc_ars": float(p.ppc_ars),
+            "purchase_fx_rate": float(p.purchase_fx_rate),
+            "snapshot_date": p.snapshot_date.isoformat() if p.snapshot_date else None,
+        }
+        for p in positions
+    ]
+
+
 @router.post("/manual")
 def create_manual_position(
     body: ManualPositionCreate,
@@ -167,6 +200,7 @@ def create_manual_position(
     db.add(pos)
     db.commit()
     db.refresh(pos)
+    _invalidate_score_cache(user_id)
     logger.info(
         "Posición manual creada: %s %s (user %s)", body.asset_type, body.ticker, user_id
     )
@@ -249,6 +283,7 @@ def delete_manual_position(
         raise HTTPException(status_code=404, detail="Posición no encontrada")
     pos.is_active = False
     db.commit()
+    _invalidate_score_cache(user_id)
     return {"ok": True}
 
 
