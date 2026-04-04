@@ -2,6 +2,7 @@ import logging
 import threading
 from decimal import Decimal
 from datetime import date, datetime, timedelta
+from typing import Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, Query, HTTPException
 
 logger = logging.getLogger("buildfuture.portfolio")
@@ -895,6 +896,7 @@ class CapitalGoalIn(BaseModel):
     emoji: str = "🎯"
     target_usd: float
     target_years: int = 5
+    backing_position_id: Optional[int] = None
 
 
 @router.get("/goal")
@@ -995,16 +997,28 @@ def list_capital_goals(
     # Ordenar de menor a mayor target: la meta más chica se financia primero
     goals_sorted = sorted(goals, key=lambda g: float(g.target_usd))
 
+    # Índice de posiciones por id para lookup O(1)
+    positions_by_id = {p.id: p for p in positions}
+
     # Allocation secuencial: cada meta consume el capital restante
     remaining_usd = portfolio_usd
     result = []
     for g in goals_sorted:
         target = float(g.target_usd)
-        allocated = min(remaining_usd, target)
+
+        # Si tiene posición de respaldo, usar su valor directamente
+        backing_pos = positions_by_id.get(g.backing_position_id) if g.backing_position_id else None
+        if backing_pos:
+            allocated = float(backing_pos.current_value_usd)
+            bal_for_projection = allocated
+        else:
+            allocated = min(remaining_usd, target)
+            bal_for_projection = remaining_usd
+
         progress_pct = min(100, round(allocated / target * 100, 1)) if target > 0 else 0
 
         if monthly_savings_usd > 0 and monthly_rate > 0:
-            bal = remaining_usd
+            bal = bal_for_projection
             months = 0
             while bal < target and months < 600:
                 bal = bal * (1 + monthly_rate) + monthly_savings_usd
@@ -1012,7 +1026,7 @@ def list_capital_goals(
             months_to_goal = months if bal >= target else None
         elif monthly_savings_usd > 0:
             months_to_goal = max(
-                0, round(max(0.0, target - remaining_usd) / monthly_savings_usd)
+                0, round(max(0.0, target - bal_for_projection) / monthly_savings_usd)
             )
         else:
             months_to_goal = None
@@ -1028,9 +1042,13 @@ def list_capital_goals(
                 "progress_pct": progress_pct,
                 "months_to_goal": months_to_goal,
                 "monthly_savings_usd": round(monthly_savings_usd, 2),
+                "backing_position_id": g.backing_position_id,
+                "backing_position_ticker": backing_pos.ticker if backing_pos else None,
             }
         )
-        remaining_usd = max(0.0, remaining_usd - target)
+        # Solo descontar del remaining si no tiene posición de respaldo propia
+        if not backing_pos:
+            remaining_usd = max(0.0, remaining_usd - target)
 
     return result
 
@@ -1047,6 +1065,7 @@ def create_capital_goal(
         emoji=body.emoji,
         target_usd=Decimal(str(round(body.target_usd, 2))),
         target_years=body.target_years,
+        backing_position_id=body.backing_position_id,
     )
     db.add(goal)
     db.commit()
@@ -1075,6 +1094,7 @@ def update_capital_goal(
     goal.emoji = body.emoji
     goal.target_usd = Decimal(str(round(body.target_usd, 2)))
     goal.target_years = body.target_years
+    goal.backing_position_id = body.backing_position_id
     db.commit()
     return {"ok": True}
 
