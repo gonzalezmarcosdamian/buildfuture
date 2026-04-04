@@ -263,6 +263,14 @@ def update_manual_position(
         pos.description = body.description[:100]
     pos.snapshot_date = date.today()
 
+    # Para CASH: recalcular current_value_ars con los valores actualizados.
+    # ppc_ars es el monto en ARS (para CASH_ARS) o el equivalente ARS del USD (para CASH_USD).
+    if pos.asset_type == "CASH":
+        if pos.ppc_ars and pos.ppc_ars > 0:
+            pos.current_value_ars = pos.ppc_ars
+        elif pos.purchase_fx_rate and pos.purchase_fx_rate > 0:
+            pos.current_value_ars = pos.quantity * pos.purchase_fx_rate
+
     db.commit()
     db.refresh(pos)
     return {
