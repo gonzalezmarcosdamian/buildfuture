@@ -2,6 +2,50 @@
 
 ---
 
+## Sesión v0.10.1 — 2026-04-03/04 (ramas: fix/cedear-iol-historical-prices, cherry-picks)
+
+### Objetivo
+Soporte urgente cliente Matías Morón: snapshots de portfolio mostraban millones de dólares en lugar del valor real (~$135K). Investigación profunda, fix, deploy y documentación de learnings para no repetir.
+
+### Root cause (3 bugs encadenados)
+
+**Bug A — Unit mismatch BOND/ON ppc (per 100 VN nominal)**
+IOL devuelve `ppc` en ARS por 100 VN para BOND/ON (igual que LETRA, convención BYMA). El código solo dividía `/100` para LETRA → `ppc_usd` de AL30 era 61.74 en vez de 0.61 (100x inflado). No afecta `current_price_usd` (calculado de `valorizado/cantidad/mep`).
+
+**Bug B — Yahoo Finance devuelve precio NYSE, no precio CEDEAR ARS/MEP**
+`yfinance` descarga el precio de la acción en NYSE (AMZN=$210 USD). El CEDEAR vale ARS/MEP (~$1.52 USD). Ratio = 138x. Sin corrección, 13 CEDEARs × cantidades grandes = portfolio aparente de $3.7M → $5.7M.
+
+**Bug C — NDT25/NDT26/NDT27 clasificados como STOCK por IOL**
+Bonos duales soberanos ignorados en reconstrucción histórica (solo procesa BOND/ON/CEDEAR/FCI/LETRA).
+
+### Fix implementado (PR #29 — mergeado 2026-04-03)
+
+- `iol_client.py`: extender `/100` a `("LETRA", "BOND", "ON")`. Agregar overrides NDT25/26/27 → BOND.
+- `historical_prices.py`: `get_iol_prices_cached()` generalizado para BOND/ON (`divide_by_100=True`) y CEDEAR/ETF (`divide_by_100=False`). UPSERT en `price_history` sobreescribe Yahoo con IOL. Cache lookup ignora filas `source=YAHOO` para CEDEARs.
+- `historical_reconstructor.py`: pre-fetch IOL-first para BOND/ON/CEDEAR/ETF. Yahoo solo como fallback con corrección `equiv = round(yahoo_price / current_price_usd)`.
+- `admin.py`: 3 nuevos endpoints de soporte: `POST /admin/support/repair-user`, `GET /admin/support/snapshot-health`, `DELETE /admin/cache/price-source-purge`.
+- `docs/SUPPORT_PLAYBOOK_HISTORICOS.md`: playbook de soporte completo.
+
+### Cherry-picks post-PR (2026-04-04)
+- `fix(iol): trackea saldo USD disponible en IOL (CASH_IOL_USD)` — multi-cuenta USD en IOL, `result["usd"] += disponible`.
+- `feat(recs): yield ranges dinámicos` — expert_committee.py con rangos desde riesgo país + yfinance percentiles.
+
+### Hallazgo crítico de deploy: Railway no redesplegó tras PR #29
+Railway no redesplegó automáticamente porque los commits intermedios (playbook, cherry-picks) no tocaban `backend/`. Cada auto-sync en Railway con código viejo generaba snapshots inflados nuevamente. Fix: bump version 0.10.1 en `main.py` para forzar trigger Railway.
+
+### Usuarios afectados y reparación
+
+| Usuario | Problema | Acción |
+|---------|----------|--------|
+| Matías Morón (mgmatias008) | 1 snapshot inflado $5.7M, NDT25 como STOCK | Purge Yahoo cache, re-sync local con código nuevo |
+| Cristian Coloca (coloca.cristian) | SUPV y MELI Yahoo sin equiv correction | Purge SUPV/MELI Yahoo cache, re-sync local |
+| Marcos González (dev) | SPY/QQQ con Yahoo — ratios pequeños, sin inflación | Sin acción requerida |
+
+### Lección aprendida
+El problema puede re-generarse mientras Railway tenga código viejo. El auto-sync cada 4h regenera snapshots inflados. Nunca confiar en que Railway se autodesplegó — verificar siempre con un endpoint nuevo (404 = deploy pendiente).
+
+---
+
 ## Sesión v0.11.0 — 2026-04-02 (rama: feat/capital-goals-gamification)
 
 ### Objetivo
