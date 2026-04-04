@@ -965,7 +965,14 @@ def list_capital_goals(
         )
         .all()
     )
-    portfolio_usd = float(sum(p.current_value_usd for p in positions))
+    # Capital = CEDEAR + CRYPTO + CASH (activos líquidos/de capital).
+    # Excluye BOND, LETRA, ON, FCI — son instrumentos de renta fija o colectivos
+    # que no representan capital acumulado de la misma forma.
+    # Consistente con el numerador de la barra de libertad.
+    _CAPITAL_TYPES = {"CEDEAR", "CRYPTO", "CASH", "STOCK"}
+    portfolio_usd = float(sum(
+        p.current_value_usd for p in positions if p.asset_type in _CAPITAL_TYPES
+    ))
     budget = _query_budget(db, current_user)
     freedom_goal = (
         db.query(FreedomGoal)
