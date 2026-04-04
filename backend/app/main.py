@@ -103,6 +103,10 @@ def _run_migrations():
             "idx_capital_goals_user",
         ),
         (
+            "ALTER TABLE capital_goals ADD COLUMN IF NOT EXISTS backing_position_id INTEGER REFERENCES positions(id) ON DELETE SET NULL",
+            "capital_goals.backing_position_id",
+        ),
+        (
             """CREATE TABLE IF NOT EXISTS price_history (
                 id SERIAL PRIMARY KEY,
                 ticker VARCHAR(20) NOT NULL,
