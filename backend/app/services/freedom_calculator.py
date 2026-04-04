@@ -169,6 +169,18 @@ def calculate_milestone_projections(
     monthly_rate = annual_return_pct / 12
     results = []
 
+    if annual_return_pct <= 0:
+        return [
+            {
+                "milestone_pct": float(t),
+                "required_capital_usd": None,
+                "months_to_reach": None,
+                "projected_date": None,
+                "reached": False,
+            }
+            for t in milestones
+        ]
+
     for target_pct in milestones:
         required_capital = (monthly_expenses_usd * target_pct * 12) / annual_return_pct
 

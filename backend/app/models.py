@@ -107,6 +107,8 @@ class BudgetConfig(Base):
 
     @property
     def total_monthly_usd(self) -> Decimal:
+        if self.fx_rate == 0:
+            return Decimal("0")
         return self.total_monthly_ars / self.fx_rate
 
     @property
@@ -155,6 +157,8 @@ class BudgetCategory(Base):
 
     @property
     def amount_usd(self) -> Decimal:
+        if self.budget.fx_rate == 0:
+            return Decimal("0")
         return self.amount_ars / self.budget.fx_rate
 
 
@@ -182,6 +186,10 @@ class CapitalGoal(Base):
     target_usd: Mapped[Decimal] = mapped_column(Numeric(12, 2))
     target_years: Mapped[int] = mapped_column(default=5)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    # Posición específica del portafolio como respaldo de esta meta (opcional)
+    backing_position_id: Mapped[int | None] = mapped_column(
+        ForeignKey("positions.id", ondelete="SET NULL"), nullable=True, default=None
+    )
 
 
 class PortfolioSnapshot(Base):
