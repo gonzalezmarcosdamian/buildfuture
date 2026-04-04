@@ -27,6 +27,7 @@ from app.services.freedom_calculator import (
 )
 from app.services.ai_recommendations import get_ai_recommendations
 from app.services.market_data import fetch_market_snapshot
+from app.services.mep import get_mep
 from app.services.smart_recommendations import get_smart_recommendations
 from app.services.expert_committee import (
     get_committee_recommendations,
@@ -265,7 +266,13 @@ def get_portfolio(
         "summary": {
             "total_usd": float(score["portfolio_total_usd"]),
             "total_ars": float(
-                sum(p.current_value_ars for p in positions if p.current_value_ars)
+                # Usa current_value_ars si está disponible; para posiciones MANUAL sin ARS
+                # (CASH_USD creado antes del fix) convierte con MEP live.
+                sum(
+                    float(p.current_value_ars) if p.current_value_ars
+                    else float(p.current_value_usd) * float(get_mep(budget))
+                    for p in positions
+                )
             )
             or None,
             "monthly_return_usd": float(buckets["renta_monthly_usd"]),
@@ -611,7 +618,7 @@ def get_portfolio_history(
             monthly_expenses = budget.total_monthly_usd if budget else Decimal("2000")
             score = _get_freedom_score(current_user, live_positions, monthly_expenses)
 
-            from app.services.mep import get_mep
+
 
             fx_mep = get_mep(budget)  # budget → dolarapi.com → 1430, nunca 0
 

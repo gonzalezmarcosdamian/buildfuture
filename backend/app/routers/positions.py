@@ -180,6 +180,16 @@ def create_manual_position(
         Decimal(str(body.purchase_fx_rate)) if body.purchase_fx_rate else Decimal("0")
     )
 
+    # Para CASH: calcular current_value_ars para que el total ARS del portfolio sea correcto.
+    # CASH_ARS: ppc_ars ya contiene el monto en ARS ingresado por el usuario.
+    # CASH_USD: convertir quantity (USD) al MEP de compra.
+    cash_value_ars = Decimal("0")
+    if body.asset_type == "CASH":
+        if body.ppc_ars and body.ppc_ars > 0:
+            cash_value_ars = Decimal(str(body.ppc_ars))
+        elif body.purchase_fx_rate and body.purchase_fx_rate > 0:
+            cash_value_ars = Decimal(str(body.quantity)) * Decimal(str(body.purchase_fx_rate))
+
     pos = Position(
         user_id=user_id,
         ticker=body.ticker.upper()[:20],
@@ -196,6 +206,7 @@ def create_manual_position(
         purchase_fx_rate=purchase_fx,
         external_id=body.external_id,
         fci_categoria=body.fci_categoria,
+        current_value_ars=cash_value_ars,
     )
     db.add(pos)
     db.commit()
