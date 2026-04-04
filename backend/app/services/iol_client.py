@@ -151,19 +151,23 @@ class IOLClient:
             ticker_sym = titulo.get("simbolo", "")
             tipo_raw = str(titulo.get("tipo", "")).lower()
             asset_type = _normalize_asset_type(tipo_raw, ticker_sym)
-            # Normalizar clave para DEFAULT_YIELDS (IOL devuelve "CEDEARS", "Letras", etc.)
-            # Si tipo_raw no matchea (ej: IOL envía "Stock" para un bono), usar el asset_type
-            # resultante del ticker override para elegir el yield correcto
-            yield_key = next((k for k in DEFAULT_YIELDS if k in tipo_raw), None)
-            if yield_key is None:
-                _asset_to_yield_key = {
-                    "BOND": "bono",
-                    "ON": "on",
-                    "CEDEAR": "cedear",
-                    "LETRA": "letra",
-                    "FCI": "fci",
-                }
+            # Derivar yield_key para DEFAULT_YIELDS.
+            # Si el ticker tiene override explícito (_TICKER_TYPE_OVERRIDES), usar asset_type
+            # overrideado para el yield — tipo_raw de IOL puede ser incorrecto (ej: IOLCAMA → "bono").
+            _asset_to_yield_key = {
+                "BOND": "bono",
+                "ON": "on",
+                "CEDEAR": "cedear",
+                "LETRA": "letra",
+                "FCI": "fci",
+            }
+            if ticker_sym.upper() in _TICKER_TYPE_OVERRIDES:
+                # Ticker con override explícito: yield desde asset_type final, no desde tipo_raw
                 yield_key = _asset_to_yield_key.get(asset_type, "default")
+            else:
+                yield_key = next((k for k in DEFAULT_YIELDS if k in tipo_raw), None)
+                if yield_key is None:
+                    yield_key = _asset_to_yield_key.get(asset_type, "default")
             annual_yield = DEFAULT_YIELDS[yield_key]
 
             cantidad = Decimal(str(activo.get("cantidad", 0)))

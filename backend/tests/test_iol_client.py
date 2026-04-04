@@ -229,11 +229,11 @@ class TestGetPortfolio:
         assert len(positions) == 1
         assert positions[0].ticker == "QQQ"
 
-    def test_fci_ticker_override_assigns_fci_asset_type(self):
-        """Ticker override corrects asset_type to FCI even when IOL sends tipo='bono'.
-        Note: yield_key is derived from tipo_raw ('bono' → 'bono' yield), not from
-        the overridden asset_type. So annual_yield_pct = DEFAULT_YIELDS['bono'], not 'fci'.
-        This is a known bug documented in the backlog (fix/fci-fuzzy-match).
+    def test_fci_ticker_override_assigns_fci_asset_type_and_yield(self):
+        """Ticker override corrects asset_type AND yield for IOLCAMA.
+        When IOL sends tipo='bono' for IOLCAMA, the ticker override ensures:
+        - asset_type = FCI (not BOND/ON)
+        - annual_yield_pct = DEFAULT_YIELDS['fci'] (not 'bono')
         """
         client = _client()
         client._access_token = "tok"
@@ -242,10 +242,8 @@ class TestGetPortfolio:
             "activos": [self._make_activo("IOLCAMA", "bono", 100, 100_000, 900)]
         })
         positions = client.get_portfolio()
-        # Asset type IS correctly overridden to FCI
         assert positions[0].asset_type == "FCI"
-        # But yield uses tipo_raw "bono" → DEFAULT_YIELDS["bono"], not "fci" (known bug)
-        assert positions[0].annual_yield_pct == DEFAULT_YIELDS["bono"]
+        assert positions[0].annual_yield_pct == DEFAULT_YIELDS["fci"]
 
     def test_letra_normalizes_ppc(self):
         """Para LETRAS, el ppc viene por cada 100 nominales → dividir por 100."""
