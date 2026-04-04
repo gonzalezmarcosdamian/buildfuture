@@ -323,3 +323,30 @@ def refresh_manual_price(
         "annual_yield_pct": float(pos.annual_yield_pct),
         "current_value_usd": float(pos.current_value_usd),
     }
+
+
+@router.get("/active")
+def list_active_positions(
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user),
+):
+    """Lista todas las posiciones activas del usuario (para selectores en el frontend)."""
+    positions = (
+        db.query(Position)
+        .filter(
+            Position.user_id == user_id,
+            Position.is_active == True,
+        )
+        .order_by(Position.asset_type, Position.ticker)
+        .all()
+    )
+    return [
+        {
+            "id": p.id,
+            "ticker": p.ticker,
+            "asset_type": p.asset_type,
+            "source": p.source,
+            "current_value_usd": float(p.current_value_usd),
+        }
+        for p in positions
+    ]
