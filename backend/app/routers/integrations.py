@@ -504,14 +504,33 @@ def _get_enrichment(db: Session, user_id: str, source: str) -> dict[str, dict]:
     return result
 
 
-def _fci_external_id(description: str) -> tuple[str | None, str | None]:
+# Manual mapping for IOL FCI tickers that are misclassified or poorly matched by fuzzy search.
+# Format: ticker → (external_id | None, fci_categoria)
+# external_id=None means yield_updater falls back to category average (safe).
+# Add entries when a new IOL FCI ticker is confirmed to belong to a specific ArgentinaDatos fund.
+_IOL_FCI_TICKER_MAP: dict[str, tuple[str | None, str]] = {
+    "IOLCAMA": (None, "mercadoDinero"),   # IOL Money Market ARS — category confirmed
+    "IOLCAM":  (None, "mercadoDinero"),   # alias variant
+    "IOLMMA":  (None, "mercadoDinero"),   # IOL Money Market ARS variant
+    "IOLMM":   (None, "mercadoDinero"),   # alias variant
+}
+
+
+def _fci_external_id(description: str, ticker: str = "") -> tuple[str | None, str | None]:
     """
-    Intenta resolver external_id + fci_categoria para un FCI desde su descripción.
-    Busca el nombre del fondo en ArgentinaDatos por coincidencia parcial.
-    Retorna (fondo_name, categoria) o (None, None) si no hay match.
+    Resuelve external_id + fci_categoria para un FCI.
+    1. Consulta primero el mapa manual _IOL_FCI_TICKER_MAP por ticker (exacto y seguro).
+    2. Si no hay mapeo manual, intenta fuzzy match por descripción contra ArgentinaDatos.
+    Retorna (fondo_name | None, categoria) o (None, None) si no hay match.
     """
+    # Paso 1: mapa manual — evita falsos positivos del fuzzy match
+    if ticker.upper() in _IOL_FCI_TICKER_MAP:
+        return _IOL_FCI_TICKER_MAP[ticker.upper()]
+
     if not description:
         return None, None
+
+    # Paso 2: fuzzy match por descripción
     try:
         from app.services.fci_prices import _fetch_categoria, CATEGORIAS
 
@@ -572,7 +591,7 @@ def _sync_iol(client: IOLClient, db: Session, user_id: str) -> dict:
 
         prior = enrichment.get(p.ticker, {})
         fci_ext_id, fci_cat = (
-            _fci_external_id(p.description) if p.asset_type == "FCI" else (None, None)
+            _fci_external_id(p.description, ticker=p.ticker) if p.asset_type == "FCI" else (None, None)
         )
         pos = Position(
             user_id=user_id,
@@ -1141,7 +1160,7 @@ def _sync_ppi(
 
         prior = enrichment.get(p.ticker, {})
         fci_ext_id, fci_cat = (
-            _fci_external_id(p.description) if p.asset_type == "FCI" else (None, None)
+            _fci_external_id(p.description, ticker=p.ticker) if p.asset_type == "FCI" else (None, None)
         )
         db.add(
             Position(
@@ -1817,7 +1836,7 @@ def _sync_cocos(client: CocosClient, db: Session, user_id: str) -> dict:
 
         prior = enrichment.get(p.ticker, {})
         fci_ext_id, fci_cat = (
-            _fci_external_id(p.description) if p.asset_type == "FCI" else (None, None)
+            _fci_external_id(p.description, ticker=p.ticker) if p.asset_type == "FCI" else (None, None)
         )
         db.add(
             Position(
