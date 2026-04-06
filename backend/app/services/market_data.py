@@ -8,6 +8,8 @@ import httpx
 from dataclasses import dataclass, field
 from decimal import Decimal
 
+from app.services.byma_client import get_lecap_tna
+
 logger = logging.getLogger("buildfuture.market")
 
 
@@ -16,7 +18,7 @@ class MarketSnapshot:
     mep_usd: float = 1431.0
     blue_usd: float = 1415.0
     mep_source: str = "fallback"
-    lecap_tna_pct: float = 55.0  # TNA referencial LECAPs corto plazo
+    lecap_tna_pct: float = 55.0  # TNA referencial LECAPs — se sobreescribe con BYMA
     cer_tna_pct: float = 48.0  # TNA bonos CER
     al30_price: float = 0.0  # Precio AL30 en USD (paridad)
     top_cedears: list[dict] = field(default_factory=list)
@@ -70,5 +72,10 @@ def fetch_market_snapshot() -> MarketSnapshot:
         {"ticker": "YPF", "name": "YPF", "sector": "energia_ar", "ytd_pct": 18.3},
     ]
 
-    logger.info("Market snapshot OK: MEP=%s blue=%s", snap.mep_usd, snap.blue_usd)
+    # 4. TNA LECAPs desde BYMA Open Data (fallback interno si falla)
+    snap.lecap_tna_pct = get_lecap_tna()
+    logger.info("lecap_tna: %.2f%%", snap.lecap_tna_pct)
+
+    logger.info("Market snapshot OK: MEP=%s blue=%s lecap_tna=%.2f%%",
+                snap.mep_usd, snap.blue_usd, snap.lecap_tna_pct)
     return snap
