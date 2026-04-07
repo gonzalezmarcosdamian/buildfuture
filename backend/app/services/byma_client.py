@@ -116,9 +116,10 @@ def get_cedear_price_ars(ticker: str) -> float | None:
         data: dict[str, float] = {}
         for item in items:
             sym = str(item.get("symbol") or "").upper()
-            last = float(item.get("last") or 0)
-            if sym and last > 0:
-                data[sym] = last
+            # BYMA usa "trade" (= closingPrice), no "last"
+            price = float(item.get("trade") or item.get("closingPrice") or 0)
+            if sym and price > 0:
+                data[sym] = price
 
         _cedear_cache["data"] = data
         _cedear_cache["ts"] = now

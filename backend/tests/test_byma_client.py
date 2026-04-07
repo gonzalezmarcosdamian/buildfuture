@@ -183,8 +183,8 @@ def _cedear_response(items: list[dict]):
 def test_cedear_price_ars_retorna_precio():
     """Devuelve el precio en ARS del CEDEAR cuando el ticker está en la respuesta."""
     items = [
-        {"symbol": "AAPL", "last": 14500.0, "volume": 200_000, "securityType": "CEDEAR"},
-        {"symbol": "MSFT", "last": 12300.0, "volume": 150_000, "securityType": "CEDEAR"},
+        {"symbol": "AAPL", "trade": 14500.0, "volume": 200_000, "securityType": "CEDEAR"},
+        {"symbol": "MSFT", "trade": 12300.0, "volume": 150_000, "securityType": "CEDEAR"},
     ]
     with patch("app.services.byma_client.httpx.get", return_value=_cedear_response(items)):
         price = get_cedear_price_ars("AAPL")
@@ -235,8 +235,8 @@ def test_cedear_price_ars_ignora_precio_cero():
 def test_cedear_price_ars_cache_evita_segundo_http_call():
     """Dos llamadas distintas al mismo endpoint usan el cache (una sola request HTTP)."""
     items = [
-        {"symbol": "AAPL", "last": 14500.0, "volume": 200_000, "securityType": "CEDEAR"},
-        {"symbol": "MSFT", "last": 12300.0, "volume": 150_000, "securityType": "CEDEAR"},
+        {"symbol": "AAPL", "trade": 14500.0, "volume": 200_000, "securityType": "CEDEAR"},
+        {"symbol": "MSFT", "trade": 12300.0, "volume": 150_000, "securityType": "CEDEAR"},
     ]
     mock_get = MagicMock(return_value=_cedear_response(items))
     with patch("app.services.byma_client.httpx.get", mock_get):
