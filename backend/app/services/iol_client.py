@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from decimal import Decimal
 from datetime import date
 
+from app.services.byma_client import get_bond_tir, get_on_tir
+
 logger = logging.getLogger("buildfuture.iol")
 
 IOL_BASE = "https://api.invertironline.com"
@@ -169,6 +171,18 @@ class IOLClient:
                 if yield_key is None:
                     yield_key = _asset_to_yield_key.get(asset_type, "default")
             annual_yield = DEFAULT_YIELDS[yield_key]
+
+            # BYMA 3: para BOND y ON intentar TIR real de mercado antes del default hardcodeado
+            if asset_type == "BOND":
+                byma_tir = get_bond_tir(ticker_sym)
+                if byma_tir is not None:
+                    annual_yield = Decimal(str(round(byma_tir / 100, 4)))
+                    logger.debug("BYMA TIR %s (BOND): %.2f%%", ticker_sym, byma_tir)
+            elif asset_type == "ON":
+                byma_tir = get_on_tir(ticker_sym)
+                if byma_tir is not None:
+                    annual_yield = Decimal(str(round(byma_tir / 100, 4)))
+                    logger.debug("BYMA TIR %s (ON): %.2f%%", ticker_sym, byma_tir)
 
             cantidad = Decimal(str(activo.get("cantidad", 0)))
             valorizado = Decimal(str(activo.get("valorizado", 0)))

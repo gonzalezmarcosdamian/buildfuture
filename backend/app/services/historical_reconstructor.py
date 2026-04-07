@@ -35,6 +35,7 @@ from app.services.historical_prices import (
     bond_price_usd_at,
     HISTORY_DAYS,
 )
+from app.services.byma_client import get_cedear_price_ars
 
 logger = logging.getLogger("buildfuture.reconstructor")
 
@@ -379,6 +380,11 @@ def reconstruct_portfolio_history(
             if at in _YAHOO_TYPES:
                 # IOL primero (ARS/MEP = precio real del CEDEAR en USD)
                 price = lookup_price(iol_prices.get(ticker, {}), target)
+                if price is None and at == "CEDEAR" and target == date.today() and mep > 0:
+                    # BYMA: precio ARS de hoy (más confiable que NYSE/equiv de Yahoo)
+                    byma_ars = get_cedear_price_ars(ticker)
+                    if byma_ars:
+                        price = byma_ars / mep
                 if price is None:
                     # Fallback Yahoo — dividir por equiv para corregir escala NYSE→CEDEAR
                     raw = lookup_price(yahoo_prices.get(ticker, {}), target)
