@@ -59,6 +59,10 @@ class Position(Base):
     @property
     def cost_basis_usd(self) -> Decimal:
         """Costo base real en USD usando el MEP al momento de compra."""
+        # CASH: ppc_ars guarda el monto total ARS (no precio por unidad).
+        # El costo base en USD es simplemente quantity × avg_purchase_price_usd (= 1.0).
+        if self.asset_type == "CASH":
+            return self.quantity * self.avg_purchase_price_usd
         if self.purchase_fx_rate and self.purchase_fx_rate > 0 and self.ppc_ars > 0:
             # LECAPs: IOL cotiza ppc per 100 nominales → dividir por 100 para obtener precio por nominal
             ppc_per_unit = (

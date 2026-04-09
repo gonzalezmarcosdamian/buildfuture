@@ -286,3 +286,87 @@ class TestCapitalBelowTotal:
         assert abs(implied_usd - actual_usd) / actual_usd < 0.01, (
             f"Inconsistencia ARS/USD: implied={implied_usd:.2f} vs actual={actual_usd:.2f}"
         )
+
+
+# ── Tests: cost_basis_usd property ────────────────────────────────────────────
+
+class TestCostBasisUsd:
+    """
+    Regression test para el bug donde CASH_ARS calculaba cost_basis_usd como
+    quantity × ppc_ars / purchase_fx_rate = 2097 × 3_000_000 / 1430 = USD 4.4M.
+
+    El root cause: para CASH, ppc_ars guarda el monto TOTAL en ARS, no el
+    precio por unidad. La formula generica explota porque trata ppc_ars como
+    precio por unidad.
+
+    Fix: CASH siempre usa quantity * avg_purchase_price_usd (= quantity * 1.0).
+    """
+
+    def _make_pos(self, asset_type, quantity, ppc_ars, purchase_fx_rate, avg_purchase_price_usd=1.0):
+        from app.models import Position as _Pos
+        from app.models import Base
+        # Usar MagicMock con spec no funciona bien con properties; usar objeto simple
+        class FakePos:
+            pass
+        pos = FakePos()
+        # Attachar el property directamente desde la clase real
+        pos.__class__ = type("FakePos", (), {
+            "cost_basis_usd": _Pos.cost_basis_usd,
+        })
+        pos.asset_type = asset_type
+        pos.quantity = Decimal(str(quantity))
+        pos.ppc_ars = Decimal(str(ppc_ars))
+        pos.purchase_fx_rate = Decimal(str(purchase_fx_rate)) if purchase_fx_rate else Decimal("0")
+        pos.avg_purchase_price_usd = Decimal(str(avg_purchase_price_usd))
+        return pos
+
+    def test_cash_ars_cost_basis_not_inflated(self):
+        """
+        CASH_ARS con ARS 3.000.000 y MEP 1430 debe tener cost_basis ~2097 USD,
+        NO 4.4 millones.
+        """
+        pos = self._make_pos(
+            asset_type="CASH",
+            quantity=2097.022228,    # USD equivalent (3M / 1430)
+            ppc_ars=3_000_000,       # total ARS (no precio por unidad)
+            purchase_fx_rate=1430,
+            avg_purchase_price_usd=1.0,
+        )
+        result = float(pos.cost_basis_usd)
+        assert result < 10_000, f"cost_basis inflado: USD {result:,.2f} (esperado ~2097)"
+        assert abs(result - 2097.02) < 1.0, f"cost_basis incorrecto: {result:.2f}"
+
+    def test_cash_usd_cost_basis_correct(self):
+        """CASH_USD: cost_basis = quantity * 1.0."""
+        pos = self._make_pos(
+            asset_type="CASH",
+            quantity=6000,
+            ppc_ars=0,
+            purchase_fx_rate=0,
+            avg_purchase_price_usd=1.0,
+        )
+        assert float(pos.cost_basis_usd) == 6000.0
+
+    def test_non_cash_uses_ppc_formula(self):
+        """Para CEDEAR con purchase_fx_rate, sigue usando quantity * ppc_ars / fx."""
+        pos = self._make_pos(
+            asset_type="CEDEAR",
+            quantity=3,
+            ppc_ars=42220,
+            purchase_fx_rate=1430,
+            avg_purchase_price_usd=29.44,
+        )
+        expected = 3 * 42220 / 1430
+        assert abs(float(pos.cost_basis_usd) - expected) < 0.01
+
+    def test_letra_uses_ppc_div_100(self):
+        """LETRA: ppc_ars se divide por 100 antes de aplicar la formula."""
+        pos = self._make_pos(
+            asset_type="LETRA",
+            quantity=487804,
+            ppc_ars=101.85,
+            purchase_fx_rate=1430,
+            avg_purchase_price_usd=0.00071,
+        )
+        expected = 487804 * (101.85 / 100) / 1430
+        assert abs(float(pos.cost_basis_usd) - expected) < 0.01
