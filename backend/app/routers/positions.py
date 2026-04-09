@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.auth import get_current_user
-from app.models import Position, BudgetConfig
+from app.models import Position
 from app.services import crypto_prices, fci_prices, external_prices
 from app.routers.portfolio import _invalidate_score_cache
 
@@ -49,6 +49,8 @@ class ManualPositionUpdate(BaseModel):
     purchase_fx_rate: Optional[float] = None
     manual_yield_pct: Optional[float] = None
     description: Optional[str] = None
+    # Para REAL_ESTATE: actualizar valuación + renta
+    monthly_rent_usd: Optional[float] = None  # si se provee, recalcula annual_yield_pct
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -296,6 +298,16 @@ def update_manual_position(
             pos.current_value_ars = pos.ppc_ars
         elif pos.purchase_fx_rate and pos.purchase_fx_rate > 0:
             pos.current_value_ars = pos.quantity * pos.purchase_fx_rate
+
+    # Para REAL_ESTATE: actualizar valuación (current_price_usd) y recalcular yield desde renta
+    if pos.asset_type == "REAL_ESTATE":
+        if body.purchase_price_usd is not None:
+            # Valuación = precio de la unidad (quantity=1 siempre)
+            pos.current_price_usd = Decimal(str(body.purchase_price_usd))
+        if body.monthly_rent_usd is not None:
+            valuation = float(pos.avg_purchase_price_usd or pos.current_price_usd or 1)
+            restate_yield = round((body.monthly_rent_usd * 12) / valuation, 6) if valuation > 0 else 0.0
+            pos.annual_yield_pct = Decimal(str(restate_yield))
 
     db.commit()
     db.refresh(pos)

@@ -902,6 +902,180 @@ def support_snapshot_health(
     }
 
 
+@router.post("/support/force-snapshot-today")
+def support_force_snapshot_today(
+    user_id: str = Query(..., description="UUID del usuario"),
+    db: Session = Depends(get_db),
+    _: None = Depends(verify_admin),
+):
+    """
+    Fuerza la actualización del snapshot de HOY usando TODAS las posiciones activas
+    del usuario (IOL + Cocos + Manual + cualquier otra fuente).
+
+    Útil cuando repair-user reconstruye histórico solo con IOL pero el usuario
+    tiene posiciones de otras fuentes (Cocos, Manual) que no se incluyen en la
+    reconstrucción histórica.
+
+    NO toca snapshots históricos — solo el de hoy.
+    """
+    from decimal import Decimal as D
+    from app.services.mep import get_mep
+    from app.services.freedom_calculator import calculate_freedom_score
+
+    today = date.today()
+
+    positions = (
+        db.query(Position)
+        .filter(
+            Position.user_id == user_id,
+            Position.is_active.is_(True),
+        )
+        .all()
+    )
+
+    if not positions:
+        raise HTTPException(status_code=404, detail="No hay posiciones activas para este usuario")
+
+    mep = get_mep()
+    score = calculate_freedom_score(positions, D("1000"))  # expenses irrelevantes aquí
+    total_usd = sum(p.current_value_usd for p in positions)
+    total_cost_basis = sum(
+        getattr(p, "cost_basis_usd", D("0")) or D("0") for p in positions
+    )
+    monthly_return = score["monthly_return_usd"]
+
+    snapshot = (
+        db.query(PortfolioSnapshot)
+        .filter(
+            PortfolioSnapshot.user_id == user_id,
+            PortfolioSnapshot.snapshot_date == today,
+        )
+        .first()
+    )
+    if snapshot:
+        snapshot.total_usd = total_usd
+        snapshot.monthly_return_usd = monthly_return
+        snapshot.positions_count = len(positions)
+        snapshot.cost_basis_usd = total_cost_basis
+        snapshot.fx_mep = mep
+    else:
+        db.add(
+            PortfolioSnapshot(
+                user_id=user_id,
+                snapshot_date=today,
+                total_usd=total_usd,
+                monthly_return_usd=monthly_return,
+                positions_count=len(positions),
+                cost_basis_usd=total_cost_basis,
+                fx_mep=mep,
+            )
+        )
+
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+    logger.info(
+        "support/force-snapshot-today: user=%s total_usd=%.2f positions=%d",
+        user_id,
+        float(total_usd),
+        len(positions),
+    )
+    return {
+        "user_id": user_id,
+        "snapshot_date": today.isoformat(),
+        "total_usd": float(total_usd),
+        "positions_count": len(positions),
+        "fx_mep": float(mep),
+        "message": "Snapshot de hoy actualizado con todas las posiciones activas.",
+    }
+
+
+@router.post("/support/backfill-non-iol")
+def support_backfill_non_iol(
+    user_id: str = Query(..., description="UUID del usuario"),
+    db: Session = Depends(get_db),
+    _: None = Depends(verify_admin),
+):
+    """
+    Parcha snapshots históricos que solo tienen posiciones IOL añadiendo el valor
+    actual de posiciones no-IOL (Cocos, Manual) como offset plano.
+
+    Contexto: repair-user solo reconstruye histórico con IOL. Si el usuario tiene
+    posiciones Cocos o Manual, esos valores no se incluyen en los snapshots históricos.
+    Este endpoint los suma como offset fijo al total_usd de cada snapshot pasado,
+    y corrige positions_count.
+
+    Es una aproximación: asume que el valor de posiciones no-IOL es constante
+    en el tiempo (lo mejor que podemos hacer sin histórico de esas posiciones).
+
+    NO toca el snapshot de hoy (usar force-snapshot-today para eso).
+    """
+    today = date.today()
+
+    non_iol_positions = (
+        db.query(Position)
+        .filter(
+            Position.user_id == user_id,
+            Position.is_active.is_(True),
+            Position.source != "IOL",
+        )
+        .all()
+    )
+
+    if not non_iol_positions:
+        return {
+            "user_id": user_id,
+            "message": "No hay posiciones no-IOL activas. Nada que hacer.",
+            "non_iol_value_usd": 0.0,
+            "snapshots_patched": 0,
+        }
+
+    non_iol_total = float(sum(p.current_value_usd for p in non_iol_positions))
+    non_iol_count = len(non_iol_positions)
+
+    historical_snapshots = (
+        db.query(PortfolioSnapshot)
+        .filter(
+            PortfolioSnapshot.user_id == user_id,
+            PortfolioSnapshot.snapshot_date < today,
+        )
+        .all()
+    )
+
+    patched = 0
+    for snap in historical_snapshots:
+        snap.total_usd = snap.total_usd + non_iol_total
+        snap.positions_count = snap.positions_count + non_iol_count
+        patched += 1
+
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+    logger.info(
+        "support/backfill-non-iol: user=%s non_iol_value=%.2f snapshots_patched=%d",
+        user_id,
+        non_iol_total,
+        patched,
+    )
+    return {
+        "user_id": user_id,
+        "non_iol_sources": list({p.source for p in non_iol_positions}),
+        "non_iol_positions_count": non_iol_count,
+        "non_iol_value_usd": round(non_iol_total, 2),
+        "snapshots_patched": patched,
+        "message": (
+            f"Se añadió USD {non_iol_total:.2f} de {non_iol_count} posiciones no-IOL "
+            f"a {patched} snapshots históricos. Luego llamar a force-snapshot-today."
+        ),
+    }
+
+
 @router.delete("/cache/price-source-purge")
 def price_source_purge(
     ticker: Optional[str] = Query(None, description="Ticker específico o todos"),
