@@ -890,6 +890,20 @@ _ASSET_CONTEXT = {
         "currency_note": "Cotiza en USD. Sin regulación BCRA.",
         "liquidity": "Muy alta — mercado 24/7.",
     },
+    "REAL_ESTATE": {
+        "type_label": "INMUEBLE",
+        "full_name": "Bien raíz",
+        "description": "Propiedad inmobiliaria registrada manualmente. La valuación y la renta son estimaciones ingresadas por el usuario.",
+        "currency_note": "Valuación en USD. La renta mensual se convierte usando el MEP actual para el cálculo de cobertura.",
+        "liquidity": "Baja — venta requiere proceso legal. Liquidez de la renta: mensual.",
+    },
+    "CASH": {
+        "type_label": "EFECTIVO",
+        "full_name": "Efectivo / Caja de ahorro",
+        "description": "Dinero en mano o depositado en caja de ahorro. Sin rendimiento implícito.",
+        "currency_note": "ARS o USD según la moneda registrada.",
+        "liquidity": "Inmediata.",
+    },
 }
 
 
@@ -1287,6 +1301,7 @@ def get_instrument_detail(
             days_to_maturity = (mat - date.today()).days
 
     return {
+        "id": position.id,
         "ticker": position.ticker,
         "description": position.description,
         "asset_type": position.asset_type,
