@@ -39,6 +39,7 @@ class ManualPositionCreate(BaseModel):
     external_id: Optional[str] = None  # CoinGecko ID | ticker Yahoo
     fci_categoria: Optional[str] = None  # para FCI: categoria ArgentinaDatos
     manual_yield_pct: Optional[float] = None  # yield anual manual para OTRO
+    monthly_rent_usd: Optional[float] = None  # para REAL_ESTATE: renta mensual en USD
 
 
 class ManualPositionUpdate(BaseModel):
@@ -96,6 +97,9 @@ def _get_live_price_and_yield(
         if live:
             price = live
         yield_pct = external_prices.get_yield_30d(external_id)
+
+    # REAL_ESTATE: el precio es la valuación (purchase_price_usd), yield se calcula fuera
+    # No se llama a ninguna API — precio y yield vienen del formulario
 
     return price, yield_pct
 
@@ -165,14 +169,34 @@ def create_manual_position(
     user_id: str = Depends(get_current_user),
 ):
     """Crea una posición manual (CRYPTO, FCI, ETF o activo genérico)."""
-    # Obtener precio live y yield estimado
-    price_usd, yield_pct = _get_live_price_and_yield(
-        asset_type=body.asset_type,
-        external_id=body.external_id,
-        fci_categoria=body.fci_categoria,
-        manual_yield_pct=body.manual_yield_pct,
-        purchase_price_usd=body.purchase_price_usd,
-    )
+    # REAL_ESTATE: auto-generar ticker RESTATE_N y calcular yield desde renta
+    if body.asset_type == "REAL_ESTATE":
+        existing_restate = (
+            db.query(Position)
+            .filter(
+                Position.user_id == user_id,
+                Position.asset_type == "REAL_ESTATE",
+                Position.is_active == True,
+            )
+            .all()
+        )
+        next_n = len(existing_restate) + 1
+        restate_ticker = f"RESTATE_{next_n}"
+        valuation = body.purchase_price_usd or 1.0
+        monthly_rent = body.monthly_rent_usd or 0.0
+        restate_yield = round((monthly_rent * 12) / valuation, 6) if valuation > 0 else 0.0
+        price_usd = valuation
+        yield_pct = restate_yield
+    else:
+        restate_ticker = None
+        # Obtener precio live y yield estimado
+        price_usd, yield_pct = _get_live_price_and_yield(
+            asset_type=body.asset_type,
+            external_id=body.external_id,
+            fci_categoria=body.fci_categoria,
+            manual_yield_pct=body.manual_yield_pct,
+            purchase_price_usd=body.purchase_price_usd,
+        )
 
     # Para FCI: el precio de compra en ARS / MEP de compra = costo base USD
     ppc_ars = Decimal(str(body.ppc_ars)) if body.ppc_ars else Decimal("0")
@@ -190,9 +214,11 @@ def create_manual_position(
         elif body.purchase_fx_rate and body.purchase_fx_rate > 0:
             cash_value_ars = Decimal(str(body.quantity)) * Decimal(str(body.purchase_fx_rate))
 
+    final_ticker = restate_ticker if restate_ticker else body.ticker.upper()[:20]
+
     pos = Position(
         user_id=user_id,
-        ticker=body.ticker.upper()[:20],
+        ticker=final_ticker,
         description=body.description[:100],
         asset_type=body.asset_type,
         source="MANUAL",

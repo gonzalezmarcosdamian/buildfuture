@@ -30,6 +30,7 @@ def search_coins(query: str) -> list[dict]:
                 "name": c["name"],
                 "symbol": c["symbol"].upper(),
                 "market_cap_rank": c.get("market_cap_rank"),
+                "thumb": c.get("thumb", ""),
             }
             for c in coins[:10]
         ]

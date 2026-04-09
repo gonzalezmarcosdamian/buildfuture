@@ -5,7 +5,7 @@ from typing import TypedDict
 # Renta: instrumentos que generan ingreso periódico en ARS (LECAPs, FCIs)
 # Capital: instrumentos de crecimiento en USD (CEDEARs, ETFs, crypto)
 # Ambos: bonos que pagan cupón (renta) y tienen apreciación de precio (capital)
-RENTA_ASSET_TYPES = {"LETRA", "FCI"}
+RENTA_ASSET_TYPES = {"LETRA", "FCI", "REAL_ESTATE"}
 CAPITAL_ASSET_TYPES = {"CEDEAR", "ETF", "CRYPTO"}
 AMBOS_ASSET_TYPES = {
     "BOND",
