@@ -1033,7 +1033,9 @@ def support_backfill_non_iol(
             "snapshots_patched": 0,
         }
 
-    non_iol_total = float(sum(p.current_value_usd for p in non_iol_positions))
+    from decimal import Decimal as _D
+    non_iol_total = sum(p.current_value_usd for p in non_iol_positions)
+    non_iol_total_float = float(non_iol_total)
     non_iol_count = len(non_iol_positions)
 
     historical_snapshots = (
@@ -1048,7 +1050,7 @@ def support_backfill_non_iol(
     patched = 0
     for snap in historical_snapshots:
         snap.total_usd = snap.total_usd + non_iol_total
-        snap.positions_count = snap.positions_count + non_iol_count
+        snap.positions_count = (snap.positions_count or 0) + non_iol_count
         patched += 1
 
     try:
@@ -1060,17 +1062,17 @@ def support_backfill_non_iol(
     logger.info(
         "support/backfill-non-iol: user=%s non_iol_value=%.2f snapshots_patched=%d",
         user_id,
-        non_iol_total,
+        non_iol_total_float,
         patched,
     )
     return {
         "user_id": user_id,
         "non_iol_sources": list({p.source for p in non_iol_positions}),
         "non_iol_positions_count": non_iol_count,
-        "non_iol_value_usd": round(non_iol_total, 2),
+        "non_iol_value_usd": round(non_iol_total_float, 2),
         "snapshots_patched": patched,
         "message": (
-            f"Se añadió USD {non_iol_total:.2f} de {non_iol_count} posiciones no-IOL "
+            f"Se añadió USD {non_iol_total_float:.2f} de {non_iol_count} posiciones no-IOL "
             f"a {patched} snapshots históricos. Luego llamar a force-snapshot-today."
         ),
     }
