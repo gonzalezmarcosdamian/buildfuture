@@ -480,3 +480,60 @@ def _yield_fci(pos, market_avg: Decimal) -> Decimal | None:
         "FCI %s: TNA=%.2f%% (promedio mercado)", pos.ticker, float(market_avg) * 100
     )
     return market_avg
+
+
+def update_stock_prices(db, mep: "Decimal | None" = None) -> int:
+    """
+    Actualiza current_price_usd de posiciones STOCK (acciones del panel Merval)
+    usando precios live de BYMA btnLideres. Solo cubre los ~24 blue chips.
+    STOCKs fuera del panel quedan con el precio del último sync de PPI.
+
+    Retorna la cantidad de posiciones actualizadas.
+    """
+    from app.models import Position
+    from app.services.byma_client import get_stock_price_ars
+    from decimal import Decimal
+
+    positions = (
+        db.query(Position)
+        .filter(
+            Position.is_active == True,
+            Position.asset_type == "STOCK",
+        )
+        .all()
+    )
+
+    if not positions:
+        return 0
+
+    updated = 0
+    for pos in positions:
+        try:
+            price_ars = get_stock_price_ars(pos.ticker)
+            if price_ars is None or price_ars <= 0:
+                continue
+            if mep is None or mep <= 0:
+                continue
+
+            new_price_usd = Decimal(str(round(price_ars / float(mep), 6)))
+            if abs(new_price_usd - pos.current_price_usd) > Decimal("0.000001"):
+                logger.info(
+                    "update_stock_prices %s: %.4f → %.4f USD (ARS %.2f / MEP %.0f)",
+                    pos.ticker,
+                    float(pos.current_price_usd),
+                    float(new_price_usd),
+                    price_ars,
+                    float(mep),
+                )
+                pos.current_price_usd = new_price_usd
+                pos.snapshot_date = __import__("datetime").date.today()
+                updated += 1
+        except Exception as e:
+            logger.warning(
+                "update_stock_prices error en %s: %s", pos.ticker, e
+            )
+
+    if updated:
+        db.commit()
+    logger.info("update_stock_prices: %d/%d STOCKs actualizados", updated, len(positions))
+    return updated

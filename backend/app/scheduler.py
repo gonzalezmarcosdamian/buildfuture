@@ -99,6 +99,7 @@ def _daily_close_job() -> None:
 
             _daily_mep = float(_get_mep())
             _update_yields(db, mep=_daily_mep)
+            _update_stock_prices(db, mep=_daily_mep)
             _save_portfolio_snapshot(db)
         finally:
             db.close()
@@ -358,6 +359,19 @@ def _refresh_manual_prices(db) -> None:
             )
 
     db.commit()
+
+
+def _update_stock_prices(db, mep=None) -> None:
+    """Actualiza current_price_usd de STOCKs del panel Merval via BYMA leading-equity."""
+    from app.services.yield_updater import update_stock_prices
+    from decimal import Decimal
+
+    try:
+        mep_dec = Decimal(str(mep)) if mep else None
+        n = update_stock_prices(db, mep=mep_dec)
+        logger.info("update_stock_prices: %d STOCKs actualizados", n)
+    except Exception as e:
+        logger.warning("update_stock_prices falló: %s", e)
 
 
 def _update_yields(db, mep=None) -> None:
