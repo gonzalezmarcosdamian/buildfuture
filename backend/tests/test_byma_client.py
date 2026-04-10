@@ -43,6 +43,8 @@ def clear_cache():
     bc._cer_cache["data"] = {}
     bc._cer_cache["ts"] = 0.0
     bc._ficha_cache["data"] = {}
+    bc._cedear_full_cache["data"] = {}
+    bc._cedear_full_cache["ts"] = 0.0
     yield
     bc._lecap_cache["value"] = None
     bc._lecap_cache["ts"] = 0.0
@@ -59,6 +61,8 @@ def clear_cache():
     bc._cer_cache["data"] = {}
     bc._cer_cache["ts"] = 0.0
     bc._ficha_cache["data"] = {}
+    bc._cedear_full_cache["data"] = {}
+    bc._cedear_full_cache["ts"] = 0.0
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -611,3 +615,108 @@ def test_stock_precio_cero_retorna_none():
     with patch("app.services.byma_client.httpx.post", return_value=resp):
         price = get_stock_price_ars("GGAL")
     assert price is None
+
+
+# ── get_cedear_market_data ─────────────────────────────────────────────────────
+
+SAMPLE_CEDEAR_FULL_ITEMS = [
+    {
+        "symbol": "AAPL",
+        "vwap": 15250.0,
+        "previousSettlementPrice": 0,
+        "previousClosingPrice": 14800.0,
+        "tradingHighPrice": 15500.0,
+        "tradingLowPrice": 15100.0,
+    },
+    {
+        "symbol": "QQQ",
+        "vwap": 0,
+        "previousSettlementPrice": 42000.0,
+        "previousClosingPrice": 41500.0,
+        "tradingHighPrice": 42500.0,
+        "tradingLowPrice": 41000.0,
+    },
+    {
+        "symbol": "MSFT",
+        "vwap": 18000.0,
+        "previousSettlementPrice": 0,
+        "previousClosingPrice": 0,  # sin prev_close
+        "tradingHighPrice": 18500.0,
+        "tradingLowPrice": 17800.0,
+    },
+]
+
+
+def test_cedear_market_data_retorna_dict_completo():
+    """AAPL con todos los campos → dict con price, prev_close, high, low, variation."""
+    from app.services.byma_client import get_cedear_market_data
+    resp = _market_response(SAMPLE_CEDEAR_FULL_ITEMS)
+    with patch("app.services.byma_client.httpx.post", return_value=resp):
+        data = get_cedear_market_data("AAPL")
+    assert data is not None
+    assert data["price_ars"] == 15250.0
+    assert data["prev_close_ars"] == 14800.0
+    assert data["high_ars"] == 15500.0
+    assert data["low_ars"] == 15100.0
+    # variation_pct = (15250 - 14800) / 14800 * 100 ≈ 3.04%
+    assert data["variation_pct"] is not None
+    assert abs(data["variation_pct"] - 3.04) < 0.1
+
+
+def test_cedear_market_data_usa_settlement_si_vwap_cero():
+    """QQQ con vwap=0 → usa previousSettlementPrice como price_ars."""
+    from app.services.byma_client import get_cedear_market_data
+    resp = _market_response(SAMPLE_CEDEAR_FULL_ITEMS)
+    with patch("app.services.byma_client.httpx.post", return_value=resp):
+        data = get_cedear_market_data("QQQ")
+    assert data is not None
+    assert data["price_ars"] == 42000.0
+
+
+def test_cedear_market_data_prev_close_none_si_cero():
+    """MSFT con previousClosingPrice=0 → prev_close_ars=None, variation_pct=None."""
+    from app.services.byma_client import get_cedear_market_data
+    resp = _market_response(SAMPLE_CEDEAR_FULL_ITEMS)
+    with patch("app.services.byma_client.httpx.post", return_value=resp):
+        data = get_cedear_market_data("MSFT")
+    assert data is not None
+    assert data["prev_close_ars"] is None
+    assert data["variation_pct"] is None
+
+
+def test_cedear_market_data_ticker_inexistente_retorna_none():
+    """Ticker que no está en la respuesta → None."""
+    from app.services.byma_client import get_cedear_market_data
+    resp = _market_response(SAMPLE_CEDEAR_FULL_ITEMS)
+    with patch("app.services.byma_client.httpx.post", return_value=resp):
+        data = get_cedear_market_data("TSLA")
+    assert data is None
+
+
+def test_cedear_market_data_cache_evita_segundo_call():
+    """Dos calls con distintos tickers → 1 solo HTTP call (cache compartido)."""
+    from app.services.byma_client import get_cedear_market_data
+    resp = _market_response(SAMPLE_CEDEAR_FULL_ITEMS)
+    with patch("app.services.byma_client.httpx.post", return_value=resp) as mock_post:
+        get_cedear_market_data("AAPL")
+        get_cedear_market_data("QQQ")
+    assert mock_post.call_count == 1
+
+
+def test_cedear_market_data_byma_falla_retorna_none():
+    """BYMA lanza excepción → None."""
+    from app.services.byma_client import get_cedear_market_data
+    with patch("app.services.byma_client.httpx.post", side_effect=Exception("timeout")):
+        data = get_cedear_market_data("AAPL")
+    assert data is None
+
+
+def test_cedear_market_data_sincroniza_cedear_cache():
+    """Después de get_cedear_market_data, get_cedear_price_ars usa cache sin HTTP."""
+    from app.services.byma_client import get_cedear_market_data, get_cedear_price_ars
+    resp = _market_response(SAMPLE_CEDEAR_FULL_ITEMS)
+    with patch("app.services.byma_client.httpx.post", return_value=resp) as mock_post:
+        get_cedear_market_data("AAPL")   # carga full cache y price cache
+        price = get_cedear_price_ars("AAPL")  # debe usar cache
+    assert mock_post.call_count == 1
+    assert price == 15250.0
