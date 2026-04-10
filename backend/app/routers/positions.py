@@ -110,19 +110,21 @@ def _get_live_price_and_yield(
 
 
 @router.get("/search/crypto")
-def search_crypto(q: str = Query(min_length=1)):
-    """Busca criptomonedas en CoinGecko por nombre o símbolo."""
-    return {"results": crypto_prices.search_coins(q)}
+def search_crypto(q: str = Query(min_length=1, max_length=50)):
+    """Busca criptomonedas en CoinGecko por nombre o símbolo. Límite 50 resultados."""
+    results = crypto_prices.search_coins(q)
+    return {"results": results[:50]}
 
 
 @router.get("/search/fci")
-def search_fci(q: str = Query(default="", min_length=0)):
-    """Busca fondos de inversión en ArgentinaDatos por nombre. Sin q devuelve todos."""
-    return {"results": fci_prices.search_fci(q)}
+def search_fci(q: str = Query(default="", min_length=0, max_length=100)):
+    """Busca fondos de inversión en ArgentinaDatos por nombre. Sin q devuelve todos. Límite 50."""
+    results = fci_prices.search_fci(q)
+    return {"results": results[:50]}
 
 
 @router.get("/search/etf")
-def search_etf(ticker: str = Query(min_length=1)):
+def search_etf(ticker: str = Query(min_length=1, max_length=20)):
     """Valida y retorna info de un ticker en Yahoo Finance (ETF, acción, índice)."""
     info = external_prices.validate_ticker(ticker)
     if not info:
