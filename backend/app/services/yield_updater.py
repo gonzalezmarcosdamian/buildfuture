@@ -313,6 +313,41 @@ def _compute_yield(pos, today: date) -> Decimal | None:
     return None
 
 
+def _yield_letra_cer(pos) -> Decimal | None:
+    """
+    TIR real (rendimiento anual por encima del CER) de una letra ajustada por CER.
+    Prefijo X: X29Y6, X18E7, etc.
+
+    Fuente: BYMA short-term-government-bonds → impliedYield.
+    BYMA ya calcula la TIR real — es el mismo valor que muestran Rava, Cocos e IOL.
+    Benchmarks de referencia (abril 2026): X29Y6 ≈ -12%, X18E7 ≈ -9%.
+
+    Convención de signo: un valor NEGATIVO es correcto y esperado — significa que
+    el mercado paga CER - X% anual. Se almacena como Decimal negativo en
+    annual_yield_pct para que la renta mensual estimada salga en 0 (se clampea en
+    el cálculo de monthly_return_usd, que no puede ser negativo).
+
+    Fallback: Decimal("0") si BYMA no tiene el ticker — no inventar un número.
+    """
+    from app.services.byma_client import get_cer_letter_tir
+
+    tir_pct = get_cer_letter_tir(pos.ticker)
+    if tir_pct is None:
+        logger.info(
+            "LETRA CER %s: BYMA no retornó TIR → fallback 0",
+            pos.ticker,
+        )
+        return Decimal("0")
+
+    result = Decimal(str(round(tir_pct / 100, 4)))
+    logger.info(
+        "LETRA CER %s: TIR real=%.2f%% (BYMA)",
+        pos.ticker,
+        float(result) * 100,
+    )
+    return result
+
+
 def _yield_lecap(pos, today: date) -> Decimal | None:
     """
     TIR real de una LECAP de descuento (prefijo S):
@@ -320,19 +355,12 @@ def _yield_lecap(pos, today: date) -> Decimal | None:
       2. Calcula precio por 100 nominales usando current_value_ars / quantity.
       3. Devuelve TNA = (100/precio - 1) × (365/días).
 
-    Letras CER (prefijo X, ej: X29Y6): ajustan VN diariamente por índice CER.
-    La fórmula de descuento es incorrecta para ellas — la métrica correcta es TIR real
-    (rendimiento por encima del CER), que requiere el índice BCRA.
-    Quick fix: retornar Decimal("0") para que no aparezca un 68% inventado.
-    Fix definitivo pendiente en backlog: implementar CER client + TIR real.
+    Letras CER (prefijo X, ej: X29Y6): delega a _yield_letra_cer() que consulta
+    BYMA para obtener la TIR real (rendimiento por encima del CER).
     """
     ticker_upper = pos.ticker.upper()
     if ticker_upper.startswith("X"):
-        logger.info(
-            "LETRA CER %s: prefijo X detectado — yield=0 (TIR real pendiente de implementar)",
-            pos.ticker,
-        )
-        return Decimal("0")
+        return _yield_letra_cer(pos)
 
     maturity = _parse_lecap_maturity(pos.ticker)
     if maturity is None:

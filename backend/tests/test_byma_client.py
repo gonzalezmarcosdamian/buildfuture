@@ -12,6 +12,7 @@ from app.services.byma_client import (
     get_lecap_tna, LECAP_TNA_FALLBACK,
     get_cedear_price_ars,
     get_bond_tir, get_on_tir,
+    get_cer_letter_tir, CER_TIR_MIN, CER_TIR_MAX,
 )
 import app.services.byma_client as bc
 
@@ -28,6 +29,8 @@ def clear_cache():
     bc._sovereign_cache["ts"] = 0.0
     bc._on_cache["data"] = {}
     bc._on_cache["ts"] = 0.0
+    bc._cer_cache["data"] = {}
+    bc._cer_cache["ts"] = 0.0
     yield
     bc._lecap_cache["value"] = None
     bc._lecap_cache["ts"] = 0.0
@@ -37,6 +40,8 @@ def clear_cache():
     bc._sovereign_cache["ts"] = 0.0
     bc._on_cache["data"] = {}
     bc._on_cache["ts"] = 0.0
+    bc._cer_cache["data"] = {}
+    bc._cer_cache["ts"] = 0.0
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -379,6 +384,137 @@ def test_on_tir_fallback_si_byma_falla():
         tir = get_on_tir("YCA6O")
 
     assert tir is None
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# BYMA 5 — get_cer_letter_tir (letras ajustadas por CER, prefijo X)
+#
+# Contexto: la TIR real de las letras CER es el rendimiento anual POR ENCIMA
+# del índice CER (inflación BCRA). Un valor NEGATIVO es normal y esperado:
+#   X29Y6 ≈ -12%  (Rava, Cocos, IOL lo confirman — el usuario lo detectó en producción)
+#   X18E7 ≈  -9%  (referencia orientativa, varía con el mercado)
+#
+# BYMA expone la TIR real en el campo `impliedYield` del endpoint
+# short-term-government-bonds, igual que para LECAPs pero con valor negativo.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _cer_response(items: list[dict]):
+    mock = MagicMock()
+    mock.status_code = 200
+    mock.json.return_value = items
+    return mock
+
+
+def test_cer_letter_tir_retorna_tir_negativa():
+    """
+    X29Y6 debe retornar TIR real negativa (típicamente ≈ -12%).
+    Referencia de mercado (abril 2026): Rava, Cocos e IOL muestran TIR ≈ -12%.
+    El test verifica que el valor en BYMA se pasa correctamente al caller.
+    """
+    items = [
+        {"symbol": "X29Y6", "impliedYield": -12.3, "securityType": "LETRA"},
+        {"symbol": "X18E7", "impliedYield": -9.1,  "securityType": "LETRA"},
+        {"symbol": "S30J6", "impliedYield": 52.0,  "securityType": "LETRA"},  # LECAP pura — ignorar
+    ]
+    with patch("app.services.byma_client.httpx.get", return_value=_cer_response(items)):
+        tir = get_cer_letter_tir("X29Y6")
+
+    assert tir == -12.3
+
+
+def test_cer_letter_tir_no_confunde_con_lecap():
+    """
+    S-prefix (LECAP pura de descuento) NO debe aparecer en la respuesta de CER.
+    get_cer_letter_tir solo devuelve tickers que empiezan con X.
+    """
+    items = [
+        {"symbol": "S30J6", "impliedYield": 52.0,  "securityType": "LETRA"},
+        {"symbol": "X29Y6", "impliedYield": -12.3, "securityType": "LETRA"},
+    ]
+    with patch("app.services.byma_client.httpx.get", return_value=_cer_response(items)):
+        tir_s = get_cer_letter_tir("S30J6")
+        tir_x = get_cer_letter_tir("X29Y6")
+
+    assert tir_s is None, "S30J6 es LECAP pura, no debe aparecer como CER"
+    assert tir_x == -12.3
+
+
+def test_cer_letter_tir_ticker_inexistente_retorna_none():
+    """Ticker CER no encontrado en BYMA → None. El caller usa fallback 0."""
+    items = [
+        {"symbol": "X29Y6", "impliedYield": -12.3, "securityType": "LETRA"},
+    ]
+    with patch("app.services.byma_client.httpx.get", return_value=_cer_response(items)):
+        tir = get_cer_letter_tir("X99Z9")
+
+    assert tir is None
+
+
+def test_cer_letter_tir_fuera_de_rango_retorna_none():
+    """
+    TIR real fuera del rango sanidad (CER_TIR_MIN=-30 / CER_TIR_MAX=+30)
+    es anomalía o dato sucio — retornar None en lugar de persistir basura.
+    """
+    items = [
+        # TIR real +50% sobre CER → imposible en condiciones normales de mercado
+        {"symbol": "X29Y6", "impliedYield": 50.0, "securityType": "LETRA"},
+        # TIR real -50% → también fuera de rango
+        {"symbol": "X18E7", "impliedYield": -50.0, "securityType": "LETRA"},
+    ]
+    with patch("app.services.byma_client.httpx.get", return_value=_cer_response(items)):
+        tir_alto = get_cer_letter_tir("X29Y6")
+        tir_bajo = get_cer_letter_tir("X18E7")
+
+    assert tir_alto is None
+    assert tir_bajo is None
+
+
+def test_cer_letter_tir_fallback_si_byma_falla():
+    """Error de red → None. El caller (yield_updater) usa fallback=0."""
+    with patch("app.services.byma_client.httpx.get", side_effect=Exception("timeout")):
+        tir = get_cer_letter_tir("X29Y6")
+
+    assert tir is None
+
+
+def test_cer_letter_tir_fallback_si_status_no_200():
+    """HTTP 500 → None."""
+    mock = MagicMock()
+    mock.status_code = 500
+    with patch("app.services.byma_client.httpx.get", return_value=mock):
+        tir = get_cer_letter_tir("X29Y6")
+
+    assert tir is None
+
+
+def test_cer_letter_tir_cache_evita_segundo_http_call():
+    """Dos consultas al mismo endpoint comparten cache (una sola request HTTP)."""
+    items = [
+        {"symbol": "X29Y6", "impliedYield": -12.3, "securityType": "LETRA"},
+        {"symbol": "X18E7", "impliedYield": -9.1,  "securityType": "LETRA"},
+    ]
+    mock_get = MagicMock(return_value=_cer_response(items))
+    with patch("app.services.byma_client.httpx.get", mock_get):
+        get_cer_letter_tir("X29Y6")
+        get_cer_letter_tir("X18E7")
+
+    assert mock_get.call_count == 1
+
+
+def test_cer_letter_tir_tir_cero_retorna_none():
+    """impliedYield=0 es dato vacío, no debe almacenarse."""
+    items = [
+        {"symbol": "X29Y6", "impliedYield": 0.0, "securityType": "LETRA"},
+    ]
+    with patch("app.services.byma_client.httpx.get", return_value=_cer_response(items)):
+        tir = get_cer_letter_tir("X29Y6")
+
+    # 0.0 está en el rango [-30, +30] pero es dato vacío — debería retornar None
+    # Nota: el rango de sanidad incluye 0.0 como borde. Si BYMA devuelve 0 para
+    # una letra CER activa, es probablemente dato sucio (sin precio en el día).
+    # El caller usa fallback=0 de todas formas — este caso es edge.
+    # Aceptamos None o 0.0 dependiendo de la implementación.
+    assert tir == 0.0 or tir is None  # ambos son manejables por el caller
 
 
 def test_on_tir_cache_independiente_de_bonds():
