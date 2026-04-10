@@ -1,11 +1,27 @@
 """
-Binance client — integración read-only via API Key + Secret.
+Binance client — READ-ONLY via API Key + Secret.
+
 Auth: HMAC-SHA256 firmado por request. Sin sesión, sin 2FA interactivo.
 auto_sync_enabled = True siempre.
 
-Scope Iter 1:
+✅  SEGURIDAD: Binance SÍ implementa scopes granulares por API Key.
+    El usuario debe crear su API Key con únicamente "Enable Reading" activado.
+    Con ese scope, los endpoints de trading y withdrawal son inaccesibles
+    incluso si el token es comprometido.
+
+    Este cliente usa EXCLUSIVAMENTE endpoints GET firmados:
+        GET /api/v3/account
+        GET /api/v3/myTrades
+        GET /sapi/v1/accountSnapshot
+
+    NUNCA agregar:
+        POST /api/v3/order  (trading)
+        POST /wapi/v3/withdraw.html  (retiros)
+    El test tests/test_readonly_audit.py verifica este contrato automáticamente.
+
+Scope:
 - Balances spot (GET /api/v3/account)
-- Precios actuales via CoinGecko (ya en stack)
+- Precios actuales via CoinGecko
 - Yield real 30d via CoinGecko
 - PPC desde myTrades
 - Historial 30d via accountSnapshot

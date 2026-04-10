@@ -1,7 +1,21 @@
 """
-IOL (InvertirOnline) API client.
+IOL (InvertirOnline) API client — READ-ONLY.
+
 Auth: OAuth2 password grant — bearer token + refresh token.
 Docs: https://api.invertironline.com
+
+⚠️  ADVERTENCIA DE SEGURIDAD:
+    La API de IOL NO implementa scopes de permisos granulares. El token JWT
+    obtenido con usuario/contraseña habilita tanto lectura como trading y
+    transferencias. Este cliente implementa EXCLUSIVAMENTE endpoints GET.
+
+    NUNCA agregar llamadas a:
+        POST /api/v2/Operaciones/Compra
+        POST /api/v2/Operaciones/Venta
+        POST /api/v2/Billetera/Transferencias
+    ni cualquier otro endpoint de escritura de IOL.
+
+    El test tests/test_readonly_audit.py verifica este contrato automáticamente.
 """
 
 import logging

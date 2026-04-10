@@ -1,9 +1,22 @@
 """
-PPI (Portfolio Personal Inversiones) API client.
+PPI (Portfolio Personal Inversiones) API client — READ-ONLY.
+
 Auth: Public Key + Private Key → Bearer token (JWT).
 Docs: https://itatppi.github.io/ppi-official-api-docs/
 Sandbox:    https://clientapi_sandbox.portfoliopersonal.com
 Production: https://clientapi.portfoliopersonal.com
+
+⚠️  ADVERTENCIA DE SEGURIDAD:
+    La API de PPI NO implementa scopes de permisos granulares. El par de claves
+    (pública + privada) habilita tanto lectura como operaciones de trading.
+    Este cliente implementa EXCLUSIVAMENTE endpoints GET.
+
+    NUNCA agregar llamadas a:
+        POST /api/1.0/Order/NewOrder
+        DELETE /api/1.0/Order/CancelOrder
+    ni cualquier otro endpoint de escritura de PPI.
+
+    El test tests/test_readonly_audit.py verifica este contrato automáticamente.
 """
 
 import logging
