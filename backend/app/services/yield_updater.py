@@ -315,13 +315,25 @@ def _compute_yield(pos, today: date) -> Decimal | None:
 
 def _yield_lecap(pos, today: date) -> Decimal | None:
     """
-    TIR real de una LECAP:
+    TIR real de una LECAP de descuento (prefijo S):
       1. Decodifica vencimiento desde el ticker.
       2. Calcula precio por 100 nominales usando current_value_ars / quantity.
       3. Devuelve TNA = (100/precio - 1) × (365/días).
-    Nota: IOL reporta "precio técnico" (valor acumulado desde emisión) que puede superar 100.
-    En ese caso devuelve None para preservar el yield del último sync (68% TNA por defecto).
+
+    Letras CER (prefijo X, ej: X29Y6): ajustan VN diariamente por índice CER.
+    La fórmula de descuento es incorrecta para ellas — la métrica correcta es TIR real
+    (rendimiento por encima del CER), que requiere el índice BCRA.
+    Quick fix: retornar Decimal("0") para que no aparezca un 68% inventado.
+    Fix definitivo pendiente en backlog: implementar CER client + TIR real.
     """
+    ticker_upper = pos.ticker.upper()
+    if ticker_upper.startswith("X"):
+        logger.info(
+            "LETRA CER %s: prefijo X detectado — yield=0 (TIR real pendiente de implementar)",
+            pos.ticker,
+        )
+        return Decimal("0")
+
     maturity = _parse_lecap_maturity(pos.ticker)
     if maturity is None:
         logger.debug("LECAP %s: ticker no parseble — sin actualización", pos.ticker)
