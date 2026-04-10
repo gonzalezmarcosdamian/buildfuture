@@ -1368,6 +1368,17 @@ def get_instrument_detail(
     if position.asset_type == "BOND" and position.current_price_usd and position.current_price_usd > 0:
         paridad_pct = float(position.current_price_usd) * 100
 
+    # CEDEAR: datos de mercado live (variación diaria, high/low)
+    cedear_market = None
+    ccl_compra_usd = None
+    if position.asset_type == "CEDEAR":
+        from app.services.byma_client import get_cedear_market_data
+
+        cedear_market = get_cedear_market_data(position.ticker)
+        # CCL implícito de compra: precio promedio de compra ARS / precio promedio de compra USD
+        if position.avg_purchase_price_usd and float(position.avg_purchase_price_usd) > 0 and float(position.ppc_ars) > 0:
+            ccl_compra_usd = round(float(position.ppc_ars) / float(position.avg_purchase_price_usd), 2)
+
     return {
         "id": position.id,
         "ticker": position.ticker,
@@ -1395,4 +1406,6 @@ def get_instrument_detail(
         "days_to_maturity": days_to_maturity,
         "projected_price_at_maturity_ars": projected_price_at_maturity_ars,
         "paridad_pct": paridad_pct,
+        "cedear_market": cedear_market,
+        "ccl_compra_usd": ccl_compra_usd,
     }

@@ -73,7 +73,8 @@ CER_TIR_MAX: float = 30.0
 _lecap_cache: dict = {"value": None, "ts": 0.0}
 # {ticker: {vwap, tem, emision, vto}} para todas las letras
 _letras_market_cache: dict = {"data": {}, "ts": 0.0}
-_cedear_cache: dict = {"data": {}, "ts": 0.0}
+_cedear_cache: dict = {"data": {}, "ts": 0.0}       # {ticker: price_ars}
+_cedear_full_cache: dict = {"data": {}, "ts": 0.0}  # {ticker: {price, prev_close, high, low}}
 _stock_cache: dict = {"data": {}, "ts": 0.0}
 _sovereign_cache: dict = {"data": {}, "ts": 0.0}
 _on_cache: dict = {"data": {}, "ts": 0.0}
@@ -473,6 +474,70 @@ def get_cedear_price_ars(ticker: str) -> float | None:
 
     except Exception as e:
         logger.warning("get_cedear_price_ars: BYMA falló (%s) → None", e)
+        return None
+
+
+# ── get_cedear_market_data ─────────────────────────────────────────────────────
+
+def get_cedear_market_data(ticker: str) -> dict | None:
+    """
+    Datos de mercado extendidos para un CEDEAR desde BYMA btnCedears.
+    Retorna dict con:
+      price_ars        — precio spot (vwap o previousSettlementPrice)
+      prev_close_ars   — cierre anterior (previousClosingPrice)
+      high_ars         — máximo del día (tradingHighPrice)
+      low_ars          — mínimo del día (tradingLowPrice)
+      variation_pct    — variación diaria (%) calculada desde prev_close
+    Retorna None si BYMA falla o el ticker no existe.
+    Cache TTL 5 min compartido con _cedear_full_cache.
+    """
+    ticker_upper = ticker.upper()
+    now = time.time()
+    if _cedear_full_cache["data"] and now - _cedear_full_cache["ts"] < CACHE_TTL:
+        logger.debug("get_cedear_market_data: cache hit para %s", ticker_upper)
+        return _cedear_full_cache["data"].get(ticker_upper)
+
+    try:
+        items = _post_market_data("btnCedears", page_size=1000)
+        data: dict[str, dict] = {}
+        prices: dict[str, float] = {}
+
+        for item in items:
+            sym = str(item.get("symbol") or "").upper()
+            if not sym:
+                continue
+
+            price = float(item.get("vwap") or item.get("previousSettlementPrice") or 0)
+            prev_close = float(item.get("previousClosingPrice") or 0)
+            high = float(item.get("tradingHighPrice") or 0)
+            low = float(item.get("tradingLowPrice") or 0)
+
+            if price <= 0:
+                continue
+
+            variation_pct: float | None = None
+            if prev_close > 0:
+                variation_pct = round((price - prev_close) / prev_close * 100, 2)
+
+            data[sym] = {
+                "price_ars": price,
+                "prev_close_ars": prev_close if prev_close > 0 else None,
+                "high_ars": high if high > 0 else None,
+                "low_ars": low if low > 0 else None,
+                "variation_pct": variation_pct,
+            }
+            prices[sym] = price
+
+        _cedear_full_cache["data"] = data
+        _cedear_full_cache["ts"] = now
+        # Sync price-only cache for get_cedear_price_ars
+        _cedear_cache["data"] = prices
+        _cedear_cache["ts"] = now
+        logger.info("get_cedear_market_data: BYMA → %d CEDEARs cacheados", len(data))
+        return data.get(ticker_upper)
+
+    except Exception as e:
+        logger.warning("get_cedear_market_data: BYMA falló (%s) → None", e)
         return None
 
 
