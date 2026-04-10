@@ -166,6 +166,10 @@ def _run_migrations():
                ON CONFLICT (version) DO NOTHING""",
             "tos_versions seed v1.0",
         ),
+        (
+            "ALTER TABLE portfolio_snapshots ADD COLUMN IF NOT EXISTS non_iol_offset_usd NUMERIC(12,2) DEFAULT 0",
+            "portfolio_snapshots.non_iol_offset_usd",
+        ),
     ]
     try:
         with engine.connect() as conn:

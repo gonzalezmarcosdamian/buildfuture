@@ -65,6 +65,59 @@ def _invalidate_score_cache(user_id: str) -> None:
         _score_cache.pop(user_id, None)
 
 
+def _refresh_today_snapshot(db: Session, user_id: str) -> None:
+    """
+    Recalcula y persiste el snapshot de HOY para un usuario usando TODAS sus posiciones
+    activas. Llamar tras cualquier operación que cambie el valor del portafolio
+    (edición de REAL_ESTATE, creación/borrado de posición manual, etc.).
+    """
+    from decimal import Decimal as D
+
+    today = date.today()
+    positions = (
+        db.query(Position)
+        .filter(Position.user_id == user_id, Position.is_active.is_(True))
+        .all()
+    )
+    if not positions:
+        return
+
+    mep = get_mep()
+    total_usd = sum(p.current_value_usd for p in positions)
+    total_cost_basis = sum(
+        getattr(p, "cost_basis_usd", D("0")) or D("0") for p in positions
+    )
+    score = calculate_freedom_score(positions, D("1000"))
+    monthly_return = score["monthly_return_usd"]
+
+    snapshot = (
+        db.query(PortfolioSnapshot)
+        .filter(
+            PortfolioSnapshot.user_id == user_id,
+            PortfolioSnapshot.snapshot_date == today,
+        )
+        .first()
+    )
+    if snapshot:
+        snapshot.total_usd = total_usd
+        snapshot.monthly_return_usd = monthly_return
+        snapshot.positions_count = len(positions)
+        snapshot.cost_basis_usd = total_cost_basis
+        snapshot.fx_mep = mep
+    else:
+        db.add(
+            PortfolioSnapshot(
+                user_id=user_id,
+                snapshot_date=today,
+                total_usd=total_usd,
+                monthly_return_usd=monthly_return,
+                positions_count=len(positions),
+                cost_basis_usd=total_cost_basis,
+                fx_mep=mep,
+            )
+        )
+
+
 def save_position_snapshots(db: Session, user_id: str, positions: list) -> None:
     """
     Guarda/actualiza un PositionSnapshot por posición activa para hoy.

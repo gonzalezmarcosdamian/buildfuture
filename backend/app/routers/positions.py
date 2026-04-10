@@ -16,7 +16,7 @@ from app.database import get_db
 from app.auth import get_current_user
 from app.models import Position
 from app.services import crypto_prices, fci_prices, external_prices
-from app.routers.portfolio import _invalidate_score_cache
+from app.routers.portfolio import _invalidate_score_cache, _refresh_today_snapshot
 
 logger = logging.getLogger("buildfuture.positions")
 
@@ -294,17 +294,28 @@ def update_manual_position(
             pos.current_value_ars = pos.quantity * pos.purchase_fx_rate
 
     # Para REAL_ESTATE: actualizar valuación (current_price_usd) y recalcular yield desde renta
+    restate_changed = False
     if pos.asset_type == "REAL_ESTATE":
         if body.purchase_price_usd is not None:
             # Valuación = precio de la unidad (quantity=1 siempre)
             pos.current_price_usd = Decimal(str(body.purchase_price_usd))
+            restate_changed = True
         if body.monthly_rent_usd is not None:
             valuation = float(pos.avg_purchase_price_usd or pos.current_price_usd or 1)
             restate_yield = round((body.monthly_rent_usd * 12) / valuation, 6) if valuation > 0 else 0.0
             pos.annual_yield_pct = Decimal(str(restate_yield))
+            restate_changed = True
 
     db.commit()
     db.refresh(pos)
+
+    # Refrescar snapshot de hoy para que Freedom Bar refleje los cambios inmediatamente
+    if restate_changed:
+        try:
+            _refresh_today_snapshot(db, user_id)
+            db.commit()
+        except Exception:
+            pass  # no bloquear el PATCH si el snapshot falla
     return {
         "id": pos.id,
         "ticker": pos.ticker,

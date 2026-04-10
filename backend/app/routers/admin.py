@@ -1033,7 +1033,6 @@ def support_backfill_non_iol(
             "snapshots_patched": 0,
         }
 
-    from decimal import Decimal as _D
     non_iol_total = sum(p.current_value_usd for p in non_iol_positions)
     non_iol_total_float = float(non_iol_total)
     non_iol_count = len(non_iol_positions)
@@ -1048,9 +1047,16 @@ def support_backfill_non_iol(
     )
 
     patched = 0
+    skipped = 0
     for snap in historical_snapshots:
+        # Guard idempotente: si ya fue parcheado, saltar
+        existing_offset = float(getattr(snap, "non_iol_offset_usd", None) or 0)
+        if existing_offset != 0:
+            skipped += 1
+            continue
         snap.total_usd = snap.total_usd + non_iol_total
         snap.positions_count = (snap.positions_count or 0) + non_iol_count
+        snap.non_iol_offset_usd = non_iol_total  # type: ignore[assignment]
         patched += 1
 
     try:
@@ -1071,9 +1077,11 @@ def support_backfill_non_iol(
         "non_iol_positions_count": non_iol_count,
         "non_iol_value_usd": round(non_iol_total_float, 2),
         "snapshots_patched": patched,
+        "snapshots_skipped_already_patched": skipped,
         "message": (
             f"Se añadió USD {non_iol_total_float:.2f} de {non_iol_count} posiciones no-IOL "
-            f"a {patched} snapshots históricos. Luego llamar a force-snapshot-today."
+            f"a {patched} snapshots históricos ({skipped} ya estaban parcheados). "
+            f"Luego llamar a force-snapshot-today."
         ),
     }
 
