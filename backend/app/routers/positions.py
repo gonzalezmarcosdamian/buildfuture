@@ -176,17 +176,8 @@ def create_manual_position(
     """Crea una posición manual (CRYPTO, FCI, ETF o activo genérico)."""
     # REAL_ESTATE: auto-generar ticker RESTATE_N y calcular yield desde renta
     if body.asset_type == "REAL_ESTATE":
-        existing_restate = (
-            db.query(Position)
-            .filter(
-                Position.user_id == user_id,
-                Position.asset_type == "REAL_ESTATE",
-                Position.is_active == True,
-            )
-            .all()
-        )
-        next_n = len(existing_restate) + 1
-        restate_ticker = f"RESTATE_{next_n}"
+        import uuid as _uuid
+        restate_ticker = f"RESTATE_{_uuid.uuid4().hex[:8].upper()}"
         valuation = body.purchase_price_usd or 1.0
         monthly_rent = body.monthly_rent_usd or 0.0
         restate_yield = round((monthly_rent * 12) / valuation, 6) if valuation > 0 else 0.0
