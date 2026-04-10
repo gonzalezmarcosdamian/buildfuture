@@ -30,6 +30,10 @@ LECAP_TNA_FALLBACK: float = 55.0  # TNA % de respaldo si BYMA no responde
 # Caps de sanidad para TIR — valores extremos son anomalías de mercado (bono en default, etc.)
 BOND_TIR_MAX: float = 50.0   # >50% TIR en bono soberano USD es sospechoso
 ON_TIR_MAX: float = 30.0     # >30% TIR en ON corporativa USD es sospechoso
+# Letras CER: TIR real puede ser negativa (debajo de inflación) o positiva.
+# Rango válido: -30% a +30% real. Fuera de ese rango es anomalía o dato sucio.
+CER_TIR_MIN: float = -30.0
+CER_TIR_MAX: float = 30.0
 
 # ── Cache in-memory ────────────────────────────────────────────────────────────
 
@@ -39,6 +43,8 @@ _cedear_cache: dict = {"data": {}, "ts": 0.0}
 # BYMA 3: {ticker: tir_pct} para bonos soberanos y ONs (endpoints distintos)
 _sovereign_cache: dict = {"data": {}, "ts": 0.0}
 _on_cache: dict = {"data": {}, "ts": 0.0}
+# BYMA 4: {ticker: tir_real_pct} para letras CER (X-prefix) — mismo endpoint que LECAPs
+_cer_cache: dict = {"data": {}, "ts": 0.0}
 
 
 # ── get_lecap_tna ──────────────────────────────────────────────────────────────
@@ -164,6 +170,62 @@ def get_on_tir(ticker: str) -> float | None:
         tir_max=ON_TIR_MAX,
         label="on",
     )
+
+
+def get_cer_letter_tir(ticker: str) -> float | None:
+    """
+    Retorna la TIR real (%) de una letra ajustada por CER (prefijo X, ej: X29Y6).
+
+    Las letras CER no pagan una TNA fija: ajustan su valor nominal diariamente
+    por el índice CER (inflación) publicado por el BCRA. La métrica correcta es la
+    TIR real = rendimiento anual POR ENCIMA del CER. Un valor negativo (ej: -12%)
+    significa que rendís CER - 12% anual — comprás más caro que el CER acumulado.
+
+    Fuente: BYMA short-term-government-bonds, campo `impliedYield`.
+    BYMA ya calcula la TIR real para letras CER — es el mismo valor que muestran
+    Rava, Cocos e IOL (benchmarks: X29Y6 ≈ -12%, X18E7 ≈ -9% a abril 2026).
+
+    Rango válido: CER_TIR_MIN (-30%) a CER_TIR_MAX (+30%).
+    Retorna None si BYMA falla, el ticker no está en la respuesta, o el valor
+    está fuera del rango de sanidad — el caller debe usar fallback=0.
+    """
+    now = time.time()
+    if _cer_cache["data"] and now - _cer_cache["ts"] < CACHE_TTL:
+        logger.debug("get_cer_letter_tir: cache hit para %s", ticker.upper())
+        return _cer_cache["data"].get(ticker.upper())
+
+    try:
+        r = httpx.get(
+            f"{BYMA_BASE}/short-term-government-bonds",
+            timeout=8,
+            headers={"Accept": "application/json"},
+        )
+        if r.status_code != 200:
+            logger.warning("BYMA short-term-bonds (CER): HTTP %s → None", r.status_code)
+            return None
+
+        items = r.json()
+        data: dict[str, float] = {}
+        for item in items:
+            sym = str(item.get("symbol") or "").upper()
+            if not sym.startswith("X"):
+                continue
+            tir = float(item.get("impliedYield") or 0)
+            if CER_TIR_MIN <= tir <= CER_TIR_MAX:
+                data[sym] = tir
+
+        _cer_cache["data"] = data
+        _cer_cache["ts"] = now
+        logger.info(
+            "get_cer_letter_tir: BYMA → %d letras CER cacheadas: %s",
+            len(data),
+            list(data.keys())[:5],
+        )
+        return data.get(ticker.upper())
+
+    except Exception as e:
+        logger.warning("get_cer_letter_tir: BYMA falló (%s) → None", e)
+        return None
 
 
 def _get_tir_from_cache(
