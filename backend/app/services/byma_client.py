@@ -74,6 +74,7 @@ _lecap_cache: dict = {"value": None, "ts": 0.0}
 # {ticker: {vwap, tem, emision, vto}} para todas las letras
 _letras_market_cache: dict = {"data": {}, "ts": 0.0}
 _cedear_cache: dict = {"data": {}, "ts": 0.0}
+_stock_cache: dict = {"data": {}, "ts": 0.0}
 _sovereign_cache: dict = {"data": {}, "ts": 0.0}
 _on_cache: dict = {"data": {}, "ts": 0.0}
 _cer_cache: dict = {"data": {}, "ts": 0.0}
@@ -472,6 +473,38 @@ def get_cedear_price_ars(ticker: str) -> float | None:
 
     except Exception as e:
         logger.warning("get_cedear_price_ars: BYMA falló (%s) → None", e)
+        return None
+
+
+# ── get_stock_price_ars ────────────────────────────────────────────────────────
+
+def get_stock_price_ars(ticker: str) -> float | None:
+    """
+    Precio spot ARS de una acción del panel Merval (blue chips) desde BYMA btnLideres.
+    Solo cubre los ~24 líderes del panel principal. STOCKs fuera del panel → None.
+    Cache TTL 5 min. Retorna None si BYMA falla, el ticker no existe o el precio es 0.
+    """
+    now = time.time()
+    if _stock_cache["data"] and now - _stock_cache["ts"] < CACHE_TTL:
+        logger.debug("get_stock_price_ars: cache hit para %s", ticker.upper())
+        return _stock_cache["data"].get(ticker.upper())
+
+    try:
+        items = _post_market_data("btnLideres", page_size=100)
+        data: dict[str, float] = {}
+        for item in items:
+            sym = str(item.get("symbol") or "").upper()
+            price = float(item.get("vwap") or item.get("previousSettlementPrice") or 0)
+            if sym and price > 0:
+                data[sym] = price
+
+        _stock_cache["data"] = data
+        _stock_cache["ts"] = now
+        logger.info("get_stock_price_ars: BYMA → %d acciones líderes cacheadas", len(data))
+        return data.get(ticker.upper())
+
+    except Exception as e:
+        logger.warning("get_stock_price_ars: BYMA falló (%s) → None", e)
         return None
 
 

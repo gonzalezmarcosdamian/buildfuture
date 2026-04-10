@@ -34,6 +34,8 @@ def clear_cache():
     bc._letras_market_cache["ts"] = 0.0
     bc._cedear_cache["data"] = {}
     bc._cedear_cache["ts"] = 0.0
+    bc._stock_cache["data"] = {}
+    bc._stock_cache["ts"] = 0.0
     bc._sovereign_cache["data"] = {}
     bc._sovereign_cache["ts"] = 0.0
     bc._on_cache["data"] = {}
@@ -48,6 +50,8 @@ def clear_cache():
     bc._letras_market_cache["ts"] = 0.0
     bc._cedear_cache["data"] = {}
     bc._cedear_cache["ts"] = 0.0
+    bc._stock_cache["data"] = {}
+    bc._stock_cache["ts"] = 0.0
     bc._sovereign_cache["data"] = {}
     bc._sovereign_cache["ts"] = 0.0
     bc._on_cache["data"] = {}
@@ -552,3 +556,58 @@ def test_calc_lecap_tea_vencida_retorna_none():
     from app.services.byma_client import _calc_lecap_tea_from_price
     result = _calc_lecap_tea_from_price(98.0, 0.026, date(2025, 1, 1), date(2026, 1, 1), date(2026, 4, 10))
     assert result is None
+
+
+# ── get_stock_price_ars (BYMA leading-equity) ─────────────────────────────────
+
+SAMPLE_LIDERES_ITEMS = [
+    {"symbol": "GGAL", "vwap": 1820.50, "previousSettlementPrice": 1800.0},
+    {"symbol": "YPF",  "vwap": 2340.00, "previousSettlementPrice": 2300.0},
+    {"symbol": "PAMP", "vwap": 3150.75, "previousSettlementPrice": 3100.0},
+]
+
+
+def test_stock_precio_blue_chip_correcto():
+    """GGAL en panel lideres → retorna vwap correcto."""
+    from app.services.byma_client import get_stock_price_ars
+    resp = _market_response(SAMPLE_LIDERES_ITEMS)
+    with patch("app.services.byma_client.httpx.post", return_value=resp):
+        price = get_stock_price_ars("GGAL")
+    assert price == pytest.approx(1820.50, abs=0.01)
+
+
+def test_stock_ticker_no_blue_chip_retorna_none():
+    """MIRG no está en panel lideres → None."""
+    from app.services.byma_client import get_stock_price_ars
+    resp = _market_response(SAMPLE_LIDERES_ITEMS)
+    with patch("app.services.byma_client.httpx.post", return_value=resp):
+        price = get_stock_price_ars("MIRG")
+    assert price is None
+
+
+def test_stock_cache_evita_segundo_call():
+    """Segunda llamada al mismo ticker usa cache — solo 1 HTTP call."""
+    from app.services.byma_client import get_stock_price_ars
+    resp = _market_response(SAMPLE_LIDERES_ITEMS)
+    with patch("app.services.byma_client.httpx.post", return_value=resp) as mock_post:
+        get_stock_price_ars("GGAL")
+        get_stock_price_ars("YPF")
+        assert mock_post.call_count == 1
+
+
+def test_stock_byma_falla_retorna_none():
+    """BYMA lanza excepción → None."""
+    from app.services.byma_client import get_stock_price_ars
+    with patch("app.services.byma_client.httpx.post", side_effect=Exception("timeout")):
+        price = get_stock_price_ars("GGAL")
+    assert price is None
+
+
+def test_stock_precio_cero_retorna_none():
+    """Item con vwap=0 y previousSettlementPrice=0 → no se cachea, retorna None."""
+    from app.services.byma_client import get_stock_price_ars
+    items = [{"symbol": "GGAL", "vwap": 0, "previousSettlementPrice": 0}]
+    resp = _market_response(items)
+    with patch("app.services.byma_client.httpx.post", return_value=resp):
+        price = get_stock_price_ars("GGAL")
+    assert price is None
