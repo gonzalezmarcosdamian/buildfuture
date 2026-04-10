@@ -955,6 +955,27 @@ _ASSET_CONTEXT = {
         "currency_note": "ARS o USD según la moneda registrada.",
         "liquidity": "Inmediata.",
     },
+    "ON": {
+        "type_label": "ON",
+        "full_name": "Obligación Negociable",
+        "description": "Deuda corporativa emitida por empresas privadas. Paga cupones periódicos y devuelve el capital al vencimiento.",
+        "currency_note": "Cotiza principalmente en USD. La TIR refleja el rendimiento real al vencimiento.",
+        "liquidity": "Media — depende del volumen de la emisión.",
+    },
+    "STOCK": {
+        "type_label": "ACCIÓN",
+        "full_name": "Acción BCBA",
+        "description": "Fracción de propiedad de una empresa que cotiza en la Bolsa de Comercio de Buenos Aires. Renta variable.",
+        "currency_note": "Cotiza en ARS. El precio en USD se calcula usando el MEP del día.",
+        "liquidity": "Alta — mercado continuo L-V.",
+    },
+    "ETF": {
+        "type_label": "ETF",
+        "full_name": "Exchange-Traded Fund",
+        "description": "Fondo cotizado que replica un índice o sector. Combina diversificación automática con liquidez de acción.",
+        "currency_note": "Cotiza en USD en mercados internacionales.",
+        "liquidity": "Alta — mercado continuo L-V.",
+    },
 }
 
 
