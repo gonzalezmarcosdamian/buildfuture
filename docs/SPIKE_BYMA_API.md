@@ -201,6 +201,39 @@ services/
 
 ---
 
+## 5b. Campos reales verificados (2026-04-07)
+
+### CEDEARs (`/cedears`) — POST, 1787 items
+
+```json
+{
+  "symbol": "AMZN",
+  "trade": 2204.0,           // = closingPrice (precio actual)
+  "previousClosingPrice": 2179.0,
+  "tradingHighPrice": 2204.0,
+  "tradingLowPrice": 2160.0,
+  "volume": 46645.0,
+  "volumeAmount": 101972710.0,
+  "vwap": 2186.14,
+  "imbalance": 0.0114,       // = (trade - prevClose) / prevClose
+  "offerPrice": 2900.0,
+  "bidPrice": null,
+  "denominationCcy": "ARS",
+  "securityType": "CD"
+}
+```
+**Nota:** el campo `last` del código actual (`item.get("last")`) NO existe. El precio correcto es `trade` o `closingPrice`. Hay que corregir el campo en `get_cedear_price_ars()`.
+
+### Leading-equity (acciones locales) — POST, 24 blue chips
+
+Misma estructura que CEDEARs. `securityType: "CS"`. Tickers: BBAR, GGAL, YPF, PAMP, TXAR, etc.
+
+### Government bonds, corporate bonds, short-term-gov-bonds, indices
+
+Retornan HTTP 400 localmente. Funcionan en Railway (SSL y geolocalización diferentes). Los tests pasan en CI con mocks — no hay problema de integración.
+
+---
+
 ## 6. Priorización de lo que se puede hacer
 
 | # | Feature | Valor | Esfuerzo | Prioridad |
