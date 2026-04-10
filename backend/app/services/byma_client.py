@@ -73,15 +73,15 @@ def get_lecap_tna() -> float:
             headers={"Accept": "application/json"},
         )
         if r.status_code != 200:
-            logger.warning("BYMA short-term-bonds: HTTP %s → fallback", r.status_code)
-            return LECAP_TNA_FALLBACK
+            logger.warning("BYMA short-term-bonds: HTTP %s → ArgentinaDatos", r.status_code)
+            return _lecap_tna_argentinadatos_fallback()
 
         items = r.json()
         tna = _calc_weighted_tna(items)
 
         if tna is None:
-            logger.warning("BYMA: sin LECAPs vigentes → fallback %.1f%%", LECAP_TNA_FALLBACK)
-            return LECAP_TNA_FALLBACK
+            logger.warning("BYMA: sin LECAPs vigentes → ArgentinaDatos")
+            return _lecap_tna_argentinadatos_fallback()
 
         _lecap_cache["value"] = tna
         _lecap_cache["ts"] = now
@@ -89,8 +89,25 @@ def get_lecap_tna() -> float:
         return tna
 
     except Exception as e:
-        logger.warning("get_lecap_tna: BYMA falló (%s) → fallback %.1f%%", e, LECAP_TNA_FALLBACK)
-        return LECAP_TNA_FALLBACK
+        logger.warning("get_lecap_tna: BYMA falló (%s) → ArgentinaDatos", e)
+        return _lecap_tna_argentinadatos_fallback()
+
+
+def _lecap_tna_argentinadatos_fallback() -> float:
+    """
+    Segundo fallback para get_lecap_tna(): consulta ArgentinaDatos /letras.
+    Si también falla, retorna LECAP_TNA_FALLBACK hardcodeado.
+    """
+    try:
+        from app.services.fci_prices import get_lecap_market_tna
+        tna = get_lecap_market_tna()
+        if tna is not None:
+            logger.info("get_lecap_tna: ArgentinaDatos → %.2f%%", tna)
+            return tna
+    except Exception as e:
+        logger.warning("get_lecap_tna: ArgentinaDatos falló (%s) → hardcoded %.1f%%", e, LECAP_TNA_FALLBACK)
+    logger.warning("get_lecap_tna: sin fuentes disponibles → hardcoded %.1f%%", LECAP_TNA_FALLBACK)
+    return LECAP_TNA_FALLBACK
 
 
 # ── get_cedear_price_ars ───────────────────────────────────────────────────────
