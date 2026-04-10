@@ -227,6 +227,8 @@ def sync_iol(
 
     try:
         creds = integration.encrypted_credentials.split(":", 1)
+        if len(creds) != 2:
+            raise HTTPException(status_code=400, detail="Credenciales IOL inválidas o incompletas")
         client = IOLClient(creds[0], creds[1])
         result = _sync_iol(client, db, current_user)
         integration.last_synced_at = datetime.utcnow()
@@ -407,14 +409,19 @@ def sync_nexo(
 
     try:
         parts = integration.encrypted_credentials.split(":", 1)
+        if len(parts) != 2:
+            raise HTTPException(status_code=400, detail="Credenciales Nexo inválidas o incompletas")
         client = NexoClient(parts[0], parts[1])
         result = _sync_nexo(client, db, current_user)
         integration.last_synced_at = datetime.utcnow()
         integration.last_error = ""
         db.commit()
         return {"positions_synced": result["positions_synced"]}
+    except HTTPException:
+        raise
     except Exception as e:
         integration.last_error = str(e)[:200]
+        db.rollback()
         db.commit()
         raise HTTPException(status_code=502, detail=str(e))
 
@@ -1551,10 +1558,12 @@ def sync_cocos(
         raise
     except CocosAuthError as e:
         integration.last_error = str(e)[:200]
+        db.rollback()
         db.commit()
         raise HTTPException(status_code=401, detail=str(e))
     except Exception as e:
         integration.last_error = str(e)[:200]
+        db.rollback()
         db.commit()
         raise HTTPException(status_code=502, detail=str(e))
 
