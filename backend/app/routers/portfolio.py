@@ -1321,6 +1321,7 @@ def get_instrument_detail(
             position.snapshot_date.isoformat() if position.snapshot_date else None
         ),
         "mep": round(mep, 2),
+        "external_id": position.external_id,
         "context": context,
         "maturity_date": maturity_date,
         "days_to_maturity": days_to_maturity,
