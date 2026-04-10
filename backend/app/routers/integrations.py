@@ -239,6 +239,7 @@ def sync_iol(
         return {"positions_synced": result["positions_synced"]}
     except Exception as e:
         integration.last_error = str(e)[:200]
+        db.rollback()
         db.commit()
         raise HTTPException(status_code=502, detail=str(e))
 
@@ -982,7 +983,10 @@ def sync_ppi(
         raise HTTPException(status_code=400, detail="PPI no está conectado")
 
     try:
-        pub, priv, acct = integration.encrypted_credentials.split(":", 2)
+        parts = integration.encrypted_credentials.split(":")
+        if len(parts) != 3:
+            raise HTTPException(status_code=400, detail="Credenciales PPI inválidas o incompletas")
+        pub, priv, acct = parts
         client = PPIClient(pub, priv)
         result = _sync_ppi(client, acct, db, current_user)
         integration.last_synced_at = datetime.utcnow()
@@ -991,6 +995,7 @@ def sync_ppi(
         return {"positions_synced": result["positions_synced"]}
     except Exception as e:
         integration.last_error = str(e)[:200]
+        db.rollback()
         db.commit()
         raise HTTPException(status_code=502, detail=str(e))
 

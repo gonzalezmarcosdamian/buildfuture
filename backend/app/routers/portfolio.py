@@ -647,8 +647,6 @@ def get_portfolio_history(
     db: Session = Depends(get_db),
     current_user: str = Depends(get_current_user),
 ):
-    from app.scheduler import trigger_snapshot_now
-
     # Posiciones activas — necesarias tanto para el snapshot live como para el costo base
     live_positions = (
         db.query(Position)
@@ -1353,6 +1351,23 @@ def get_instrument_detail(
             maturity_date = mat.isoformat()
             days_to_maturity = (mat - date.today()).days
 
+    projected_price_at_maturity_ars = None
+    if (
+        position.asset_type == "LETRA"
+        and days_to_maturity
+        and days_to_maturity > 0
+        and position.annual_yield_pct
+        and position.annual_yield_pct > 0
+        and position.ppc_ars > 0
+    ):
+        projected_price_at_maturity_ars = float(position.ppc_ars) * (
+            1 + float(position.annual_yield_pct)
+        ) ** (days_to_maturity / 365)
+
+    paridad_pct = None
+    if position.asset_type == "BOND" and position.current_price_usd and position.current_price_usd > 0:
+        paridad_pct = float(position.current_price_usd) * 100
+
     return {
         "id": position.id,
         "ticker": position.ticker,
@@ -1378,4 +1393,6 @@ def get_instrument_detail(
         "context": context,
         "maturity_date": maturity_date,
         "days_to_maturity": days_to_maturity,
+        "projected_price_at_maturity_ars": projected_price_at_maturity_ars,
+        "paridad_pct": paridad_pct,
     }

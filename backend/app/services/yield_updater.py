@@ -20,7 +20,7 @@ FCI:
 import logging
 import re
 import calendar
-from datetime import date, timedelta
+from datetime import date
 from decimal import Decimal
 
 logger = logging.getLogger("buildfuture.yields")
@@ -410,10 +410,23 @@ def _yield_lecap(pos, today: date) -> Decimal | None:
 
 
 def _yield_bond(pos) -> Decimal | None:
-    """YTM del bono desde la tabla calibrada. None si el ticker no es conocido."""
-    ytm = _BOND_YTM.get(pos.ticker.upper())
+    """YTM del bono/ON desde BYMA (live) con fallback a tabla calibrada."""
+    from app.services.byma_client import get_bond_tir, get_on_tir
+
+    ticker = pos.ticker.upper()
+    if pos.asset_type == "ON":
+        tir_pct = get_on_tir(ticker)
+    else:
+        tir_pct = get_bond_tir(ticker)
+
+    if tir_pct is not None:
+        result = Decimal(str(round(tir_pct / 100, 4)))
+        logger.info("BOND/ON %s: YTM=%.2f%% (BYMA live)", pos.ticker, float(result) * 100)
+        return result
+
+    ytm = _BOND_YTM.get(ticker)
     if ytm is not None:
-        logger.info("BOND/ON %s: YTM=%.2f%% (tabla)", pos.ticker, float(ytm) * 100)
+        logger.info("BOND/ON %s: YTM=%.2f%% (tabla calibrada)", pos.ticker, float(ytm) * 100)
     return ytm
 
 
