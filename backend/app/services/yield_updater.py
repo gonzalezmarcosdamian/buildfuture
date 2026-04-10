@@ -386,14 +386,18 @@ def _yield_lecap(pos, today: date) -> Decimal | None:
     # Si BYMA no responde, el fallback en byma_client.py (LECAP_TNA_FALLBACK) es 32% — calibrado
     # a las condiciones de mercado de abril 2026. El valor histórico de 68% (2024-2025) ya no aplica.
     if price_per_100 >= Decimal("100"):
+        from app.services.byma_client import get_lecap_tea_by_ticker, get_lecap_tna
         from app.services.fci_prices import get_lecap_tna_by_ticker
-        from app.services.byma_client import get_lecap_tna
 
-        # 1. TNA exacta para este ticker via ArgentinaDatos (más preciso)
-        tna_pct = get_lecap_tna_by_ticker(pos.ticker)
-        source = "ArgentinaDatos"
+        # 1. TEA de mercado exacta para este ticker via BYMA (precio + TEM contractual)
+        tna_pct = get_lecap_tea_by_ticker(pos.ticker)
+        source = "BYMA/TEA_mercado"
         if tna_pct is None:
-            # 2. Promedio ponderado de mercado: BYMA → ArgentinaDatos → 32% hardcodeado
+            # 2. TNA desde vpv de ArgentinaDatos (solo aplica si vpv < 100)
+            tna_pct = get_lecap_tna_by_ticker(pos.ticker)
+            source = "ArgentinaDatos"
+        if tna_pct is None:
+            # 3. Promedio ponderado de mercado: BYMA → ArgentinaDatos → 32%
             tna_pct = get_lecap_tna()
             source = "BYMA/mercado"
 

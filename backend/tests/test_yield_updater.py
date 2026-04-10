@@ -130,27 +130,33 @@ class TestYieldLecap:
         result = _yield_lecap(pos, date(2026, 4, 1))
         assert result is None
 
-    def test_precio_tecnico_acumulado_restaura_default(self):
+    def test_precio_tecnico_acumulado_usa_tna_mercado(self):
         # IOL muestra "precio técnico" acumulado > 100 para LECAPs en cartera.
-        # Si el yield actual ≠ 0.68, restaura al default (ej: venía de 0% por bug anterior).
+        # Cuando precio >= 100, _yield_lecap usa get_lecap_tna() (promedio de mercado BYMA).
         pos = self._make_pos("S31G6", 349_344, 400_348)
-        pos.annual_yield_pct = Decimal("0.00")  # yield incorrecto por bug previo
-        result = _yield_lecap(pos, date(2026, 4, 2))
-        assert result == Decimal("0.68")
+        with patch("app.services.byma_client.get_lecap_tea_by_ticker", return_value=None), \
+             patch("app.services.fci_prices.get_lecap_tna_by_ticker", return_value=None), \
+             patch("app.services.byma_client.get_lecap_tna", return_value=32.0):
+            result = _yield_lecap(pos, date(2026, 4, 2))
+        # 32.0% → Decimal("0.32")
+        assert result == Decimal("0.32")
 
-    def test_precio_tecnico_acumulado_ya_en_default_no_toca(self):
-        # Si el yield ya está en el default 68%, retorna None (sin cambio en DB).
+    def test_precio_tecnico_acumulado_usa_tea_byma_si_disponible(self):
+        # Si BYMA provee TEA exacta para el ticker, la usa (más precisa que el promedio).
         pos = self._make_pos("S31G6", 349_344, 400_348)
-        pos.annual_yield_pct = Decimal("0.68")
-        result = _yield_lecap(pos, date(2026, 4, 2))
-        assert result is None
+        with patch("app.services.byma_client.get_lecap_tea_by_ticker", return_value=27.5):
+            result = _yield_lecap(pos, date(2026, 4, 2))
+        # 27.5% → Decimal("0.275")
+        assert result == Decimal("0.275")
 
-    def test_precio_exactamente_100_restaura_default(self):
-        # precio = 100 exacto → interpretamos como acumulado → restaurar si no está en default
+    def test_precio_exactamente_100_usa_tna_mercado(self):
+        # precio = 100 exacto → interpretamos como acumulado → usa TNA de mercado
         pos = self._make_pos("S31G6", 10_000, 10_000)
-        pos.annual_yield_pct = Decimal("0.00")
-        result = _yield_lecap(pos, date(2026, 4, 2))
-        assert result == Decimal("0.68")
+        with patch("app.services.byma_client.get_lecap_tea_by_ticker", return_value=None), \
+             patch("app.services.fci_prices.get_lecap_tna_by_ticker", return_value=None), \
+             patch("app.services.byma_client.get_lecap_tna", return_value=32.0):
+            result = _yield_lecap(pos, date(2026, 4, 2))
+        assert result == Decimal("0.32")
 
 
 # ── _yield_bond ───────────────────────────────────────────────────────────────

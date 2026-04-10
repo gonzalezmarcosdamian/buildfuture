@@ -259,3 +259,79 @@ def get_lecap_market_tna() -> float | None:
         return None
 
     return round(weighted_sum / total_weight * 100, 2)
+
+
+# ── UVA como proxy del CER para letras ajustadas ──────────────────────────────
+
+_uva_cache: dict = {"data": {}, "ts": 0.0}
+_UVA_CACHE_TTL = 3600  # 1 hora — ArgentinaDatos actualiza UVA 1 vez/día
+
+
+def _fetch_uva() -> dict[str, float]:
+    """
+    Descarga la serie histórica completa de UVA desde ArgentinaDatos.
+    UVA sigue el mismo índice IPC que el CER — se usa como proxy para calcular
+    el ratio de ajuste de capital de las letras CER.
+    Cache TTL 1 hora.
+    """
+    now = time.time()
+    if _uva_cache["data"] and now - _uva_cache["ts"] < _UVA_CACHE_TTL:
+        return _uva_cache["data"]
+
+    try:
+        r = httpx.get(
+            "https://api.argentinadatos.com/v1/finanzas/indices/uva",
+            headers=_HEADERS,
+            timeout=15,
+        )
+        if not r.is_success:
+            logger.warning("ArgentinaDatos UVA: HTTP %s", r.status_code)
+            return _uva_cache["data"]
+
+        data = {item["fecha"]: float(item["valor"]) for item in r.json() if item.get("fecha") and item.get("valor")}
+        _uva_cache["data"] = data
+        _uva_cache["ts"] = now
+        logger.info("ArgentinaDatos UVA: %d entradas cargadas", len(data))
+        return data
+
+    except Exception as e:
+        logger.warning("ArgentinaDatos UVA falló (%s)", e)
+        return _uva_cache["data"]
+
+
+def get_uva_ratio_for_cer(emision: date, today: date) -> float | None:
+    """
+    Retorna el ratio UVA_hoy / UVA_emision como proxy del CER acumulado
+    desde la fecha de emisión hasta hoy.
+
+    Busca la fecha exacta; si no existe, usa la más cercana dentro de ±3 días.
+    Retorna None si no hay datos disponibles para alguna de las fechas.
+
+    Ejemplo: si la letra X29Y6 fue emitida el 2025-11-28 y hoy UVA subió 12.4%,
+    retorna 1.124 → el VN ajustado hoy es 100 × 1.124 = 112.4.
+    """
+    uva = _fetch_uva()
+    if not uva:
+        return None
+
+    def closest_value(target_date: date) -> float | None:
+        key = str(target_date)
+        if key in uva:
+            return uva[key]
+        # Buscar dentro de ±3 días
+        for delta in range(1, 4):
+            from datetime import timedelta
+            for d in [target_date + timedelta(days=delta), target_date - timedelta(days=delta)]:
+                k = str(d)
+                if k in uva:
+                    return uva[k]
+        return None
+
+    uva_em = closest_value(emision)
+    uva_hoy = closest_value(today)
+
+    if uva_em is None or uva_hoy is None or uva_em == 0:
+        logger.warning("get_uva_ratio_for_cer: sin datos UVA para %s o %s", emision, today)
+        return None
+
+    return round(uva_hoy / uva_em, 6)

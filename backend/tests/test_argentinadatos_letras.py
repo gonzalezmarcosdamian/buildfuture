@@ -169,8 +169,9 @@ def test_byma_get_lecap_tna_falls_back_to_argentinadatos_on_400():
 
     byma_response = MagicMock()
     byma_response.status_code = 400
+    byma_response.json.return_value = {"data": []}
 
-    with patch("httpx.get", return_value=byma_response):
+    with patch("app.services.byma_client.httpx.post", return_value=byma_response):
         with patch(
             "app.services.fci_prices.get_lecap_market_tna",
             return_value=31.8,
@@ -188,8 +189,9 @@ def test_byma_get_lecap_tna_hardcoded_fallback_when_both_fail():
 
     byma_response = MagicMock()
     byma_response.status_code = 400
+    byma_response.json.return_value = {"data": []}
 
-    with patch("httpx.get", return_value=byma_response):
+    with patch("app.services.byma_client.httpx.post", return_value=byma_response):
         with patch(
             "app.services.fci_prices.get_lecap_market_tna",
             return_value=None,
