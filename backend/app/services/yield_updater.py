@@ -381,20 +381,21 @@ def _yield_lecap(pos, today: date) -> Decimal | None:
 
     # Las LECAPs argentinas capitalizan diariamente: el "precio técnico" en el portafolio de
     # IOL incluye los intereses acumulados desde la emisión y puede superar 100.
-    # La fórmula (100/precio - 1) asume madurez = 100, lo que da TIR negativa → 0 (incorrecto).
-    # Cuando precio >= 100 la TIR real solo se puede calcular desde el precio de cotización
-    # (endpoint IOL distinto, VN=1000). Devolvemos el DEFAULT TNA conocido de mercado (~68%)
-    # para que la posición no quede en 0% si el updater corrió antes de esta corrección.
-    _LECAP_DEFAULT_TNA = Decimal("0.68")
+    # La fórmula (100/precio - 1) asume madurez = 100, lo que da TIR negativa (incorrecto).
+    # Cuando precio >= 100, usamos get_lecap_tna() de BYMA (promedio ponderado del mercado).
+    # Si BYMA no responde, el fallback en byma_client.py (LECAP_TNA_FALLBACK) es 32% — calibrado
+    # a las condiciones de mercado de abril 2026. El valor histórico de 68% (2024-2025) ya no aplica.
     if price_per_100 >= Decimal("100"):
-        if pos.annual_yield_pct != _LECAP_DEFAULT_TNA:
-            logger.info(
-                "LECAP %s: precio/100=%.2f >= par (técnico acumulado) → restaurando TNA default %.0f%%",
-                pos.ticker,
-                float(price_per_100),
-                float(_LECAP_DEFAULT_TNA) * 100,
-            )
-            return _LECAP_DEFAULT_TNA
+        from app.services.byma_client import get_lecap_tna, LECAP_TNA_FALLBACK
+        tna_pct = get_lecap_tna()  # devuelve el promedio ponderado de BYMA o el fallback
+        tna = Decimal(str(round(tna_pct / 100, 4)))
+        logger.info(
+            "LECAP %s: precio/100=%.2f >= par (técnico acumulado) → TNA mercado %.2f%% (BYMA/fallback)",
+            pos.ticker,
+            float(price_per_100),
+            float(tna) * 100,
+        )
+        return tna
         return None
 
     tir = _lecap_tir(price_per_100, days)

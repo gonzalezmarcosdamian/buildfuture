@@ -25,7 +25,7 @@ logger = logging.getLogger("buildfuture.byma")
 BYMA_BASE = "https://open.bymadata.com.ar/vanoms-be-core/rest/api/bymadata/free"
 CACHE_TTL = 300  # 5 minutos
 
-LECAP_TNA_FALLBACK: float = 55.0  # TNA % de respaldo si BYMA no responde
+LECAP_TNA_FALLBACK: float = 32.0  # TNA % de respaldo si BYMA no responde (calibrado abril 2026)
 
 # Caps de sanidad para TIR — valores extremos son anomalías de mercado (bono en default, etc.)
 BOND_TIR_MAX: float = 50.0   # >50% TIR en bono soberano USD es sospechoso
