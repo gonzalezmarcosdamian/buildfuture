@@ -2,7 +2,7 @@ import logging
 import os
 
 logger = logging.getLogger("buildfuture.main")
-from fastapi import FastAPI
+from fastapi import FastAPI, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import engine, SessionLocal
 from app.models import Base
@@ -406,22 +406,29 @@ def manual_snapshot():
 
 
 @app.post("/admin/collect-prices")
-def manual_collect_prices():
-    """Dispara el price collector manualmente — persiste precios BYMA + FCI VCP en DB."""
-    from app.database import SessionLocal
-    from app.services.price_collector import collect_daily_prices
-    from app.services.mep import get_mep
-    from decimal import Decimal
+def manual_collect_prices(background_tasks: BackgroundTasks):
+    """
+    Dispara el price collector manualmente en background.
+    Retorna inmediatamente — el job corre en background del servidor.
+    Ver logs Railway para el resultado.
+    """
+    def _run():
+        from app.database import SessionLocal
+        from app.services.price_collector import collect_daily_prices
+        from app.services.mep import get_mep
+        from decimal import Decimal
+        db = SessionLocal()
+        try:
+            mep = Decimal(str(get_mep()))
+            summary = collect_daily_prices(db, mep_today=mep)
+            logger.info("manual collect-prices: %s", summary)
+        except Exception as e:
+            logger.error("manual collect-prices falló: %s", e)
+        finally:
+            db.close()
 
-    db = SessionLocal()
-    try:
-        mep = Decimal(str(get_mep()))
-        summary = collect_daily_prices(db, mep_today=mep)
-        return {"status": "ok", "mep": float(mep), **summary}
-    except Exception as e:
-        return {"status": "error", "detail": str(e)}
-    finally:
-        db.close()
+    background_tasks.add_task(_run)
+    return {"status": "accepted", "message": "Price collector iniciado en background — ver logs Railway"}
 
 
 @app.post("/admin/collect-metadata")
