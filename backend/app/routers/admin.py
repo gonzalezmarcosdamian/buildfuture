@@ -7,6 +7,7 @@ NO exponer a clientes ni documentar en el API público.
 import logging
 import os
 from datetime import date
+from decimal import Decimal
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
@@ -847,7 +848,7 @@ def support_repair_user(
     if binance_integration and binance_integration.encrypted_credentials:
         try:
             api_key, secret = binance_integration.encrypted_credentials.split(":", 1)
-            bin_client = BinanceClient(api_key=api_key, secret_key=secret)
+            bin_client = BinanceClient(api_key=api_key, secret=secret)
             added = _sync_binance_history(bin_client, db, user_id)
             db.commit()
             result["binance_snapshots_added"] = added
