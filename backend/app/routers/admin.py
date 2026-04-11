@@ -769,25 +769,48 @@ def support_repair_user(
     _: None = Depends(verify_admin),
 ):
     """
-    Operación de soporte completa para un usuario con históricos incorrectos.
+    Reconstrucción completa del historial para un usuario.
 
-    Flujo:
-    1. Purga snapshots históricos del usuario (todos, excepto hoy si se quiere conservar).
-    2. Re-sincroniza IOL: actualiza posiciones con ppc_usd correcto y reconstruye histórico.
+    Flujo resiliente (todas las fuentes):
+    1. Purga todos los PortfolioSnapshots del usuario.
+    2. Re-sincroniza IOL → reconstruye histórico desde operaciones reales (hasta 730d).
+    3. Si tiene Binance → suma historial de accountSnapshot (últimos 30d) a los snapshots IOL.
+    4. Ejecuta backfill-non-iol → suma Cocos/Manual usando PositionSnapshot histórico real
+       (usa MIN(PositionSnapshot.snapshot_date) como fecha de inicio, no Position.snapshot_date).
+    5. Crea/actualiza snapshot de HOY con todas las posiciones activas.
 
-    Usar cuando:
-    - El gráfico de tenencia muestra valores inflados (millones en vez de miles).
-    - Se deployó un fix de precios (unit mismatch, fuente de datos nueva).
-    - El cliente reporta que su portfolio histórico no coincide con la realidad.
-
-    POST /admin/support/repair-user?user_id=<uuid>&purge_snapshots=true
-    Header: X-Admin-Key: <ADMIN_SECRET_KEY>
+    Resultado: historial coherente con todas las fuentes. Idempotente.
     """
-    from app.models import Integration
+    from app.models import Integration, PositionSnapshot
     from app.services.iol_client import IOLClient
-    from app.routers.integrations import _sync_iol
+    from app.routers.integrations import _sync_iol, _sync_binance_history
+    from app.services.binance_client import BinanceClient
+    from app.services.mep import get_mep
 
-    integration = (
+    result: dict = {
+        "user_id": user_id,
+        "snapshots_purged": 0,
+        "iol_positions_synced": 0,
+        "iol_snapshots_reconstructed": 0,
+        "binance_snapshots_added": 0,
+        "non_iol_snapshots_patched": 0,
+        "today_snapshot": False,
+        "errors": [],
+    }
+
+    # ── 1. Purgar snapshots ───────────────────────────────────────────────────
+    if purge_snapshots:
+        deleted = (
+            db.query(PortfolioSnapshot)
+            .filter(PortfolioSnapshot.user_id == user_id)
+            .delete(synchronize_session=False)
+        )
+        db.flush()
+        result["snapshots_purged"] = deleted
+        logger.info("repair-user: %d snapshots purgados para user=%s", deleted, user_id)
+
+    # ── 2. IOL: reconstruye histórico completo ────────────────────────────────
+    iol_integration = (
         db.query(Integration)
         .filter(
             Integration.user_id == user_id,
@@ -796,49 +819,155 @@ def support_repair_user(
         )
         .first()
     )
-    if not integration or not integration.encrypted_credentials:
-        raise HTTPException(
-            status_code=404,
-            detail=f"IOL no conectado para user_id={user_id}. Solo soportado para usuarios IOL.",
-        )
+    if iol_integration and iol_integration.encrypted_credentials:
+        try:
+            creds = iol_integration.encrypted_credentials.split(":", 1)
+            iol_client = IOLClient(creds[0], creds[1])
+            iol_result = _sync_iol(iol_client, db, user_id)
+            db.commit()
+            result["iol_positions_synced"] = iol_result.get("positions_synced", 0)
+            result["iol_snapshots_reconstructed"] = iol_result.get("snapshots_reconstructed", 0)
+        except Exception as e:
+            db.rollback()
+            logger.error("repair-user: IOL sync falló user=%s: %s", user_id, e)
+            result["errors"].append(f"IOL: {e}")
+    else:
+        result["errors"].append("IOL no conectado — historial IOL no reconstruido")
 
-    # 1. Purgar snapshots
-    deleted_snaps = 0
-    if purge_snapshots:
-        deleted_snaps = (
+    # ── 3. Binance: suma historial accountSnapshot (30d) ─────────────────────
+    binance_integration = (
+        db.query(Integration)
+        .filter(
+            Integration.user_id == user_id,
+            Integration.provider == "BINANCE",
+            Integration.is_connected == True,  # noqa: E712
+        )
+        .first()
+    )
+    if binance_integration and binance_integration.encrypted_credentials:
+        try:
+            api_key, secret = binance_integration.encrypted_credentials.split(":", 1)
+            bin_client = BinanceClient(api_key=api_key, secret_key=secret)
+            added = _sync_binance_history(bin_client, db, user_id)
+            db.commit()
+            result["binance_snapshots_added"] = added
+        except Exception as e:
+            db.rollback()
+            logger.warning("repair-user: Binance history falló user=%s: %s", user_id, e)
+            result["errors"].append(f"Binance: {e}")
+
+    # ── 4. Non-IOL backfill: Cocos + Manual usando PositionSnapshot histórico ─
+    non_iol_positions = (
+        db.query(Position)
+        .filter(
+            Position.user_id == user_id,
+            Position.is_active.is_(True),
+            Position.source != "IOL",
+        )
+        .all()
+    )
+    if non_iol_positions:
+        non_iol_tickers = {p.ticker for p in non_iol_positions}
+        all_pos_snaps = (
+            db.query(PositionSnapshot)
+            .filter(
+                PositionSnapshot.user_id == user_id,
+                PositionSnapshot.ticker.in_(non_iol_tickers),
+            )
+            .all()
+        )
+        pos_snap_index: dict[tuple, float] = {
+            (s.ticker, s.snapshot_date): float(s.value_usd) for s in all_pos_snaps
+        }
+        first_seen: dict[str, date] = {}
+        for s in all_pos_snaps:
+            if s.ticker not in first_seen or s.snapshot_date < first_seen[s.ticker]:
+                first_seen[s.ticker] = s.snapshot_date
+        pos_by_ticker = {p.ticker: p for p in non_iol_positions}
+
+        today_date = date.today()
+        hist_snaps = (
             db.query(PortfolioSnapshot)
-            .filter(PortfolioSnapshot.user_id == user_id)
-            .delete(synchronize_session=False)
+            .filter(
+                PortfolioSnapshot.user_id == user_id,
+                PortfolioSnapshot.snapshot_date < today_date,
+            )
+            .order_by(PortfolioSnapshot.snapshot_date)
+            .all()
         )
-        db.flush()
-        logger.info("support/repair-user: %d snapshots purgados para user=%s", deleted_snaps, user_id)
+        patched = 0
+        for snap in hist_snaps:
+            offset = 0.0
+            count_added = 0
+            for ticker, pos in pos_by_ticker.items():
+                start = first_seen.get(ticker, pos.snapshot_date)
+                if start > snap.snapshot_date:
+                    continue
+                val = pos_snap_index.get((ticker, snap.snapshot_date), float(pos.current_value_usd))
+                if val > 0:
+                    offset += val
+                    count_added += 1
+            if offset > 0:
+                snap.total_usd = snap.total_usd + Decimal(str(round(offset, 2)))
+                snap.positions_count = (snap.positions_count or 0) + count_added
+                patched += 1
+        try:
+            db.commit()
+            result["non_iol_snapshots_patched"] = patched
+        except Exception as e:
+            db.rollback()
+            logger.error("repair-user: backfill non-IOL falló user=%s: %s", user_id, e)
+            result["errors"].append(f"backfill: {e}")
 
-    # 2. Re-sync IOL (actualiza posiciones + reconstruye histórico)
+    # ── 5. Snapshot de HOY con todas las fuentes ─────────────────────────────
     try:
-        creds = integration.encrypted_credentials.split(":", 1)
-        client = IOLClient(creds[0], creds[1])
-        result = _sync_iol(client, db, user_id)
-        db.commit()
+        today_date = date.today()
+        all_positions = (
+            db.query(Position)
+            .filter(Position.user_id == user_id, Position.is_active.is_(True))
+            .all()
+        )
+        if all_positions:
+            mep = get_mep()
+            total_usd = sum(p.current_value_usd for p in all_positions)
+            existing = (
+                db.query(PortfolioSnapshot)
+                .filter(
+                    PortfolioSnapshot.user_id == user_id,
+                    PortfolioSnapshot.snapshot_date == today_date,
+                )
+                .first()
+            )
+            if existing:
+                existing.total_usd = total_usd
+                existing.positions_count = len(all_positions)
+                existing.fx_mep = Decimal(str(round(float(mep), 2)))
+            else:
+                db.add(PortfolioSnapshot(
+                    user_id=user_id,
+                    snapshot_date=today_date,
+                    total_usd=total_usd,
+                    monthly_return_usd=Decimal("0"),
+                    positions_count=len(all_positions),
+                    fx_mep=Decimal(str(round(float(mep), 2))),
+                    cost_basis_usd=Decimal("0"),
+                ))
+            db.commit()
+            result["today_snapshot"] = True
     except Exception as e:
         db.rollback()
-        logger.error("support/repair-user: sync falló para user=%s: %s", user_id, e)
-        raise HTTPException(status_code=502, detail=f"Sync IOL falló: {e}")
+        logger.error("repair-user: snapshot hoy falló user=%s: %s", user_id, e)
+        result["errors"].append(f"today_snapshot: {e}")
 
-    logger.info(
-        "support/repair-user: user=%s — %d snaps purgados, %d posiciones sync, %d snaps reconstruidos",
-        user_id,
-        deleted_snaps,
-        result.get("positions_synced", 0),
-        result.get("snapshots_reconstructed", 0),
+    result["message"] = (
+        "Repair completado con todas las fuentes. "
+        f"IOL: {result['iol_snapshots_reconstructed']} snaps, "
+        f"Binance: {result['binance_snapshots_added']} snaps, "
+        f"non-IOL patched: {result['non_iol_snapshots_patched']} snaps."
+        + (f" Errores: {result['errors']}" if result["errors"] else "")
     )
-    return {
-        "user_id": user_id,
-        "snapshots_purged": deleted_snaps,
-        "positions_synced": result.get("positions_synced", 0),
-        "snapshots_reconstructed": result.get("snapshots_reconstructed", 0),
-        "mep": result.get("mep"),
-        "message": "Repair completado. El cliente puede recargar la app.",
-    }
+    logger.info("repair-user completado: user=%s %s", user_id, result["message"])
+    return result
 
 
 @router.get("/support/snapshot-health")
