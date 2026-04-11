@@ -414,18 +414,6 @@ def _save_portfolio_snapshot(db) -> None:
     )
 
     for (user_id,) in user_ids:
-        existing = (
-            db.query(PortfolioSnapshot)
-            .filter(
-                PortfolioSnapshot.snapshot_date == today,
-                PortfolioSnapshot.user_id == user_id,
-            )
-            .first()
-        )
-        if existing:
-            logger.info("Snapshot de hoy ya existe para user=%s — skip", user_id)
-            continue
-
         positions = (
             db.query(Position)
             .filter(
@@ -441,18 +429,32 @@ def _save_portfolio_snapshot(db) -> None:
         total_usd = score["portfolio_total_usd"]
         monthly_return = score["monthly_return_usd"]
 
-        snapshot = PortfolioSnapshot(
-            user_id=user_id,
-            snapshot_date=today,
-            total_usd=total_usd,
-            monthly_return_usd=monthly_return,
-            positions_count=len(positions),
-            fx_mep=fx_mep,
+        existing = (
+            db.query(PortfolioSnapshot)
+            .filter(
+                PortfolioSnapshot.snapshot_date == today,
+                PortfolioSnapshot.user_id == user_id,
+            )
+            .first()
         )
-        db.add(snapshot)
+        if existing:
+            # Upsert: actualizar para reflejar el estado al cierre del día
+            existing.total_usd = total_usd
+            existing.monthly_return_usd = monthly_return
+            existing.positions_count = len(positions)
+            existing.fx_mep = fx_mep
+        else:
+            db.add(PortfolioSnapshot(
+                user_id=user_id,
+                snapshot_date=today,
+                total_usd=total_usd,
+                monthly_return_usd=monthly_return,
+                positions_count=len(positions),
+                fx_mep=fx_mep,
+            ))
         db.commit()
         logger.info(
-            "Snapshot guardado user=%s: USD %.2f | retorno %.2f/mes | MEP %.0f",
+            "Snapshot upsert user=%s: USD %.2f | retorno %.2f/mes | MEP %.0f",
             user_id,
             float(total_usd),
             float(monthly_return),

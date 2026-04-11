@@ -521,6 +521,9 @@ _IOL_FCI_TICKER_MAP: dict[str, tuple[str | None, str]] = {
     "IOLCAM":  (None, "mercadoDinero"),   # alias variant
     "IOLMMA":  (None, "mercadoDinero"),   # IOL Money Market ARS variant
     "IOLMM":   (None, "mercadoDinero"),   # alias variant
+    # Cocos FCIs — categorías confirmadas contra ArgentinaDatos
+    "COCOSPPA": ("Cocos Pesos Plus", "rentaMixta"),  # Cocos Pesos Plus → rentaMixta, no mercadoDinero
+    "COCOSPPL": ("Cocos Pesos Plus", "rentaMixta"),  # ticker alternativo
 }
 
 
@@ -1921,6 +1924,20 @@ def _sync_cocos(client: CocosClient, db: Session, user_id: str) -> dict:
     except Exception as e:
         logger.warning("_sync_cocos: yield_updater post-sync falló (no crítico): %s", e)
 
+    # Grabar PositionSnapshot de hoy para acumular histórico de Cocos día a día.
+    # Esto alimenta backfill-non-iol con valores reales por fecha (no el valor actual retroactivo).
+    try:
+        from app.routers.portfolio import save_position_snapshots
+        active_cocos = (
+            db.query(Position)
+            .filter(Position.user_id == user_id, Position.source == "COCOS", Position.is_active.is_(True))
+            .all()
+        )
+        if active_cocos:
+            save_position_snapshots(db, user_id, active_cocos)
+    except Exception as e:
+        logger.warning("_sync_cocos: PositionSnapshot post-sync falló (no crítico): %s", e)
+
     db.flush()
     if discovered:
         logger.info(
@@ -2191,8 +2208,14 @@ def sync_binance(
     except BinanceAuthError as e:
         integration.is_connected = False
         integration.last_error = str(e)
+        db.rollback()
         db.commit()
         raise HTTPException(status_code=401, detail=str(e))
+    except Exception as e:
+        integration.last_error = str(e)[:200]
+        db.rollback()
+        db.commit()
+        raise HTTPException(status_code=502, detail=str(e))
 
 
 @router.post("/binance/disconnect")
