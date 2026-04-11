@@ -1000,19 +1000,22 @@ def support_backfill_non_iol(
     _: None = Depends(verify_admin),
 ):
     """
-    Parcha snapshots históricos que solo tienen posiciones IOL añadiendo el valor
-    actual de posiciones no-IOL (Cocos, Manual) como offset plano.
+    Parcha snapshots históricos añadiendo el valor REAL de posiciones no-IOL en cada fecha.
 
-    Contexto: repair-user solo reconstruye histórico con IOL. Si el usuario tiene
-    posiciones Cocos o Manual, esos valores no se incluyen en los snapshots históricos.
-    Este endpoint los suma como offset fijo al total_usd de cada snapshot pasado,
-    y corrige positions_count.
+    Estrategia (en orden de calidad de datos):
+    1. Si existe un PositionSnapshot para esa posición en esa fecha → usar ese valor exacto.
+    2. Si no existe snapshot pero la posición ya existía (Position.snapshot_date <= fecha) →
+       usar current_value_usd como aproximación (posición existía, no tenemos precio histórico).
+    3. Si Position.snapshot_date > fecha → la posición no existía, NO sumar.
 
-    Es una aproximación: asume que el valor de posiciones no-IOL es constante
-    en el tiempo (lo mejor que podemos hacer sin histórico de esas posiciones).
+    De esta forma:
+    - Un CASH_USD ingresado el 4-abr no infla snapshots del 30-mar.
+    - COCOSPPA que valía $4,471 en abril 3-9 y $2,447 desde el 10-abr se refleja correctamente
+      porque sus PositionSnapshots históricos existen.
 
     NO toca el snapshot de hoy (usar force-snapshot-today para eso).
     """
+    from app.models import PositionSnapshot
     today = date.today()
 
     non_iol_positions = (
@@ -1029,13 +1032,34 @@ def support_backfill_non_iol(
         return {
             "user_id": user_id,
             "message": "No hay posiciones no-IOL activas. Nada que hacer.",
-            "non_iol_value_usd": 0.0,
             "snapshots_patched": 0,
         }
 
-    non_iol_total = sum(p.current_value_usd for p in non_iol_positions)
-    non_iol_total_float = float(non_iol_total)
-    non_iol_count = len(non_iol_positions)
+    from app.models import PositionSnapshot
+    non_iol_tickers = {p.ticker for p in non_iol_positions}
+
+    # Pre-cargar todos los PositionSnapshots no-IOL (sin filtro de fecha, necesitamos el primer)
+    all_pos_snaps = (
+        db.query(PositionSnapshot)
+        .filter(
+            PositionSnapshot.user_id == user_id,
+            PositionSnapshot.ticker.in_(non_iol_tickers),
+        )
+        .all()
+    )
+    # Índice: {(ticker, date) -> value_usd}
+    pos_snap_index: dict[tuple, float] = {
+        (s.ticker, s.snapshot_date): float(s.value_usd)
+        for s in all_pos_snaps
+    }
+    # Fecha de inicio REAL: la más temprana en PositionSnapshot.
+    # Position.snapshot_date refleja el último sync, no el primero — no sirve para esto.
+    first_seen: dict[str, date] = {}
+    for s in all_pos_snaps:
+        if s.ticker not in first_seen or s.snapshot_date < first_seen[s.ticker]:
+            first_seen[s.ticker] = s.snapshot_date
+
+    pos_by_ticker = {p.ticker: p for p in non_iol_positions}
 
     historical_snapshots = (
         db.query(PortfolioSnapshot)
@@ -1043,21 +1067,36 @@ def support_backfill_non_iol(
             PortfolioSnapshot.user_id == user_id,
             PortfolioSnapshot.snapshot_date < today,
         )
+        .order_by(PortfolioSnapshot.snapshot_date)
         .all()
     )
 
     patched = 0
-    skipped = 0
+    detail_log = []
     for snap in historical_snapshots:
-        # Guard idempotente: si ya fue parcheado, saltar
-        existing_offset = float(getattr(snap, "non_iol_offset_usd", None) or 0)
-        if existing_offset != 0:
-            skipped += 1
+        offset = 0.0
+        count_added = 0
+        for ticker, pos in pos_by_ticker.items():
+            # Inicio real de la posición: primer PositionSnapshot o Position.snapshot_date
+            start_date = first_seen.get(ticker, pos.snapshot_date)
+            if start_date > snap.snapshot_date:
+                continue  # Posición no existía en esta fecha
+            # PositionSnapshot exacto si existe; valor actual como aproximación si no
+            if (ticker, snap.snapshot_date) in pos_snap_index:
+                val = pos_snap_index[(ticker, snap.snapshot_date)]
+            else:
+                val = float(pos.current_value_usd)
+            if val > 0:
+                offset += val
+                count_added += 1
+
+        if offset == 0:
             continue
-        snap.total_usd = snap.total_usd + non_iol_total
-        snap.positions_count = (snap.positions_count or 0) + non_iol_count
-        snap.non_iol_offset_usd = non_iol_total  # type: ignore[assignment]
+
+        snap.total_usd = snap.total_usd + Decimal(str(round(offset, 2)))
+        snap.positions_count = (snap.positions_count or 0) + count_added
         patched += 1
+        detail_log.append({"date": snap.snapshot_date.isoformat(), "offset_added": round(offset, 2)})
 
     try:
         db.commit()
@@ -1066,21 +1105,19 @@ def support_backfill_non_iol(
         raise HTTPException(status_code=500, detail=str(e))
 
     logger.info(
-        "support/backfill-non-iol: user=%s non_iol_value=%.2f snapshots_patched=%d",
+        "support/backfill-non-iol: user=%s snapshots_patched=%d",
         user_id,
-        non_iol_total_float,
         patched,
     )
     return {
         "user_id": user_id,
         "non_iol_sources": list({p.source for p in non_iol_positions}),
-        "non_iol_positions_count": non_iol_count,
-        "non_iol_value_usd": round(non_iol_total_float, 2),
+        "non_iol_positions_count": len(non_iol_positions),
         "snapshots_patched": patched,
-        "snapshots_skipped_already_patched": skipped,
+        "detail": detail_log,
         "message": (
-            f"Se añadió USD {non_iol_total_float:.2f} de {non_iol_count} posiciones no-IOL "
-            f"a {patched} snapshots históricos ({skipped} ya estaban parcheados). "
+            f"Se parcharon {patched} snapshots históricos usando valores reales por fecha "
+            f"(PositionSnapshot cuando existe, snapshot_date como límite de inicio). "
             f"Luego llamar a force-snapshot-today."
         ),
     }
