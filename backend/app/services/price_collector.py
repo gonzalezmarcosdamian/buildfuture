@@ -351,12 +351,20 @@ def backfill_metadata_from_positions(db) -> int:
 
         try:
             ficha = _get_ficha_tecnica(ticker)
-            if not ficha:
-                continue
-            tem = _parse_tem_from_interes(ficha.get("interes", ""))
-            emision = _parse_date(ficha.get("fechaEmision", ""))
-            vto = _parse_date(ficha.get("fechaVencimiento", ""))
+            tem = _parse_tem_from_interes(ficha.get("interes", "")) if ficha else None
+            emision = _parse_date(ficha.get("fechaEmision", "")) if ficha else None
+            vto = _parse_date(ficha.get("fechaVencimiento", "")) if ficha else None
             currency = "USD" if pos.asset_type in ("BOND", "ON") else "ARS"
+
+            # Fallback para LECAPs: derivar vencimiento del ticker si BYMA no respondió
+            if vto is None and pos.asset_type == "LETRA":
+                from app.services.yield_updater import _parse_lecap_maturity
+                vto = _parse_lecap_maturity(ticker)
+
+            # Si ni con fallback tenemos fecha, no vale guardar metadata incompleta para BONDs/ONs
+            if vto is None and pos.asset_type in ("BOND", "ON") and not ficha:
+                continue
+
             db.merge(InstrumentMetadata(
                 ticker=ticker,
                 asset_type=pos.asset_type,
@@ -364,7 +372,7 @@ def backfill_metadata_from_positions(db) -> int:
                 emision_date=emision,
                 maturity_date=vto,
                 currency=currency,
-                description=ficha.get("denominacion", pos.description or ""),
+                description=(ficha.get("denominacion", pos.description or "") if ficha else (pos.description or "")),
             ))
             saved += 1
         except Exception as e:

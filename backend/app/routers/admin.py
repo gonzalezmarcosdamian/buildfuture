@@ -655,30 +655,45 @@ def yields_diagnose(
         expected_yield = None
 
         if p.asset_type == "LETRA":
-            maturity = _parse_lecap_maturity(p.ticker)
-            if maturity is None:
-                skip_reason = "ticker no parseble"
-            elif (maturity - today).days <= 1:
-                skip_reason = "vencida"
-                expected_yield = 0.0
-            elif p.quantity <= 0:
-                skip_reason = "quantity=0"
-            elif p.current_value_ars is None or p.current_value_ars <= 0:
-                if p.current_price_usd > 0:
-                    synthetic_ars = float(p.quantity) * float(p.current_price_usd) * mep
-                    price_per_100 = (synthetic_ars / float(p.quantity)) * 100
+            ticker_upper = p.ticker.upper()
+            # Letras CER (prefijo X): yield negativo real es correcto
+            if ticker_upper.startswith("X"):
+                expected_yield = float(p.annual_yield_pct)  # viene de _yield_letra_cer
+            else:
+                maturity = _parse_lecap_maturity(p.ticker)
+                if maturity is None:
+                    skip_reason = "ticker no parseble"
+                elif (maturity - today).days <= 1:
+                    skip_reason = "vencida"
+                    expected_yield = 0.0
+                elif p.quantity <= 0:
+                    skip_reason = "quantity=0"
+                elif p.current_value_ars is None or p.current_value_ars <= 0:
+                    if p.current_price_usd > 0:
+                        synthetic_ars = float(p.quantity) * float(p.current_price_usd) * mep
+                        price_per_100 = (synthetic_ars / float(p.quantity)) * 100
+                        days = (maturity - today).days
+                        skip_reason = (
+                            "current_value_ars=0 (reconstruible desde price_usd×mep)"
+                        )
+                        from decimal import Decimal as D
+                        from app.services.yield_updater import _lecap_tir
+
+                        expected_yield = float(
+                            _lecap_tir(D(str(round(price_per_100, 4))), days)
+                        )
+                    else:
+                        skip_reason = "current_value_ars=0 y current_price_usd=0"
+                else:
+                    # Happy path: LECAP válida con precio → calcula TNA esperada
                     days = (maturity - today).days
-                    skip_reason = (
-                        "current_value_ars=0 (reconstruible desde price_usd×mep)"
-                    )
+                    price_per_100 = (float(p.current_value_ars) / float(p.quantity)) * 100
                     from decimal import Decimal as D
                     from app.services.yield_updater import _lecap_tir
 
                     expected_yield = float(
                         _lecap_tir(D(str(round(price_per_100, 4))), days)
                     )
-                else:
-                    skip_reason = "current_value_ars=0 y current_price_usd=0"
 
         elif p.asset_type in ("BOND", "ON"):
             ytm = _BOND_YTM.get(p.ticker.upper())
