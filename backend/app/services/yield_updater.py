@@ -262,25 +262,69 @@ def update_yields(db, mep: Decimal | None = None) -> int:
                     float(pos.current_value_ars),
                 )
 
-            # ── yield ──────────────────────────────────────────────────────
-            if pos.asset_type == "FCI":
-                if _fci_avg is None:
-                    _fci_avg = _fci_market_avg_yield()
-                new_yield = _yield_fci(pos, _fci_avg)
-            else:
-                new_yield = _compute_yield(pos, today)
+            # ── yield — cadena de fallback v2 ────────────────────────────
+            new_yield: Decimal | None = None
+            new_currency: str = "ARS"
+
+            # ① Retorno real observado desde PositionSnapshot (máxima precisión)
+            try:
+                from app.services.yield_calculator_v2 import (
+                    compute_position_actual_return,
+                    compute_lecap_tea,
+                    compute_bond_yield,
+                    compute_fci_yield,
+                    resolve_fci_ticker,
+                )
+                v2_yield, v2_currency = compute_position_actual_return(
+                    db, pos.user_id, pos.ticker, pos.asset_type
+                )
+                if v2_yield is not None:
+                    new_yield = v2_yield
+                    new_currency = v2_currency or "USD"
+                    logger.debug("yield_v2 ① position_actual %s: %.2f%%", pos.ticker, float(new_yield) * 100)
+
+                # ② Yield desde price store propio
+                if new_yield is None:
+                    if pos.asset_type == "LETRA" and pos.ticker.upper().startswith("S"):
+                        v2_yield, v2_currency = compute_lecap_tea(pos.ticker, today, db)
+                    elif pos.asset_type in ("BOND", "ON"):
+                        v2_yield, v2_currency = compute_bond_yield(pos.ticker, db)
+                    elif pos.asset_type == "FCI":
+                        fci_ticker = resolve_fci_ticker(pos)
+                        v2_yield, v2_currency = compute_fci_yield(fci_ticker, db)
+                    if v2_yield is not None:
+                        new_yield = v2_yield
+                        new_currency = v2_currency or "ARS"
+                        logger.debug("yield_v2 ② price_store %s: %.2f%%", pos.ticker, float(new_yield) * 100)
+            except Exception as e_v2:
+                logger.debug("yield_v2 falló para %s: %s — usando sistema actual", pos.ticker, e_v2)
+
+            # ③ Sistema actual (BYMA / ArgentinaDatos) — bootstrap para datos nuevos
+            if new_yield is None:
+                if pos.asset_type == "FCI":
+                    if _fci_avg is None:
+                        _fci_avg = _fci_market_avg_yield()
+                    new_yield = _yield_fci(pos, _fci_avg)
+                else:
+                    new_yield = _compute_yield(pos, today)
+                new_currency = "ARS"
 
             changed = False
             if new_yield is not None and new_yield != pos.annual_yield_pct:
                 old = float(pos.annual_yield_pct) * 100
                 pos.annual_yield_pct = new_yield
+                pos.yield_currency = new_currency
                 logger.info(
-                    "yield_updater %s %s: %.1f%% → %.1f%%",
+                    "yield_updater %s %s: %.1f%% → %.1f%% (%s)",
                     pos.asset_type,
                     pos.ticker,
                     old,
                     float(new_yield) * 100,
+                    new_currency,
                 )
+                changed = True
+            elif new_yield is not None and pos.yield_currency != new_currency:
+                pos.yield_currency = new_currency
                 changed = True
 
             # ── current_price_usd con MEP del día (LETRA y FCI en ARS) ───

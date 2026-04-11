@@ -40,6 +40,7 @@ def split_portfolio_buckets(positions: list) -> dict:
         asset_type = getattr(p, "asset_type", "").upper()
         value = p.current_value_usd
         raw_yield = p.annual_yield_pct
+        yield_currency = getattr(p, "yield_currency", "ARS") or "ARS"
         source = getattr(p, "source", "MANUAL") or "MANUAL"
 
         if source not in by_source:
@@ -52,7 +53,20 @@ def split_portfolio_buckets(positions: list) -> dict:
         by_source[source]["total_usd"] += value
 
         if asset_type in RENTA_ASSET_TYPES:
-            renta_monthly += value * raw_yield / 12
+            # v0.12.0: solo sumar a renta_monthly si el yield está en USD real.
+            # Yields ARS nominales aplicados a valor USD producen unidades mezcladas
+            # y sobreestiman el retorno real cuando hay devaluación.
+            # Si yield_currency == 'ARS': contribuye a renta_total (para cálculo de
+            # annual_return_pct) pero se excluye de renta_monthly_usd hasta conversión.
+            if yield_currency == "USD":
+                renta_monthly += value * raw_yield / 12
+            # Para backward compat mientras se migra: si no hay retorno USD disponible
+            # usar ARS yield con descuento conservador por devaluación esperada (50% anual)
+            else:
+                DEVALUATION_PROXY = Decimal("0.50")  # 50% anual esperado MEP
+                real_usd_yield = (1 + raw_yield) / (1 + DEVALUATION_PROXY) - 1
+                real_usd_yield = max(real_usd_yield, Decimal("0"))
+                renta_monthly += value * real_usd_yield / 12
             renta_total += value
             by_source[source]["renta_usd"] += value
         elif asset_type in CAPITAL_ASSET_TYPES:

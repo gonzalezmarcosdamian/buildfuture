@@ -100,6 +100,7 @@ def _daily_close_job() -> None:
             _daily_mep = float(_get_mep())
             _update_yields(db, mep=_daily_mep)
             _update_stock_prices(db, mep=_daily_mep)
+            _collect_prices(db, mep=_daily_mep)   # v0.12.0: price store
             _save_portfolio_snapshot(db)
         finally:
             db.close()
@@ -372,6 +373,24 @@ def _update_stock_prices(db, mep=None) -> None:
         logger.info("update_stock_prices: %d STOCKs actualizados", n)
     except Exception as e:
         logger.warning("update_stock_prices falló: %s", e)
+
+
+def _collect_prices(db, mep: float | None = None) -> None:
+    """v0.12.0: recolecta precios de cierre de BYMA y ArgentinaDatos en el price store."""
+    from app.services.price_collector import collect_daily_prices
+    from decimal import Decimal
+    try:
+        mep_dec = Decimal(str(mep)) if mep else None
+        summary = collect_daily_prices(db, mep_today=mep_dec)
+        logger.info(
+            "price_collector: letras=%d bonos=%d ons=%d cedears=%d fci=%d errors=%d",
+            summary["letras"], summary["bonos"], summary["ons"],
+            summary["cedears"], summary["fci"], len(summary["errors"]),
+        )
+        if summary["errors"]:
+            logger.warning("price_collector errors: %s", summary["errors"])
+    except Exception as e:
+        logger.warning("price_collector falló (no crítico): %s", e)
 
 
 def _update_yields(db, mep=None) -> None:

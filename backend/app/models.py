@@ -1,5 +1,6 @@
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Optional
 from sqlalchemy import (
     String,
     Numeric,
@@ -31,6 +32,7 @@ class Position(Base):
     annual_yield_pct: Mapped[Decimal] = mapped_column(
         Numeric(8, 4), default=Decimal("0.08")
     )
+    yield_currency: Mapped[str] = mapped_column(String(3), default="ARS")
     snapshot_date: Mapped[date] = mapped_column(Date)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     # Precio promedio de compra en ARS (directo de IOL, sin conversión)
@@ -366,6 +368,52 @@ class PositionSnapshot(Base):
     quantity: Mapped[Decimal] = mapped_column(Numeric(18, 6))
     asset_type: Mapped[str] = mapped_column(String(20), default="")
     source: Mapped[str] = mapped_column(String(20), default="")
+    # v0.12.0: valor en ARS y MEP del día — permite calcular retorno USD real
+    value_ars: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 2), nullable=True)
+    mep: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 2), nullable=True)
+
+
+class InstrumentMetadata(Base):
+    """
+    Metadata estática de instrumentos financieros — se guarda UNA SOLA VEZ por ticker.
+    Los datos contractuales (TEM, fechaEmision, fechaVencimiento) nunca cambian.
+    Permite calcular TEA de LECAPs sin llamar a BYMA fichatecnica en runtime.
+    """
+
+    __tablename__ = "instrument_metadata"
+
+    ticker: Mapped[str] = mapped_column(String(20), primary_key=True)
+    asset_type: Mapped[str] = mapped_column(String(20))
+    emision_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    maturity_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    tem: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 6), nullable=True)
+    currency: Mapped[str] = mapped_column(String(3), default="ARS")
+    fondo_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    fci_categoria: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    description: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class InstrumentPrice(Base):
+    """
+    Precio de cierre diario por instrumento — almacenado desde BYMA y ArgentinaDatos.
+    Fuente de verdad para calcular yields sin depender de APIs en runtime.
+    Una fila por ticker por día — upsert en (ticker, price_date).
+    """
+
+    __tablename__ = "instrument_prices"
+    __table_args__ = (
+        UniqueConstraint("ticker", "price_date", name="uq_instrument_price"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    ticker: Mapped[str] = mapped_column(String(20), index=True)
+    price_date: Mapped[date] = mapped_column(Date, index=True)
+    vwap: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 4), nullable=True)
+    prev_close: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 4), nullable=True)
+    volume: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 2), nullable=True)
+    mep: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 2), nullable=True)
+    source: Mapped[str] = mapped_column(String(20), default="BYMA")
 
 
 class WaitlistEntry(Base):

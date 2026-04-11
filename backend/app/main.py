@@ -31,7 +31,7 @@ logging.basicConfig(
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 
-app = FastAPI(title="BuildFuture API", version="0.11.0")
+app = FastAPI(title="BuildFuture API", version="0.12.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -65,6 +65,7 @@ def startup():
     _purge_bad_manual_positions(db)
     _dedup_positions(db)
     _backfill_integrations(db)
+    _backfill_instrument_metadata(db)   # v0.12.0: seed metadata estática de instrumentos
     db.close()
     start_scheduler()
 
@@ -169,6 +170,52 @@ def _run_migrations():
         (
             "ALTER TABLE portfolio_snapshots ADD COLUMN IF NOT EXISTS non_iol_offset_usd NUMERIC(12,2) DEFAULT 0",
             "portfolio_snapshots.non_iol_offset_usd",
+        ),
+        # ── v0.12.0: Price Store + yield soberano ────────────────────────────
+        (
+            """CREATE TABLE IF NOT EXISTS instrument_metadata (
+                ticker          VARCHAR(20) PRIMARY KEY,
+                asset_type      VARCHAR(20) NOT NULL,
+                emision_date    DATE,
+                maturity_date   DATE,
+                tem             NUMERIC(8,6),
+                currency        CHAR(3) DEFAULT 'ARS',
+                fondo_name      VARCHAR(100),
+                fci_categoria   VARCHAR(50),
+                description     VARCHAR(200),
+                fetched_at      TIMESTAMP NOT NULL DEFAULT NOW()
+            )""",
+            "instrument_metadata table",
+        ),
+        (
+            """CREATE TABLE IF NOT EXISTS instrument_prices (
+                id          SERIAL PRIMARY KEY,
+                ticker      VARCHAR(20) NOT NULL,
+                price_date  DATE NOT NULL,
+                vwap        NUMERIC(14,4),
+                prev_close  NUMERIC(14,4),
+                volume      NUMERIC(18,2),
+                mep         NUMERIC(10,2),
+                source      VARCHAR(20) NOT NULL DEFAULT 'BYMA',
+                CONSTRAINT uq_instrument_price UNIQUE (ticker, price_date)
+            )""",
+            "instrument_prices table",
+        ),
+        (
+            "CREATE INDEX IF NOT EXISTS idx_instrument_prices_ticker_date ON instrument_prices(ticker, price_date DESC)",
+            "idx_instrument_prices_ticker_date",
+        ),
+        (
+            "ALTER TABLE position_snapshots ADD COLUMN IF NOT EXISTS value_ars NUMERIC(14,2) DEFAULT NULL",
+            "position_snapshots.value_ars",
+        ),
+        (
+            "ALTER TABLE position_snapshots ADD COLUMN IF NOT EXISTS mep NUMERIC(10,2) DEFAULT NULL",
+            "position_snapshots.mep",
+        ),
+        (
+            "ALTER TABLE positions ADD COLUMN IF NOT EXISTS yield_currency CHAR(3) DEFAULT 'ARS'",
+            "positions.yield_currency",
         ),
     ]
     try:
@@ -320,6 +367,20 @@ def _backfill_integrations(db):
         db.rollback()
 
 
+def _backfill_instrument_metadata(db):
+    """
+    v0.12.0: llama a fichatecnica de BYMA para todas las posiciones activas
+    LETRA/BOND/ON y guarda la metadata estática en instrument_metadata.
+    Solo corre para tickers no registrados todavía — idempotente.
+    """
+    try:
+        from app.services.price_collector import backfill_metadata_from_positions
+        n = backfill_metadata_from_positions(db)
+        logger.info("_backfill_instrument_metadata: %d tickers guardados", n)
+    except Exception as e:
+        logger.warning("_backfill_instrument_metadata falló (no crítico): %s", e)
+
+
 @app.on_event("shutdown")
 def shutdown():
     if not IS_SERVERLESS:
@@ -328,12 +389,12 @@ def shutdown():
 
 @app.get("/")
 def root():
-    return {"status": "ok", "version": "0.10.0", "env": "vercel"}
+    return {"status": "ok", "version": "0.12.0", "env": "vercel"}
 
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "version": "0.10.0"}
+    return {"status": "ok", "version": "0.12.0"}
 
 
 @app.post("/admin/snapshot")

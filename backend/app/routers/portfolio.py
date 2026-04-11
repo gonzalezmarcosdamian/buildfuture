@@ -123,11 +123,24 @@ def save_position_snapshots(db: Session, user_id: str, positions: list) -> None:
     Guarda/actualiza un PositionSnapshot por posición activa para hoy.
     Upsert seguro: si ya existe el registro (user_id, ticker, hoy) lo actualiza,
     si no existe lo crea. Llamar después de cualquier sync exitoso.
+
+    v0.12.0: también guarda value_ars y mep del día para permitir calcular
+    retorno real en USD (capturando efecto devaluación) desde el historial propio.
     """
     today = date.today()
+
+    # MEP del día — buscar en BudgetConfig del usuario (ya actualizado en el sync)
+    mep_today = _get_mep_for_snapshots(db, user_id)
+
     for p in positions:
         if not getattr(p, "is_active", True):
             continue
+
+        # value_ars: directo de la posición si está disponible (LECAPs, FCIs)
+        value_ars = getattr(p, "current_value_ars", None)
+        if value_ars is not None and value_ars <= 0:
+            value_ars = None
+
         existing = (
             db.query(PositionSnapshot)
             .filter(
@@ -143,6 +156,10 @@ def save_position_snapshots(db: Session, user_id: str, positions: list) -> None:
             existing.quantity = p.quantity
             existing.asset_type = p.asset_type
             existing.source = p.source or ""
+            if value_ars is not None:
+                existing.value_ars = value_ars
+            if mep_today is not None:
+                existing.mep = mep_today
         else:
             db.add(
                 PositionSnapshot(
@@ -154,8 +171,32 @@ def save_position_snapshots(db: Session, user_id: str, positions: list) -> None:
                     quantity=p.quantity,
                     asset_type=p.asset_type,
                     source=p.source or "",
+                    value_ars=value_ars,
+                    mep=mep_today,
                 )
             )
+
+
+def _get_mep_for_snapshots(db: Session, user_id: str) -> "Decimal | None":
+    """Obtiene el MEP del día desde BudgetConfig o PortfolioSnapshot más reciente."""
+    from decimal import Decimal
+    from app.models import PortfolioSnapshot
+    try:
+        budget = _query_budget(db, user_id)
+        if budget and budget.fx_rate and budget.fx_rate > 0:
+            return budget.fx_rate
+        # Fallback: último portfolio snapshot con fx_mep
+        snap = (
+            db.query(PortfolioSnapshot)
+            .filter(PortfolioSnapshot.user_id == user_id, PortfolioSnapshot.fx_mep > 0)
+            .order_by(PortfolioSnapshot.snapshot_date.desc())
+            .first()
+        )
+        if snap:
+            return snap.fx_mep
+    except Exception:
+        pass
+    return None
 
 
 def _query_budget(db: Session, user_id: str) -> BudgetConfig | None:
@@ -1416,6 +1457,7 @@ def get_instrument_detail(
         "performance_pct": float(position.performance_pct),
         "pnl_usd": round(pnl_usd, 2),
         "annual_yield_pct": float(position.annual_yield_pct),
+        "yield_currency": getattr(position, "yield_currency", "ARS") or "ARS",
         "monthly_return_usd": round(monthly_return_usd, 4),
         "last_updated": (
             position.snapshot_date.isoformat() if position.snapshot_date else None
