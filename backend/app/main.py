@@ -403,3 +403,38 @@ def manual_snapshot():
     from app.scheduler import trigger_snapshot_now
 
     return trigger_snapshot_now()
+
+
+@app.post("/admin/collect-prices")
+def manual_collect_prices():
+    """Dispara el price collector manualmente — persiste precios BYMA + FCI VCP en DB."""
+    from app.database import SessionLocal
+    from app.services.price_collector import collect_daily_prices
+    from app.services.mep import get_mep
+    from decimal import Decimal
+
+    db = SessionLocal()
+    try:
+        mep = Decimal(str(get_mep()))
+        summary = collect_daily_prices(db, mep_today=mep)
+        return {"status": "ok", "mep": float(mep), **summary}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)}
+    finally:
+        db.close()
+
+
+@app.post("/admin/collect-metadata")
+def manual_collect_metadata():
+    """Dispara el backfill de metadata estática (fichatecnica BYMA) para posiciones activas."""
+    from app.database import SessionLocal
+    from app.services.price_collector import backfill_metadata_from_positions
+
+    db = SessionLocal()
+    try:
+        n = backfill_metadata_from_positions(db)
+        return {"status": "ok", "tickers_saved": n}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)}
+    finally:
+        db.close()
