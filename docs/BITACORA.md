@@ -2,6 +2,47 @@
 
 ---
 
+## Sesión v0.12.0 — 2026-04-11 (Sprint 10 — Soberanía de yields + Price Store)
+
+### Objetivo
+Eliminar toda dependencia de APIs externas en tiempo real para el cálculo de yields. Construir un Price Store propio que persiste precios de cierre diarios de BYMA y VCP de ArgentinaDatos, y un Yield Calculator v2 que calcula desde datos propios. Corregir el problema conceptual de aplicar TNA ARS a valores USD.
+
+### Análisis previo
+- Diagnóstico: `impliedYield` en BYMA siempre es NULL — nunca nos dio yields
+- BYMA sí da precios (vwap, prev_close, volume) y metadata estática (TEM, fechaEmision, fechaVencimiento via fichatecnica)
+- El sistema actual calculaba yields correctamente pero los descartaba — sin persistencia
+- Freedom score y renta mensual usaban TNA ARS × valor USD → unidades incoherentes
+
+### Cambios backend
+- `instrument_metadata` (tabla nueva): metadata estática de LECAP/BOND/ON — se guarda una sola vez por ticker via fichatecnica BYMA. TEM + fechaEmision + fechaVencimiento. Nunca cambia, nunca se vuelve a pedir.
+- `instrument_prices` (tabla nueva): precios de cierre diarios por ticker. BYMA btnLetras/btnTitPublicos/btnObligNegociables/btnCedears + VCP FCI ArgentinaDatos. Una fila por (ticker, price_date).
+- `position_snapshots`: agregadas columnas `value_ars` y `mep` — permite calcular retorno real USD capturando efecto devaluación
+- `positions`: agregada columna `yield_currency` ('ARS' o 'USD') — indica denominación del yield almacenado
+- `price_collector.py` (servicio nuevo): job de recolección diaria — 5 llamadas HTTP cubre todo el mercado argentino. Idempotente. Corre a las 18:30 post-cierre en el daily_close_job.
+- `yield_calculator_v2.py` (servicio nuevo): 4 funciones compute_* — position_actual_return, lecap_tea, bond_yield, fci_yield. Cadena de fallback: retorno observado > precio store > sistema actual (bootstrap).
+- `yield_updater.py`: integra v2 como fuente primaria. Sistema actual (BYMA/ArgentinaDatos en runtime) queda como bootstrap para instrumentos nuevos sin historia.
+- `freedom_calculator.py`: yield_currency='USD' suma directo; yield_currency='ARS' aplica proxy devaluación 50% antes de sumar a renta_monthly_usd.
+- `save_position_snapshots()`: ahora popula value_ars + mep desde Position.current_value_ars + BudgetConfig.fx_rate
+- Startup: `_backfill_instrument_metadata()` rellena instrument_metadata para todos los tickers activos LETRA/BOND/ON en el primer deploy
+
+### Cambios frontend
+- `InstrumentDetail.tsx`: label "Yield anual" cambia a "Yield anual ARS" o "Yield anual USD" según yield_currency
+
+### Tests
+- `test_yield_calculator_v2.py`: 10 tests — sin snapshots, solo value_usd, con value_ars/mep, lecap_tea sin meta, lecap_tea con datos, bond < 7d, bond con historia, fci vcp, sanity fuera de rango
+
+### Estado en Railway/Vercel
+- Backend v0.12.0 en Railway
+- Frontend v0.12.0 en Vercel (frontend-teal-seven-22.vercel.app)
+- Tag: v0.12.0
+
+### Decisiones
+- No usar Alembic — proyecto usa _run_migrations() en main.py con SQL incremental
+- `_BOND_YTM` tabla estática se mantiene como último fallback hasta que el price store tenga 30 días de historia
+- BYMA fichatecnica: dato estático → se guarda una vez y nunca se vuelve a pedir
+
+---
+
 ## Sesión v0.11.0 — 2026-04-11 (Sprint 9 — Resiliencia de datos + documentación)
 
 ### Objetivo
