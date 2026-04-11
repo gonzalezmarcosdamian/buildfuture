@@ -2,6 +2,57 @@
 
 ---
 
+## Sesión v0.11.0 — 2026-04-11 (Sprint 9 — Resiliencia de datos + documentación)
+
+### Objetivo
+Hacer resiliente el gráfico de tenencia frente a cambios del portfolio. Reorganizar toda la documentación en docs/ por dominio funcional. Fixes de datos incorrectos en producción.
+
+### Cambios realizados
+
+**Gráfico de tenencia — resiliencia (BUG-1, BUG-2, BUG-3)**
+- `_sync_cocos` (integrations.py): crea `PositionSnapshot` en cada sync. De ahora en más cada sync diario de Cocos acumula historia real, alimentando `backfill-non-iol` con valores exactos por fecha en lugar de aproximaciones planas.
+- `_save_portfolio_snapshot` (scheduler.py): cambiado de skip-si-existe a **upsert**. El snapshot de hoy refleja el estado al cierre del día, no el estado de la primera vez que se generó. Cambios post-17:30 ahora se incluyen.
+- `_snapshot_after_manual_change()` (positions.py): nuevo helper llamado en create/update/delete de posición manual. Crea `PositionSnapshot` + actualiza `PortfolioSnapshot` de hoy inmediatamente. La posición aparece en el gráfico sin esperar al scheduler.
+- `repair-user` (admin.py): unificado en flujo de 5 pasos que incluye IOL + Binance 30d + backfill non-IOL con `first_seen = MIN(PositionSnapshot.snapshot_date)`.
+- `backfill-non-iol` (admin.py): fix crítico — ya no suma el valor actual retroactivamente a todo el histórico. Usa `PositionSnapshot` exactos por fecha y `first_seen` como límite de inicio por posición.
+
+**Datos incorrectos**
+- `sync_binance` (integrations.py): rollback en todos los `except` (BinanceAuthError + Exception genérica).
+- `COCOSPPA` → `("Cocos Pesos Plus", "rentaMixta")` en `_IOL_FCI_TICKER_MAP`. Yield calculado desde la categoría correcta en lugar de `mercadoDinero`.
+- Binance `_COINGECKO_ID`: +35 tokens (ETHW, SHIB, ARB, OP, INJ, SUI, APT, FTM, etc.).
+- `BinanceClient`: fix kwarg `secret` (no `secret_key`), import `Decimal` en admin.py.
+
+**Documentación — reorganización completa**
+- Nuevo template estándar: Estado actual / Invariantes / Flujo técnico / Bugs / Cambios / Decisiones
+- Docs nuevos en `docs/`: INTEGRACIONES.md, POSICIONES.md, YIELDS.md, FREEDOM_SCORE.md, SNAPSHOTS.md, SEGURIDAD.md, MULTIUSER.md
+- 14 archivos `feedback_*.md` de memoria consolidados en `feedback_operativo.md`
+- Archivos de memoria de proyecto reducidos a punteros que apuntan a los docs del repo
+- MEMORY.md actualizado con nueva estructura
+
+**Frontend**
+- Toasts con `sonner` en CapitalGoals (crear/editar/eliminar meta) y IntegrationCard (sync/disconnect).
+
+### Historial Marcos (usuario principal) verificado
+- `repair-user` purga 31 snapshots, reconstruye con IOL + Binance 30d + backfill Cocos/Manual
+- Valores correctos: IOL desde 30-mar, Cocos desde 3-abr ($4,471), rescate 10-abr ($2,447), CASH_USD desde 6-abr
+- BUG-2 resuelto: posiciones manuales ahora aparecen en el gráfico inmediatamente al crearlas
+
+### Bugs encontrados y resueltos
+- `first_seen = Position.snapshot_date` era incorrecto (refleja ÚLTIMO sync, no primero) → fix: `MIN(PositionSnapshot.snapshot_date)`
+- `Decimal + float` en backfill loop → fix: `Decimal(str(round(offset, 2)))`
+- `BinanceClient.__init__()` recibía `secret_key` en lugar de `secret` → fix
+- `NameError: Decimal` en admin.py → import a nivel módulo
+
+### Decisiones técnicas
+- Scheduler hace upsert (no skip) en lugar de añadir campo `locked` — más simple, mismo resultado
+- `_snapshot_after_manual_change()` es un helper centralizado en lugar de lógica duplicada en cada endpoint
+- Template de docs vivos en repo; memoria Claude = punteros → reduce duplicación y conflictos entre sesiones
+
+### Estado
+Backend v0.11.0 en Railway. Frontend v0.11.0 en Vercel.
+
+---
+
 ## Sesión v0.10.1 — 2026-04-03/04 (ramas: fix/cedear-iol-historical-prices, cherry-picks)
 
 ### Objetivo

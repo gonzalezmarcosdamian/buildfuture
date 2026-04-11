@@ -117,6 +117,27 @@ Usuario target: Marcos González — PM Ualá, Córdoba, ahorro USD 1000-1500/me
 - ✅ Formulario 3 pasos: tipo → buscar (live search) → cargar datos de compra
 - 🔲 Pendiente deploy a producción (probado solo en local)
 
+### Snapshots y gráfico de tenencia resiliente (v0.11.0)
+- ✅ **`_sync_cocos` crea `PositionSnapshot`** en cada sync → historia real de Cocos acumulada día a día
+- ✅ **Scheduler upsert** en lugar de skip → snapshot de hoy siempre refleja el estado al cierre del día
+- ✅ **`_snapshot_after_manual_change()`** → create/update/delete manual dispara PositionSnapshot + PortfolioSnapshot de hoy inmediatamente
+- ✅ **`repair-user` unificado** → flujo de 5 pasos: purga + IOL + Binance 30d + backfill non-IOL + hoy
+- ✅ **`backfill-non-iol` correcto** → usa `MIN(PositionSnapshot.snapshot_date)` como `first_seen` — ya no retroactivo
+- ✅ **Toasts sonner** en CapitalGoals (crear/editar/eliminar) e IntegrationCard (sync/disconnect)
+- ✅ **Cocos Pesos Plus** → `fci_categoria = rentaMixta` (yield correcto desde ArgentinaDatos)
+- ✅ **`sync_binance` rollback** en todos los `except`
+- ✅ **Binance `_COINGECKO_ID`** → +35 tokens (ETHW, SHIB, ARB, OP, INJ, SUI, APT, FTM, NEAR, ICP…)
+
+### Documentación por dominio (v0.11.0)
+- ✅ **Template estándar**: Estado actual / Invariantes / Flujo / Bugs / Cambios / Decisiones
+- ✅ **`docs/INTEGRACIONES.md`**: playbook 5 fases + hallazgos IOL + admin endpoints
+- ✅ **`docs/POSICIONES.md`**: contratos de mutación manual + checklist asset_type
+- ✅ **`docs/YIELDS.md`**: flujo annual_yield_pct + zonas calientes + deuda técnica
+- ✅ **`docs/FREEDOM_SCORE.md`**: fórmula + buckets + milestones
+- ✅ **`docs/SNAPSHOTS.md`**: quién crea qué + comandos curl de soporte
+- ✅ **`docs/SEGURIDAD.md`**: credenciales + riesgo IOL/Cocos + admin key
+- ✅ **`docs/MULTIUSER.md`**: onboarding + lazy creation + DEFAULT_INTEGRATIONS
+
 ### Auth y deploy
 - ✅ **Supabase Auth multi-usuario**: JWT ES256 via JWKS, sesión en cookies (SSR compatible)
 - ✅ **Login completo**: tabs Ingresar/Registrarse + Olvidaste contraseña + form cambio de contraseña con token recovery
