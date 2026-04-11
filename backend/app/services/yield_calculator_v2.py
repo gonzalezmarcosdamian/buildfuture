@@ -74,16 +74,21 @@ def compute_position_actual_return(
     if elapsed < 3:
         return None, None
 
-    # ARS instruments: usar value_ars/mep si disponibles
-    if (
-        asset_type in ("LETRA", "FCI")
-        and oldest.value_ars and newest.value_ars
-        and oldest.mep and newest.mep
-        and float(oldest.mep) > 0
-    ):
-        usd_old = float(oldest.value_ars) / float(oldest.mep)
-        usd_new = float(newest.value_ars) / float(newest.mep)
-        currency = "USD"
+    # ARS instruments: SOLO usar si value_ars/mep están disponibles en ambos extremos.
+    # NO usar value_usd como fallback — para ARS instruments value_usd = ars/mep_del_sync
+    # y cambia con el MEP, no con el yield real del instrumento.
+    if asset_type in ("LETRA", "FCI"):
+        if (
+            oldest.value_ars and newest.value_ars
+            and oldest.mep and newest.mep
+            and float(oldest.mep) > 0
+        ):
+            usd_old = float(oldest.value_ars) / float(oldest.mep)
+            usd_new = float(newest.value_ars) / float(newest.mep)
+            currency = "USD"
+        else:
+            # Sin value_ars/mep en snapshots viejos — no hay forma confiable de calcular
+            return None, None
     else:
         usd_old = float(oldest.value_usd)
         usd_new = float(newest.value_usd)
