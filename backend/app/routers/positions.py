@@ -16,11 +16,33 @@ from app.database import get_db
 from app.auth import get_current_user
 from app.models import Position
 from app.services import crypto_prices, fci_prices, external_prices
-from app.routers.portfolio import _invalidate_score_cache, _refresh_today_snapshot
+from app.routers.portfolio import (
+    _invalidate_score_cache,
+    _refresh_today_snapshot,
+    save_position_snapshots,
+)
 
 logger = logging.getLogger("buildfuture.positions")
 
 router = APIRouter(prefix="/positions", tags=["positions"])
+
+
+def _snapshot_after_manual_change(db: Session, user_id: str) -> None:
+    """
+    Llama tras cualquier create/update/delete de posición manual.
+    1. Graba/actualiza PositionSnapshot de hoy por cada posición activa.
+    2. Recalcula y persiste PortfolioSnapshot de hoy.
+    Ambas operaciones son idempotentes (upsert).
+    """
+    from app.models import Position as _Position
+    positions = (
+        db.query(_Position)
+        .filter(_Position.user_id == user_id, _Position.is_active.is_(True))
+        .all()
+    )
+    if positions:
+        save_position_snapshots(db, user_id, positions)
+    _refresh_today_snapshot(db, user_id)
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
@@ -235,6 +257,11 @@ def create_manual_position(
     db.add(pos)
     db.commit()
     db.refresh(pos)
+    try:
+        _snapshot_after_manual_change(db, user_id)
+        db.commit()
+    except Exception:
+        pass  # no bloquear el create si el snapshot falla
     _invalidate_score_cache(user_id)
     logger.info(
         "Posición manual creada: %s %s (user %s)", body.asset_type, body.ticker, user_id
@@ -296,28 +323,25 @@ def update_manual_position(
             pos.current_value_ars = pos.quantity * pos.purchase_fx_rate
 
     # Para REAL_ESTATE: actualizar valuación (current_price_usd) y recalcular yield desde renta
-    restate_changed = False
     if pos.asset_type == "REAL_ESTATE":
         if body.purchase_price_usd is not None:
             # Valuación = precio de la unidad (quantity=1 siempre)
             pos.current_price_usd = Decimal(str(body.purchase_price_usd))
-            restate_changed = True
         if body.monthly_rent_usd is not None:
             valuation = float(pos.avg_purchase_price_usd or pos.current_price_usd or 1)
             restate_yield = round((body.monthly_rent_usd * 12) / valuation, 6) if valuation > 0 else 0.0
             pos.annual_yield_pct = Decimal(str(restate_yield))
-            restate_changed = True
 
     db.commit()
     db.refresh(pos)
 
-    # Refrescar snapshot de hoy para que Freedom Bar refleje los cambios inmediatamente
-    if restate_changed:
-        try:
-            _refresh_today_snapshot(db, user_id)
-            db.commit()
-        except Exception:
-            pass  # no bloquear el PATCH si el snapshot falla
+    # Refrescar PositionSnapshot + PortfolioSnapshot de hoy en toda edición manual
+    try:
+        _snapshot_after_manual_change(db, user_id)
+        db.commit()
+    except Exception:
+        pass  # no bloquear el PATCH si el snapshot falla
+    _invalidate_score_cache(user_id)
     return {
         "id": pos.id,
         "ticker": pos.ticker,
@@ -347,6 +371,11 @@ def delete_manual_position(
         raise HTTPException(status_code=404, detail="Posición no encontrada")
     pos.is_active = False
     db.commit()
+    try:
+        _snapshot_after_manual_change(db, user_id)
+        db.commit()
+    except Exception:
+        pass  # no bloquear el delete si el snapshot falla
     _invalidate_score_cache(user_id)
     return {"ok": True}
 
