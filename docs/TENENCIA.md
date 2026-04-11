@@ -32,7 +32,7 @@ Detrás de cada snapshot diario vive el detalle por instrumento en **`position_s
 | **IOL** | Hasta 730 días | `get_operations()` → `historical_reconstructor.py` | Solo tickers activos hoy (vendidos = sin historia) |
 | **Binance** | Últimos 30 días | `GET /sapi/v1/accountSnapshot` → `_sync_binance_history()` | Ventana fija de 30 días desde la API |
 | **Cocos** | Desde el primer sync | `PositionSnapshot` acumulados en cada sync diario | Sin API de operaciones — solo lo que se grabó |
-| **Manual (CASH, REAL_ESTATE)** | Desde la fecha de ingreso | `Position.snapshot_date` → primer PositionSnapshot en GET /portfolio/history | Sin historia previa a la fecha de entrada |
+| **Manual (CASH, REAL_ESTATE)** | Desde la fecha de ingreso | `_snapshot_after_manual_change()` crea PositionSnapshot en el momento de create/update/delete | Sin historia previa a la fecha de entrada |
 
 ---
 
@@ -155,10 +155,9 @@ Usuario abre gráfico → GET /portfolio/history
 - **Impacto:** Si el usuario no abre el gráfico el mismo día que conecta Cocos, ese día queda sin registro. `backfill-non-iol` no puede reconstruir ese día.
 - **Fix:** Agregar creación de `PositionSnapshot` al final de `_sync_cocos()`.
 
-### BUG-2: `create_manual_position` no crea `PositionSnapshot` ni actualiza snapshot de hoy
-- **Archivo:** `routers/positions.py:173`
-- **Impacto:** La posición manual no aparece en el gráfico hasta la próxima visita del usuario. Si el scheduler corrió antes de la entrada manual, el snapshot de hoy no la incluye.
-- **Fix:** Al crear la posición, crear `PositionSnapshot` de hoy y llamar `force-snapshot-today` (o la lógica equivalente inline).
+### ~~BUG-2: `create_manual_position` no crea `PositionSnapshot` ni actualiza snapshot de hoy~~ ✅ RESUELTO 2026-04-11
+- `_snapshot_after_manual_change()` en `positions.py` — llama `save_position_snapshots` + `_refresh_today_snapshot` tras create/update/delete.
+- Toda mutación manual ahora dispara upsert de PositionSnapshot y PortfolioSnapshot de hoy inmediatamente.
 
 ### BUG-3: Scheduler skippea snapshot existente
 - **Archivo:** `scheduler.py` (~línea 426)
@@ -223,7 +222,7 @@ for snap in historical_snapshots:
 | Qué | Cómo | Cuándo |
 |-----|------|--------|
 | `PositionSnapshot` de Cocos al sincronizar | Fix BUG-1 en `_sync_cocos` | Próximo sprint |
-| `PositionSnapshot` + snapshot-hoy al crear manual | Fix BUG-2 en `create_manual_position` | Próximo sprint |
+| `PositionSnapshot` + snapshot-hoy al crear/editar/borrar manual | ✅ Implementado — `_snapshot_after_manual_change()` en positions.py | 2026-04-11 |
 | Scheduler hace upsert (no skip) en snapshot existente | Fix BUG-3 en `scheduler.py` | Próximo sprint |
 | `repair-user` después de reconectar cualquier integración | Documentado — flujo actual ya lo resuelve | HOY ✅ |
 | `PositionSnapshot` de Binance al sincronizar | Fix BUG-4 en `_sync_binance` | Baja prioridad (Binance ya tiene 30d vía PortfolioSnapshot) |
