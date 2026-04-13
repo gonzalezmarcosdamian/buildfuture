@@ -117,6 +117,13 @@ Usuario target: Marcos González — PM Ualá, Córdoba, ahorro USD 1000-1500/me
 - ✅ Formulario 3 pasos: tipo → buscar (live search) → cargar datos de compra
 - 🔲 Pendiente deploy a producción (probado solo en local)
 
+### STOCK InstrumentDetail market data (v0.13.0 — 2026-04-13)
+- ✅ **`get_stock_market_data()`** en byma_client — datos extendidos desde btnLideres: variation_pct, high_ars, low_ars, prev_close_ars. Cache TTL 5 min con `_stock_full_cache`.
+- ✅ **`_fetch_stock_panel()`** — fetch centralizado que popula tanto el cache de precio (get_stock_price_ars) como el de datos extendidos (get_stock_market_data). Un solo HTTP call para los dos consumidores.
+- ✅ **`instrument_detail` para STOCK** incluye `stock_market` en el response.
+- ✅ **InstrumentDetail.tsx** — branch STOCK: MetricRows "Variación hoy" (verde/rojo) y "Máx / Mín del día", con nota "20 min delay · BYMA Líderes".
+- ✅ **Fix import** `assetLabelWithEmoji` faltaba en InstrumentDetail — TypeScript ahora compila limpio.
+
 ### Hotfixes yields en prod (v0.12.1 — 2026-04-13)
 - ✅ **`freedom_calculator.py` DEVALUATION_PROXY 50%→15%**: crawling peg 2026 real ~1%/mes. Con 50% toda renta ARS daba $0. Con 15%: S15Y6 30.8% TNA → $4/mes, COCOSPPA 19.78% → $8/mes.
 - ✅ **`yield_calculator_v2` no usa value_usd para ARS**: fallback value_usd para LETRA/FCI generaba yields 100%+ (MEP drift). Ahora retorna `(None, None)` sin datos ARS suficientes.

@@ -2,6 +2,55 @@
 
 ---
 
+## Sesión v0.13.0 — 2026-04-13 (Sprint 11 — STOCK market data live)
+
+### Objetivo
+Igualar la experiencia de InstrumentDetail entre CEDEARs y STOCKs (acciones Merval). CEDEARs mostraban variación diaria + máx/mín desde BYMA btnCedears; STOCKs no tenían ningún dato de mercado live.
+
+### Análisis previo
+- `get_stock_price_ars()` ya hacía fetch de `btnLideres` pero solo guardaba precio (cache plano `dict[str, float]`)
+- El cache `_stock_cache` se repoblaba con cada call a `get_stock_price_ars` pero descartaba prev_close/high/low
+- `get_cedear_market_data()` tenía un segundo cache `_cedear_full_cache` con datos extendidos — mismo patrón a replicar
+
+### Cambios backend
+- `byma_client.py` — `_fetch_stock_panel()`: función interna que popula `_stock_cache` (precio) y `_stock_full_cache` (extendido: variation_pct, high_ars, low_ars) en un solo fetch a btnLideres. Evita doble HTTP call.
+- `byma_client.py` — `get_stock_price_ars()`: refactorizado para delegar a `_fetch_stock_panel()` en lugar de fetch inline.
+- `byma_client.py` — `get_stock_market_data(ticker)`: nueva función pública, estructura idéntica a `get_cedear_market_data`. Cache TTL 5 min compartido con `_stock_full_cache`.
+- `routers/portfolio.py` — `get_instrument_detail()`: para STOCK, llama `get_stock_market_data()` e incluye `stock_market` en el response.
+
+### Cambios frontend
+- `InstrumentDetail.tsx` — tipo `InstrumentData`: agregado `stock_market` con misma forma que `cedear_market`.
+- `InstrumentDetail.tsx` — import: `assetLabelWithEmoji` faltaba en el import de `@/lib/assetLabels` (bug preexistente, TypeScript no compilaba).
+- `InstrumentDetail.tsx` — bloque STOCK en `PositionMetrics`: muestra "Variación hoy" (verde/rojo) y "Máx / Mín del día" con nota "20 min delay · BYMA Líderes".
+
+### Audit de backlog (sesión 2026-04-13)
+Durante la sesión se auditaron 12 ítems del backlog contra el código real. Todos estaban ya implementados pero marcados como pendientes:
+- backfill-non-iol correcto (first_seen + pos_snap_index) ✅
+- Scheduler actualiza en vez de skipear ✅
+- create/update/delete disparan snapshot ✅
+- months_to_goal <= 0 → "¡Ya llegaste!" ✅
+- Fondo de reserva por emoji ✅
+- COPY InstrumentDetail (6 puntos) ✅
+- Input horizonte años solo enteros ✅
+- CapitalGoals/BudgetEditor res.ok guards ✅
+- Toast CASH guardado ✅
+- non_iol_offset_usd en modelo + DB migration ✅
+
+### Tests
+- Sin tests nuevos (STOCK panel análogo a CEDEAR — misma lógica, mismo cache pattern)
+- Pendiente: 5 tests TDD para `get_stock_market_data` análogos a `test_byma_client.py::get_cedear_market_data`
+
+### Estado en Railway/Vercel
+- Backend v0.13.0 en Railway
+- Frontend v0.13.0 en Vercel
+- Tag: v0.13.0
+
+### Decisiones
+- `_fetch_stock_panel()` privada: evita duplicación entre `get_stock_price_ars` (usada en yield_updater) y `get_stock_market_data` (usada en instrument_detail). Un solo fetch, dos consumidores.
+- Si BYMA está caído: `stock_market: null` → el frontend no renderiza los MetricRows de mercado (no bloquea la pantalla).
+
+---
+
 ## Sesión v0.12.1 — 2026-04-13 (Sprint 10 hotfixes — yields correctos en prod)
 
 ### Objetivo
