@@ -1441,6 +1441,13 @@ def get_instrument_detail(
         if position.avg_purchase_price_usd and float(position.avg_purchase_price_usd) > 0 and float(position.ppc_ars) > 0:
             ccl_compra_usd = round(float(position.ppc_ars) / float(position.avg_purchase_price_usd), 2)
 
+    # STOCK: datos de mercado live desde btnLideres (variación diaria, high/low)
+    stock_market = None
+    if position.asset_type == "STOCK":
+        from app.services.byma_client import get_stock_market_data
+
+        stock_market = get_stock_market_data(position.ticker)
+
     return {
         "id": position.id,
         "ticker": position.ticker,
@@ -1471,4 +1478,5 @@ def get_instrument_detail(
         "paridad_pct": paridad_pct,
         "cedear_market": cedear_market,
         "ccl_compra_usd": ccl_compra_usd,
+        "stock_market": stock_market,
     }

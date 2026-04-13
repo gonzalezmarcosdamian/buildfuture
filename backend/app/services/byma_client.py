@@ -75,7 +75,8 @@ _lecap_cache: dict = {"value": None, "ts": 0.0}
 _letras_market_cache: dict = {"data": {}, "ts": 0.0}
 _cedear_cache: dict = {"data": {}, "ts": 0.0}       # {ticker: price_ars}
 _cedear_full_cache: dict = {"data": {}, "ts": 0.0}  # {ticker: {price, prev_close, high, low}}
-_stock_cache: dict = {"data": {}, "ts": 0.0}
+_stock_cache: dict = {"data": {}, "ts": 0.0}        # {ticker: price_ars}
+_stock_full_cache: dict = {"data": {}, "ts": 0.0}  # {ticker: {price, prev_close, high, low}}
 _sovereign_cache: dict = {"data": {}, "ts": 0.0}
 _on_cache: dict = {"data": {}, "ts": 0.0}
 _cer_cache: dict = {"data": {}, "ts": 0.0}
@@ -543,6 +544,45 @@ def get_cedear_market_data(ticker: str) -> dict | None:
 
 # ── get_stock_price_ars ────────────────────────────────────────────────────────
 
+def _fetch_stock_panel() -> None:
+    """
+    Fetch btnLideres y popula _stock_cache (price only) + _stock_full_cache (datos extendidos).
+    Centraliza la llamada HTTP — reutilizada por get_stock_price_ars y get_stock_market_data.
+    """
+    now = time.time()
+    items = _post_market_data("btnLideres", page_size=100)
+    prices: dict[str, float] = {}
+    full: dict[str, dict] = {}
+
+    for item in items:
+        sym = str(item.get("symbol") or "").upper()
+        if not sym:
+            continue
+        price = float(item.get("vwap") or item.get("previousSettlementPrice") or 0)
+        if price <= 0:
+            continue
+        prev_close = float(item.get("previousClosingPrice") or 0)
+        high = float(item.get("tradingHighPrice") or 0)
+        low = float(item.get("tradingLowPrice") or 0)
+        variation_pct: float | None = None
+        if prev_close > 0:
+            variation_pct = round((price - prev_close) / prev_close * 100, 2)
+        prices[sym] = price
+        full[sym] = {
+            "price_ars": price,
+            "prev_close_ars": prev_close if prev_close > 0 else None,
+            "high_ars": high if high > 0 else None,
+            "low_ars": low if low > 0 else None,
+            "variation_pct": variation_pct,
+        }
+
+    _stock_cache["data"] = prices
+    _stock_cache["ts"] = now
+    _stock_full_cache["data"] = full
+    _stock_full_cache["ts"] = now
+    logger.info("get_stock: BYMA → %d acciones líderes cacheadas", len(prices))
+
+
 def get_stock_price_ars(ticker: str) -> float | None:
     """
     Precio spot ARS de una acción del panel Merval (blue chips) desde BYMA btnLideres.
@@ -553,23 +593,31 @@ def get_stock_price_ars(ticker: str) -> float | None:
     if _stock_cache["data"] and now - _stock_cache["ts"] < CACHE_TTL:
         logger.debug("get_stock_price_ars: cache hit para %s", ticker.upper())
         return _stock_cache["data"].get(ticker.upper())
-
     try:
-        items = _post_market_data("btnLideres", page_size=100)
-        data: dict[str, float] = {}
-        for item in items:
-            sym = str(item.get("symbol") or "").upper()
-            price = float(item.get("vwap") or item.get("previousSettlementPrice") or 0)
-            if sym and price > 0:
-                data[sym] = price
-
-        _stock_cache["data"] = data
-        _stock_cache["ts"] = now
-        logger.info("get_stock_price_ars: BYMA → %d acciones líderes cacheadas", len(data))
-        return data.get(ticker.upper())
-
+        _fetch_stock_panel()
+        return _stock_cache["data"].get(ticker.upper())
     except Exception as e:
         logger.warning("get_stock_price_ars: BYMA falló (%s) → None", e)
+        return None
+
+
+def get_stock_market_data(ticker: str) -> dict | None:
+    """
+    Datos de mercado extendidos para una acción del panel Merval desde BYMA btnLideres.
+    Retorna dict con: price_ars, prev_close_ars, high_ars, low_ars, variation_pct.
+    Retorna None si BYMA falla o el ticker no está en el panel Líderes.
+    Cache TTL 5 min compartido con _stock_full_cache.
+    """
+    ticker_upper = ticker.upper()
+    now = time.time()
+    if _stock_full_cache["data"] and now - _stock_full_cache["ts"] < CACHE_TTL:
+        logger.debug("get_stock_market_data: cache hit para %s", ticker_upper)
+        return _stock_full_cache["data"].get(ticker_upper)
+    try:
+        _fetch_stock_panel()
+        return _stock_full_cache["data"].get(ticker_upper)
+    except Exception as e:
+        logger.warning("get_stock_market_data: BYMA falló (%s) → None", e)
         return None
 
 
