@@ -1,5 +1,8 @@
+import logging
 from decimal import Decimal
 from typing import TypedDict
+
+logger = logging.getLogger("buildfuture.freedom")
 
 # ── Bucket classification ──────────────────────────────────────────────────────
 # Renta: instrumentos que generan ingreso periódico en ARS (LECAPs, FCIs)
@@ -13,7 +16,7 @@ AMBOS_ASSET_TYPES = {
 }  # ON = Obligaciones Negociables, mismo tratamiento 50/50
 
 
-def split_portfolio_buckets(positions: list) -> dict:
+def split_portfolio_buckets(positions: list, db=None) -> dict:
     """
     Separa el portfolio en dos carriles:
     - renta_monthly_usd: ingreso mensual del bucket renta usando el yield real del instrumento
@@ -60,13 +63,18 @@ def split_portfolio_buckets(positions: list) -> dict:
             # annual_return_pct) pero se excluye de renta_monthly_usd hasta conversión.
             if yield_currency == "USD":
                 renta_monthly += value * raw_yield / 12
-            # ARS yield con corrección por devaluación del MEP.
-            # Crawling peg Argentina 2026: ~1% mensual = ~12.7% anual.
-            # Usamos 15% como proxy conservador con buffer de riesgo cambiario.
+            # ARS yield con corrección por devaluación implícita del MEP.
+            # Usamos get_expected_devaluation() que estima la devaluación anual
+            # desde ROFEX futuros → paridad LECAP/ON → MEP trend → fallback 20%.
             else:
-                DEVALUATION_PROXY = Decimal("0.15")  # 15% anual MEP (crawling peg 2026)
-                real_usd_yield = (1 + raw_yield) / (1 + DEVALUATION_PROXY) - 1
+                from app.services.devaluation import get_expected_devaluation
+                devaluation = get_expected_devaluation(db=db)
+                real_usd_yield = (1 + raw_yield) / (1 + devaluation) - 1
                 real_usd_yield = max(real_usd_yield, Decimal("0"))
+                logger.debug(
+                    "split_buckets ARS→USD: raw_yield=%.2f%% deval=%.2f%% real_usd=%.2f%%",
+                    float(raw_yield) * 100, float(devaluation) * 100, float(real_usd_yield) * 100,
+                )
                 renta_monthly += value * real_usd_yield / 12
             renta_total += value
             by_source[source]["renta_usd"] += value
@@ -141,7 +149,7 @@ def calculate_freedom_score(
         )
 
     # monthly_return solo desde buckets de renta real
-    buckets = split_portfolio_buckets(positions)
+    buckets = split_portfolio_buckets(positions)  # db=None OK en calculate_freedom_score
     monthly_return = buckets["renta_monthly_usd"]
 
     # annual_return_pct: rendimiento anual del portfolio completo (para proyecciones)

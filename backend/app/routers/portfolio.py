@@ -25,6 +25,7 @@ from app.services.freedom_calculator import (
     calculate_milestone_projections,
     split_portfolio_buckets,
 )
+from app.services.devaluation import get_expected_devaluation
 from app.services.ai_recommendations import get_ai_recommendations
 from app.services.market_data import fetch_market_snapshot
 from app.services.mep import get_mep
@@ -320,7 +321,7 @@ def get_portfolio(
     monthly_expenses_usd = budget.total_monthly_usd if budget else Decimal("2000")
 
     score = _get_freedom_score(current_user, positions, monthly_expenses_usd)
-    buckets = split_portfolio_buckets(positions)
+    buckets = split_portfolio_buckets(positions, db=db)
 
     # Guardar snapshot por posición para habilitar Δ por período en Rendimientos
     try:
@@ -382,6 +383,7 @@ def get_portfolio(
             },
             "freedom_pct": float(score["freedom_pct"]),
             "annual_return_pct": float(score["annual_return_pct"]),
+            "expected_devaluation_pct": float(get_expected_devaluation(db=db)),
         },
     }
 
@@ -489,7 +491,7 @@ def get_gamification(
     # ── 1. ¿Qué paga tu portafolio? ──────────────────────────────────────────
     # Usar solo el bucket renta (LETRA, FCI, BOND parcial) con yield capeado.
     # Evita que el 68% nominal ARS de las LECAPs infle el monthly return en USD.
-    buckets = split_portfolio_buckets(positions)
+    buckets = split_portfolio_buckets(positions, db=db)
     monthly_return_usd = float(buckets["renta_monthly_usd"])
 
     portfolio_covers = []
@@ -922,7 +924,7 @@ def get_freedom_score(
     annual_return_pct = goal.target_annual_return_pct if goal else Decimal("0.08")
 
     score = _get_freedom_score(current_user, positions, monthly_expenses_usd)
-    buckets = split_portfolio_buckets(positions)
+    buckets = split_portfolio_buckets(positions, db=db)
 
     milestones = calculate_milestone_projections(
         current_portfolio_usd=score["portfolio_total_usd"],
@@ -1284,7 +1286,7 @@ def get_portfolio_projection(
     # Parámetros base
     # Proyección sobre el bucket capital (CEDEAR, ETF, CRYPTO + 50% BOND).
     # Excluir LETRA/FCI: su rendimiento nominal ARS no es comparable con USD compuesto.
-    proj_buckets = split_portfolio_buckets(positions)
+    proj_buckets = split_portfolio_buckets(positions, db=db)
     capital_usd = float(proj_buckets["capital_total_usd"])
     current_usd = (
         capital_usd
