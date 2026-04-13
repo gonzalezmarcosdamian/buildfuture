@@ -2,6 +2,58 @@
 
 ---
 
+## Sesión v0.12.1 — 2026-04-13 (Sprint 10 hotfixes — yields correctos en prod)
+
+### Objetivo
+Corregir cuatro bugs críticos que impedían ver renta mensual real en producción. Los bugs se descubrieron al verificar el portfolio real de Marcos post-deploy del price store.
+
+### Root causes encontrados
+
+**Bug 1 — BackgroundTasks no importado**
+`main.py` usaba `BackgroundTasks` sin importarlo → `collect-prices` crasheaba en startup.
+Fix: `from fastapi import FastAPI, BackgroundTasks`
+
+**Bug 2 — diagnose endpoint no cubría LECAPs sanos**
+`admin.py` tenía lógica solo para casos de error (maturity parseada pero precio 0, o no parseable). El happy path — LECAP válida con precio y maturity correctas — no calculaba `expected_yield` → `will_update: false` para todas las LECAPs buenas.
+Fix: rama `else` que calcula TIR desde precio actual usando `_lecap_tir`. Además, X-prefix (CER letters) usaba `expected_yield = float(p.annual_yield_pct)` en vez de reportarse como no-parseable.
+
+**Bug 3 — backfill_metadata no derivaba maturity de ticker**
+`price_collector.py` esperaba respuesta de BYMA fichatecnica para derivar `maturity_date`. BYMA no alcanzable desde Railway → 0 tickers guardados en `instrument_metadata`. Fix: para LETRA, derivar maturity del ticker (S31G6 → ago/2026) via `_parse_lecap_maturity()` sin necesitar HTTP.
+
+**Bug 4 — yield_calculator_v2 usaba value_usd como fallback para ARS**
+`compute_position_actual_return`: cuando `value_ars/mep` no disponibles en snapshots viejos, caía a `value_usd` para LETRA/FCI. Problema: `value_usd = value_ars / mep_del_día_de_sync` → las variaciones de MEP entre snapshots generaban yields del 102%-108% para LECAPs. Fix: retornar `(None, None)` cuando no hay datos ARS suficientes — sin dato confiable, no calcular.
+
+**Bug 5 — DEVALUATION_PROXY 50% consumía toda la renta**
+`freedom_calculator.py`: proxy de devaluación anual MEP era 50% → cualquier yield ARS < 50% TNA producía renta real USD negativa → se truncaba a 0 → `renta_monthly_usd = $0`. Fix: 15% (crawling peg 2026: ~1%/mes = ~12.7%/año, proxy con buffer 15%). Con esto: S15Y6 30.8% TNA → $4.06/mes, COCOSPPA 19.78% → $8.56/mes.
+
+### Cambios backend
+- `main.py`: import BackgroundTasks
+- `admin.py`: diagnose endpoint — happy-path para LECAP válida + X-prefix CER
+- `price_collector.py`: backfill_metadata — fallback ticker para LETRA sin BYMA
+- `yield_calculator_v2.py`: `compute_position_actual_return` — no usar value_usd para ARS instruments
+- `freedom_calculator.py`: `DEVALUATION_PROXY` 50%→15%
+- `byma_client.py`: `httpx.Timeout(connect=5.0, read=10.0)` en todos los POST — evita hang de price collector cuando BYMA no alcanzable desde Railway IPs
+
+### Proceso — Mejora backlog audit
+Detectado que el backlog en memoria quedaba desactualizado entre sesiones. Implementado:
+- `UserPromptSubmit` hook: detecta keywords `backlog/pendientes/que falta` → inyecta `[BACKLOG AUDIT REQUERIDO]` context → Claude audita el código antes de reportar
+- `/sm` actualizado: paso 1b obligatorio de audit contra código antes de reportar cualquier ítem como pendiente
+- Resultado: 9 ítems marcados ✅ que el backlog tenía como pendientes (auditados 2026-04-13)
+
+### Tests
+- Sin tests nuevos en esta sesión (bugs fueron diagnosticados manualmente via admin endpoints)
+
+### Estado en Railway/Vercel
+- Backend v0.12.1 deployado en Railway
+- Frontend sin cambios (v0.12.0 en Vercel)
+- Tag: v0.12.1
+
+### Decisiones
+- DEVALUATION_PROXY se parametriza cuando haya suficiente historia MEP en la app (hoy hardcodeado 15%)
+- byma_client: si BYMA sigue inaccesible desde Railway, evaluar proxy HTTP o scraping indirecto
+
+---
+
 ## Sesión v0.12.0 — 2026-04-11 (Sprint 10 — Soberanía de yields + Price Store)
 
 ### Objetivo

@@ -117,6 +117,14 @@ Usuario target: Marcos González — PM Ualá, Córdoba, ahorro USD 1000-1500/me
 - ✅ Formulario 3 pasos: tipo → buscar (live search) → cargar datos de compra
 - 🔲 Pendiente deploy a producción (probado solo en local)
 
+### Hotfixes yields en prod (v0.12.1 — 2026-04-13)
+- ✅ **`freedom_calculator.py` DEVALUATION_PROXY 50%→15%**: crawling peg 2026 real ~1%/mes. Con 50% toda renta ARS daba $0. Con 15%: S15Y6 30.8% TNA → $4/mes, COCOSPPA 19.78% → $8/mes.
+- ✅ **`yield_calculator_v2` no usa value_usd para ARS**: fallback value_usd para LETRA/FCI generaba yields 100%+ (MEP drift). Ahora retorna `(None, None)` sin datos ARS suficientes.
+- ✅ **`diagnose` endpoint happy-path LECAPs**: antes reportaba `will_update: false` para LECAPs sanos (solo cubría casos error). Ahora calcula TIR real desde precio/maturity para el happy path. X-prefix (CER) usa yield almacenado.
+- ✅ **`backfill_metadata` sin BYMA**: deriva `maturity_date` de ticker (S31G6→ago/2026) sin necesitar HTTP a BYMA (inaccesible desde Railway IPs).
+- ✅ **`byma_client.py` connect_timeout**: `httpx.Timeout(connect=5.0, read=10.0)` — evita hang cuando BYMA no responde desde Railway.
+- ✅ **Backlog audit automático**: `UserPromptSubmit` hook detecta keywords → fuerza audit de código antes de reportar pendientes.
+
 ### Price Store + Yield Calculator v2 — soberanía de datos (v0.12.0)
 - ✅ **`instrument_metadata`** (tabla nueva): TEM + fechas de emisión/vencimiento de LECAP/BOND/ON guardadas una sola vez desde fichatecnica BYMA. Nunca más llamadas repetidas.
 - ✅ **`instrument_prices`** (tabla nueva): precios de cierre diarios de todos los paneles BYMA + VCP FCI ArgentinaDatos. Job nocturno `_collect_daily_prices` en el scheduler.
@@ -124,7 +132,7 @@ Usuario target: Marcos González — PM Ualá, Córdoba, ahorro USD 1000-1500/me
 - ✅ **`positions.yield_currency`**: distingue si el yield almacenado es TNA ARS o retorno USD real.
 - ✅ **`yield_calculator_v2.py`**: 4 funciones compute_* — retorno observado > TEA desde price store > YTM desde precios > TNA FCI desde VCP. Sin APIs externas en runtime después de 7 días de historia.
 - ✅ **`yield_updater.py`** integra cadena v2 como fuente primaria. Sistema actual (BYMA/ArgentinaDatos en tiempo real) queda como bootstrap para instrumentos nuevos.
-- ✅ **`freedom_calculator.py`**: separa renta ARS de renta USD. Yield ARS nominal se convierte con proxy devaluación 50% antes de sumar al freedom score.
+- ✅ **`freedom_calculator.py`**: separa renta ARS de renta USD. Yield ARS nominal se convierte con proxy devaluación 15% (crawling peg 2026) antes de sumar al freedom score.
 - ✅ **InstrumentDetail**: label "Yield anual ARS" vs "Yield anual USD" según yield_currency.
 - ✅ **10 tests** en `test_yield_calculator_v2.py` — todos verdes.
 
