@@ -219,6 +219,9 @@ class PortfolioSnapshot(Base):
     cost_basis_usd: Mapped[Decimal] = mapped_column(
         Numeric(12, 2), default=Decimal("0")
     )
+    non_iol_offset_usd: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(12, 2), nullable=True, default=None
+    )
 
 
 class InvestmentMonth(Base):
