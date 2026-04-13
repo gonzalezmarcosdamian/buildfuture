@@ -60,10 +60,11 @@ def split_portfolio_buckets(positions: list) -> dict:
             # annual_return_pct) pero se excluye de renta_monthly_usd hasta conversión.
             if yield_currency == "USD":
                 renta_monthly += value * raw_yield / 12
-            # Para backward compat mientras se migra: si no hay retorno USD disponible
-            # usar ARS yield con descuento conservador por devaluación esperada (50% anual)
+            # ARS yield con corrección por devaluación del MEP.
+            # Crawling peg Argentina 2026: ~1% mensual = ~12.7% anual.
+            # Usamos 15% como proxy conservador con buffer de riesgo cambiario.
             else:
-                DEVALUATION_PROXY = Decimal("0.50")  # 50% anual esperado MEP
+                DEVALUATION_PROXY = Decimal("0.15")  # 15% anual MEP (crawling peg 2026)
                 real_usd_yield = (1 + raw_yield) / (1 + DEVALUATION_PROXY) - 1
                 real_usd_yield = max(real_usd_yield, Decimal("0"))
                 renta_monthly += value * real_usd_yield / 12
