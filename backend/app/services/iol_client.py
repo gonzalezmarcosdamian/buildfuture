@@ -154,12 +154,39 @@ class IOLClient:
         resp.raise_for_status()
         return resp.json()
 
+    def get_caucion_tna(self) -> Decimal | None:
+        """
+        TNA real de cauciones bursátiles desde IOL.
+        GET /api/v2/Cotizacion/opciones/cauciones → lista de plazos con tasas.
+        Retorna la tasa del plazo más corto (1 día) o promedio si no hay 1d.
+        Fallback: None → se usa DEFAULT_YIELDS["cauciones"] (0.30).
+        """
+        try:
+            data = self._get("/api/v2/Cotizacion/opciones/cauciones")
+            if not isinstance(data, list) or not data:
+                return None
+            # Ordenar por plazo ascendente, tomar el de menor plazo
+            by_plazo = sorted(data, key=lambda x: x.get("plazo", 999))
+            first = by_plazo[0]
+            tna_pct = first.get("tna") or first.get("tasaAnual") or first.get("tasa")
+            if tna_pct and float(tna_pct) > 0:
+                result = Decimal(str(round(float(tna_pct) / 100, 4)))
+                logger.info("IOL caucion TNA real: %.2f%% (plazo=%s)", float(result) * 100, first.get("plazo"))
+                return result
+            return None
+        except Exception as e:
+            logger.debug("IOL caucion TNA falló: %s → usando default 30%%", e)
+            return None
+
     def get_portfolio(self) -> list[IOLPosition]:
         logger.info("Fetching portafolio argentina")
         mep = self._get_mep()
         data = self._get("/api/v2/portafolio/argentina")
         activos = data.get("activos", [])
         logger.info("Portafolio recibido: %d activos | MEP=%.0f", len(activos), mep)
+
+        # Fetch caucion real rate once for the whole batch (fallback: None → default 30%)
+        _caucion_tna: Decimal | None = None
 
         positions = []
         for activo in activos:
@@ -197,6 +224,12 @@ class IOLClient:
                 if byma_tir is not None:
                     annual_yield = Decimal(str(round(byma_tir / 100, 4)))
                     logger.debug("BYMA TIR %s (ON): %.2f%%", ticker_sym, byma_tir)
+            elif asset_type == "CAUCION":
+                if _caucion_tna is None:
+                    _caucion_tna = self.get_caucion_tna()
+                if _caucion_tna is not None:
+                    annual_yield = _caucion_tna
+                    logger.debug("IOL CAUCION TNA real: %.2f%%", float(annual_yield) * 100)
 
             cantidad = Decimal(str(activo.get("cantidad", 0)))
             valorizado = Decimal(str(activo.get("valorizado", 0)))
