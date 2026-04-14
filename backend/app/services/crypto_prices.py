@@ -56,6 +56,43 @@ def get_price_usd(coingecko_id: str) -> float | None:
         return None
 
 
+def get_market_data(coingecko_id: str) -> dict | None:
+    """
+    Market data completo para InstrumentDetail CRYPTO.
+    Retorna: {price_usd, change_24h_pct, high_24h, low_24h, market_cap, market_cap_rank, volume_24h}
+    o None si falla.
+    """
+    try:
+        r = httpx.get(
+            f"{COINGECKO_BASE}/coins/markets",
+            params={
+                "vs_currency": "usd",
+                "ids": coingecko_id,
+                "price_change_percentage": "24h",
+            },
+            headers=_HEADERS,
+            timeout=8,
+        )
+        r.raise_for_status()
+        items = r.json()
+        if not items:
+            return None
+        item = items[0]
+        return {
+            "price_usd": item.get("current_price"),
+            "change_24h_pct": item.get("price_change_percentage_24h"),
+            "high_24h": item.get("high_24h"),
+            "low_24h": item.get("low_24h"),
+            "market_cap": item.get("market_cap"),
+            "market_cap_rank": item.get("market_cap_rank"),
+            "volume_24h": item.get("total_volume"),
+            "image": item.get("image"),
+        }
+    except Exception as e:
+        logger.warning("CoinGecko market_data falló (%s): %s", coingecko_id, e)
+        return None
+
+
 def get_yield_30d(coingecko_id: str) -> float:
     """
     TNA implícita calculada de la variación de precio de los últimos 30 días.

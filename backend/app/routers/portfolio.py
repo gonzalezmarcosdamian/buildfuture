@@ -1458,6 +1458,33 @@ def get_instrument_detail(
 
         stock_market = get_stock_market_data(position.ticker)
 
+    # CRYPTO: market data live desde CoinGecko (24h change, high/low, market_cap)
+    crypto_market = None
+    if position.asset_type == "CRYPTO":
+        from app.services.crypto_prices import get_market_data as get_crypto_market_data
+
+        # external_id guarda el coingecko_id (ej: "bitcoin", "ethereum")
+        cg_id = position.external_id or position.ticker.lower()
+        crypto_market = get_crypto_market_data(cg_id)
+
+    # ETF: market data live desde Yahoo Finance (price, 24h change, 52w high/low)
+    etf_market = None
+    if position.asset_type == "ETF":
+        from app.services.external_prices import get_market_data as get_etf_market_data
+
+        etf_market = get_etf_market_data(position.ticker)
+
+    # BOND/ON: precio live desde data912 (fallback a BYMA impliedYield que siempre es null)
+    bond_market = None
+    if position.asset_type in ("BOND", "ON"):
+        from app.services.data912_client import get_bond_price, get_on_price
+
+        bond_market = (
+            get_bond_price(position.ticker)
+            if position.asset_type == "BOND"
+            else get_on_price(position.ticker)
+        )
+
     return {
         "id": position.id,
         "ticker": position.ticker,
@@ -1491,4 +1518,7 @@ def get_instrument_detail(
         "cedear_market": cedear_market,
         "ccl_compra_usd": ccl_compra_usd,
         "stock_market": stock_market,
+        "crypto_market": crypto_market,
+        "etf_market": etf_market,
+        "bond_market": bond_market,
     }

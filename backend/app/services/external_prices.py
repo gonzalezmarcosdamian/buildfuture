@@ -50,6 +50,48 @@ def get_price_usd(ticker: str) -> float | None:
     return info["price_usd"] if info else None
 
 
+def get_market_data(ticker: str) -> dict | None:
+    """
+    Market data completo para InstrumentDetail ETF/STOCK USA.
+    Retorna: {price_usd, change_pct, prev_close, week52_high, week52_low, name, currency}
+    o None si falla.
+    """
+    try:
+        r = httpx.get(
+            f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker.upper()}",
+            params={"interval": "1d", "range": "5d"},
+            headers=_YF_HEADERS,
+            timeout=10,
+        )
+        if not r.is_success:
+            return None
+        result = r.json()["chart"]["result"]
+        if not result:
+            return None
+        meta = result[0]["meta"]
+        price = meta.get("regularMarketPrice")
+        prev_close = meta.get("chartPreviousClose")
+        if not price:
+            return None
+        change_pct = None
+        if prev_close and prev_close > 0:
+            change_pct = round((price - prev_close) / prev_close * 100, 2)
+        return {
+            "price_usd": float(price),
+            "change_pct": change_pct,
+            "prev_close": float(prev_close) if prev_close else None,
+            "week52_high": meta.get("fiftyTwoWeekHigh"),
+            "week52_low": meta.get("fiftyTwoWeekLow"),
+            "name": meta.get("longName") or meta.get("shortName") or ticker.upper(),
+            "currency": meta.get("currency", "USD"),
+            "exchange": meta.get("exchangeName", ""),
+            "instrument_type": meta.get("instrumentType", ""),
+        }
+    except Exception as e:
+        logger.warning("Yahoo market_data falló (%s): %s", ticker, e)
+        return None
+
+
 def get_yield_30d(ticker: str) -> float:
     """
     TNA implícita de la variación de precio de los últimos 30 días.
