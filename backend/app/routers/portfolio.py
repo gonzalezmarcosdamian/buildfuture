@@ -1389,9 +1389,17 @@ def get_instrument_detail(
     mep = float(budget.fx_rate) if budget and budget.fx_rate else 1430.0
 
     pnl_usd = float(position.current_value_usd) - float(position.cost_basis_usd)
-    monthly_return_usd = (
-        float(position.current_value_usd) * float(position.annual_yield_pct) / 12
-    )
+
+    # Para instrumentos ARS (LECAP, FCI), el annual_yield_pct es TNA nominal en ARS.
+    # El retorno real en USD requiere ajustar por devaluación esperada.
+    _ARS_TYPES = {"LETRA", "FCI"}
+    _devaluation = float(get_expected_devaluation(db=db))
+    _raw_yield = float(position.annual_yield_pct)
+    if position.asset_type in _ARS_TYPES:
+        _real_usd_yield = max(0.0, (1 + _raw_yield) / (1 + _devaluation) - 1)
+    else:
+        _real_usd_yield = _raw_yield  # BOND/ON ya están en USD
+    monthly_return_usd = float(position.current_value_usd) * _real_usd_yield / 12
 
     context = _ASSET_CONTEXT.get(
         position.asset_type,
@@ -1466,6 +1474,8 @@ def get_instrument_detail(
         "performance_pct": float(position.performance_pct),
         "pnl_usd": round(pnl_usd, 2),
         "annual_yield_pct": float(position.annual_yield_pct),
+        "real_yield_usd_pct": round(_real_usd_yield, 4),  # ajustado por devaluación para ARS instruments
+        "expected_devaluation_pct": round(_devaluation, 4),
         "yield_currency": getattr(position, "yield_currency", "ARS") or "ARS",
         "monthly_return_usd": round(monthly_return_usd, 4),
         "last_updated": (
