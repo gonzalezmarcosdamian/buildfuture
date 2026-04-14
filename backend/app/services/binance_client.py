@@ -13,6 +13,8 @@ auto_sync_enabled = True siempre.
         GET /api/v3/account
         GET /api/v3/myTrades
         GET /sapi/v1/accountSnapshot
+        GET /sapi/v1/simple-earn/flexible/position  (Earn Flexible)
+        GET /sapi/v1/simple-earn/locked/position    (Earn Locked)
 
     NUNCA agregar:
         POST /api/v3/order  (trading)
@@ -21,6 +23,7 @@ auto_sync_enabled = True siempre.
 
 Scope:
 - Balances spot (GET /api/v3/account)
+- Binance Earn: Flexible + Locked (GET /sapi/v1/simple-earn/*)
 - Precios actuales via CoinGecko
 - Yield real 30d via CoinGecko
 - PPC desde myTrades
@@ -106,7 +109,9 @@ _COINGECKO_ID: dict[str, str] = {
 }
 
 _STABLECOINS: set[str] = {"USDT", "USDC", "BUSD", "DAI", "TUSD", "FDUSD"}
-_SKIP_PREFIXES: tuple[str, ...] = ("LD",)  # Flexible Earn
+# LD* son tokens de Flexible Earn en el balance spot (ej: LDUSDT).
+# Ahora se capturan via /sapi/v1/simple-earn/flexible/position → se omiten aquí.
+_SKIP_PREFIXES: tuple[str, ...] = ("LD",)
 _SKIP_ASSETS: set[str] = {"ARS", "BRL", "EUR", "GBP"}  # fiat
 
 
@@ -265,6 +270,126 @@ class BinanceClient:
                 pass
 
         return 0.0
+
+    def _build_earn_position(self, asset: str, qty: Decimal, source_tag: str) -> BinancePosition | None:
+        """
+        Construye BinancePosition para un asset de Earn (Flexible o Locked).
+        Reutiliza la misma lógica de precios que get_positions().
+        Retorna None si el asset no está mapeado o el precio no se puede obtener.
+        """
+        if qty <= 0:
+            return None
+        if asset in _SKIP_ASSETS:
+            return None
+
+        if asset in _STABLECOINS:
+            price = Decimal("1.0")
+            yield_pct = Decimal("0")
+        elif asset in _COINGECKO_ID:
+            cg_id = _COINGECKO_ID[asset]
+            raw_price = get_price_usd(cg_id)
+            if raw_price is None:
+                logger.warning("BinanceClient Earn: %s sin precio CoinGecko — skip", asset)
+                return None
+            price = Decimal(str(raw_price))
+            raw_yield = get_yield_30d(cg_id)
+            yield_pct = Decimal(str(raw_yield))
+        else:
+            logger.warning("BinanceClient Earn: asset '%s' no mapeado — skip", asset)
+            return None
+
+        return BinancePosition(
+            ticker=asset,
+            asset_type="CRYPTO",
+            quantity=qty,
+            current_price_usd=price,
+            avg_purchase_price_usd=Decimal("0"),
+            ppc_ars=Decimal("0"),
+            annual_yield_pct=yield_pct,
+            current_value_ars=Decimal("0"),
+            raw_data={"earn_source": source_tag},
+        )
+
+    def get_flexible_earn_positions(self) -> list[BinancePosition]:
+        """
+        Balances en Binance Simple Earn Flexible (antes Savings Flexible).
+        GET /sapi/v1/simple-earn/flexible/position
+        Requiere API key con permiso "Spot & Margin Trading" o "Universal Transfer" READ.
+        Retorna [] si el endpoint falla (permiso insuficiente o sin posiciones).
+        """
+        try:
+            data = self._signed_get(
+                "/sapi/v1/simple-earn/flexible/position", {"size": 100}
+            )
+            rows = data.get("rows", []) if isinstance(data, dict) else []
+            positions = []
+            for row in rows:
+                asset = row.get("asset", "")
+                qty = Decimal(str(row.get("totalAmount", 0)))
+                pos = self._build_earn_position(asset, qty, "flexible_earn")
+                if pos:
+                    positions.append(pos)
+            logger.info(
+                "BinanceClient Flexible Earn: %d posiciones", len(positions)
+            )
+            return positions
+        except Exception as e:
+            logger.info(
+                "BinanceClient Flexible Earn: no disponible (%s) — skip", e
+            )
+            return []
+
+    def get_locked_earn_positions(self) -> list[BinancePosition]:
+        """
+        Balances en Binance Simple Earn Locked (staking bloqueado).
+        GET /sapi/v1/simple-earn/locked/position
+        Retorna [] si el endpoint falla.
+        """
+        try:
+            data = self._signed_get(
+                "/sapi/v1/simple-earn/locked/position", {"size": 100}
+            )
+            rows = data.get("rows", []) if isinstance(data, dict) else []
+            positions = []
+            for row in rows:
+                asset = row.get("asset", "")
+                qty = Decimal(str(row.get("amount", 0)))
+                pos = self._build_earn_position(asset, qty, "locked_earn")
+                if pos:
+                    positions.append(pos)
+            logger.info(
+                "BinanceClient Locked Earn: %d posiciones", len(positions)
+            )
+            return positions
+        except Exception as e:
+            logger.info(
+                "BinanceClient Locked Earn: no disponible (%s) — skip", e
+            )
+            return []
+
+    def get_all_positions(self) -> list[BinancePosition]:
+        """
+        Spot + Flexible Earn + Locked Earn.
+        Agrega cantidades si el mismo asset aparece en múltiples buckets.
+        """
+        spot = self.get_positions()
+        flexible = self.get_flexible_earn_positions()
+        locked = self.get_locked_earn_positions()
+
+        # Merge por ticker — sumamos cantidades, preservamos precio/yield del primer match
+        merged: dict[str, BinancePosition] = {}
+        for pos in spot + flexible + locked:
+            if pos.ticker in merged:
+                merged[pos.ticker].quantity += pos.quantity
+            else:
+                merged[pos.ticker] = pos
+
+        result = list(merged.values())
+        logger.info(
+            "BinanceClient get_all_positions: %d total (spot=%d flexible=%d locked=%d)",
+            len(result), len(spot), len(flexible), len(locked),
+        )
+        return result
 
     def get_snapshot_history(self) -> list[dict]:
         """

@@ -2015,7 +2015,8 @@ def _sync_binance(client: BinanceClient, db: Session, user_id: str) -> dict:
     from app.services.mep import get_mep
 
     mep = float(get_mep())
-    positions = client.get_positions()
+    # get_all_positions: spot + Flexible Earn + Locked Earn, mergeado por ticker
+    positions = client.get_all_positions()
 
     # Desactivar posiciones Binance anteriores
     db.query(Position).filter(
