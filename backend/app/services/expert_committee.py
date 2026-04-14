@@ -75,7 +75,7 @@ def _refresh_equity_ranges() -> None:
         _equity_range_ts = time.time()
         logger.info("Equity ranges refreshed for %d tickers", len(_equity_range_cache))
     except Exception as e:
-        logger.warning("Could not refresh equity ranges: %s", e)
+        logger.debug("Could not refresh equity ranges: %s", e)
 
 
 def _compute_yield_range(

@@ -167,7 +167,11 @@ def _parse_date(date_str: str) -> date | None:
     if not date_str:
         return None
     try:
-        return date.fromisoformat(date_str[:10])
+        parsed = date.fromisoformat(date_str[:10])
+        # Guard: BYMA fichatecnica a veces devuelve años corruptos (ej: 0206 en lugar de 2026)
+        if parsed.year < 2000 or parsed.year > 2100:
+            return None
+        return parsed
     except (ValueError, TypeError):
         return None
 
