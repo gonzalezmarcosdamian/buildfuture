@@ -46,6 +46,15 @@ _MONTH_MAP: dict[str, int] = {
 _LECAP_RE = re.compile(r"^S(\d{2})([A-Z])(\d)$")
 
 
+def _fci_yield_currency(pos) -> str:
+    """Detecta si un FCI es en dólares por ticker, external_id o descripción."""
+    for field in (pos.ticker or "", pos.external_id or "", pos.description or ""):
+        lower = field.lower()
+        if "usd" in lower or "dolar" in lower or "dólar" in lower:
+            return "USD"
+    return "ARS"
+
+
 def _parse_lecap_maturity(ticker: str) -> date | None:
     """
     Decodifica la fecha de vencimiento desde el nombre del ticker.
@@ -294,7 +303,7 @@ def update_yields(db, mep: Decimal | None = None) -> int:
                         v2_yield, v2_currency = compute_fci_yield(fci_ticker, db)
                     if v2_yield is not None:
                         new_yield = v2_yield
-                        new_currency = v2_currency or "ARS"
+                        new_currency = v2_currency or (_fci_yield_currency(pos) if pos.asset_type == "FCI" else "ARS")
                         logger.debug("yield_v2 ② price_store %s: %.2f%%", pos.ticker, float(new_yield) * 100)
             except Exception as e_v2:
                 logger.debug("yield_v2 falló para %s: %s — usando sistema actual", pos.ticker, e_v2)
@@ -307,7 +316,7 @@ def update_yields(db, mep: Decimal | None = None) -> int:
                     new_yield = _yield_fci(pos, _fci_avg)
                 else:
                     new_yield = _compute_yield(pos, today)
-                new_currency = "ARS"
+                new_currency = _fci_yield_currency(pos) if pos.asset_type == "FCI" else "ARS"
 
             changed = False
             if new_yield is not None and new_yield != pos.annual_yield_pct:
