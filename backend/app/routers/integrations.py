@@ -524,6 +524,9 @@ _IOL_FCI_TICKER_MAP: dict[str, tuple[str | None, str]] = {
     # Cocos FCIs — categorías confirmadas contra ArgentinaDatos
     "COCOSPPA": ("Cocos Pesos Plus", "rentaMixta"),  # Cocos Pesos Plus → rentaMixta, no mercadoDinero
     "COCOSPPL": ("Cocos Pesos Plus", "rentaMixta"),  # ticker alternativo
+    # Cocos USD FCIs — fondos en dólares, yield_currency debe ser USD
+    "COCOAUSD":  ("Cocos Ahorro Dólares", "mercadoDinero"),  # USD money market
+    "COCOUSDPA": ("Cocos Dólares Plus", "rentaFija"),        # USD fixed income
 }
 
 

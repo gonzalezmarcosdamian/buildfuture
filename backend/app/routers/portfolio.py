@@ -319,6 +319,7 @@ def get_portfolio(
     )
     budget = _query_budget(db, current_user)
     monthly_expenses_usd = budget.total_monthly_usd if budget else Decimal("2000")
+    mep_live = float(get_mep(budget))
 
     score = _get_freedom_score(current_user, positions, monthly_expenses_usd)
     buckets = split_portfolio_buckets(positions, db=db)
@@ -360,16 +361,11 @@ def get_portfolio(
         ],
         "summary": {
             "total_usd": float(score["portfolio_total_usd"]),
-            "total_ars": float(
-                # Usa current_value_ars si está disponible; para posiciones MANUAL sin ARS
-                # (CASH_USD creado antes del fix) convierte con MEP live.
-                sum(
-                    float(p.current_value_ars) if p.current_value_ars
-                    else float(p.current_value_usd) * float(get_mep(budget))
-                    for p in positions
-                )
-            )
-            or None,
+            # total_ars = total_usd * MEP live — nunca stale (current_value_ars puede
+            # ser del último sync con MEP diferente; convertir desde USD es siempre consistente).
+            "total_ars": float(score["portfolio_total_usd"]) * mep_live,
+            "mep": mep_live,
+            "monthly_expenses_usd": float(monthly_expenses_usd),
             "monthly_return_usd": float(buckets["renta_monthly_usd"]),
             "renta_monthly_usd": float(buckets["renta_monthly_usd"]),
             "renta_total_usd": float(buckets["renta_total_usd"]),
