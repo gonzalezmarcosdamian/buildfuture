@@ -93,6 +93,12 @@ Usuario target: Marcos González — PM Ualá, Córdoba, ahorro USD 1000-1500/me
   - `InvestmentMonth` marcado al sync si hay posiciones con costo > 0
   - Backfill automático: usuarios existentes ven COCOS en Settings sin intervención manual
 
+### Bucket split renta/capital (v0.11+)
+- ✅ **`split_portfolio_buckets()`** en `freedom_calculator.py`: clasifica LETRA/FCI → renta, CEDEAR/ETF/CRYPTO → capital, BOND → ambos
+- ✅ **`DashboardHero`**: dos barras segmentadas — 💰 Renta mensual (vs gastos) + 📈 Capital acumulado (vs metas)
+- ✅ **`PortfolioHeader`**: sección renta fija (LECAP/FCI) + sección capital acumulado con breakdown
+- ✅ **`/portfolio/` summary**: expone `renta_monthly_usd`, `renta_total_usd`, `capital_total_usd`, `expected_devaluation_pct`
+
 ### Portfolio UI (v3–v4)
 - ✅ Switch unificado Composición / Rendimientos: un control que afecta gráfico + listado de activos
 - ✅ Modal ⓘ inline explica cómo se calcula cada vista (tenencia / rendimiento)
@@ -107,7 +113,7 @@ Usuario target: Marcos González — PM Ualá, Córdoba, ahorro USD 1000-1500/me
 - ✅ Contexto por tipo de activo: descripción, nota de moneda, liquidez, fuente de datos
 - ✅ `GET /portfolio/instrument/{ticker}`: endpoint con contexto enriquecido + `pnl_usd`
 
-### Ingreso manual de posiciones (v0.10 — WIP local)
+### Ingreso manual de posiciones (v0.10)
 - ✅ CRYPTO: búsqueda live en CoinGecko, precio USD en tiempo real, yield TNA interpolado de variación 30 días
 - ✅ FCI: búsqueda por nombre en ArgentinaDatos (todas las categorías), VCP live, TNA calculada de VCP 30 días. Cubre Cocos Ahorro, Cocos Dólares Plus y todos los FCI CAFCI
 - ✅ ETF / acciones: validación y precio vía Yahoo Finance, yield TNA 30 días (SPY, QQQ, AAPL, etc.)
@@ -115,7 +121,7 @@ Usuario target: Marcos González — PM Ualá, Córdoba, ahorro USD 1000-1500/me
 - ✅ `_refresh_manual_prices()` en scheduler: actualiza precios manuales en cada cierre de mercado
 - ✅ `Position.external_id` + `Position.fci_categoria`: campos para tracking externo por fuente
 - ✅ Formulario 3 pasos: tipo → buscar (live search) → cargar datos de compra
-- 🔲 Pendiente deploy a producción (probado solo en local)
+- ✅ En producción (main/master)
 
 ### STOCK InstrumentDetail market data (v0.13.0 — 2026-04-13)
 - ✅ **`get_stock_market_data()`** en byma_client — datos extendidos desde btnLideres: variation_pct, high_ars, low_ars, prev_close_ars. Cache TTL 5 min con `_stock_full_cache`.
@@ -232,16 +238,7 @@ Resumen de fases:
 ## Pendiente 🔲
 
 ### Alta prioridad
-- 🔲 **Bucket split renta/capital**: separar portfolio en dos carriles en DashboardHero, ProjectionCard y cálculos — ver diseño en BITACORA v0.11.0
-- 🔲 **Deploy v0.11 a producción**: bump versión → Railway + Vercel
-- 🔲 **Deploy ingreso manual a producción**: testear local completo → Railway + Vercel
-- 🔲 **Editar posición manual desde detalle**: botón "Editar" en `/portfolio/[ticker]` para posiciones `source=MANUAL`
-
-### Media prioridad
-- 🔲 **Claude API recommendations**: preparado en `ai_recommendations.py`, falta `ANTHROPIC_API_KEY`
-- 🔲 **PPI integration**: mock mode funcionando, credenciales reales pendientes
-- 🔲 **Flujo "invertir ahora"**: presupuesto → recomendaciones → confirmar → registrar inversión del mes
-- 🔲 **Port management**: startup script que mata procesos viejos antes de levantar
+- 🔲 **Editar posición manual desde detalle**: soporte edición CASH y CRYPTO en `/portfolio/add-manual?edit={id}` (REAL_ESTATE ya funciona)
 
 ### Baja prioridad
 - 🔲 Notificaciones: alerta cuando la racha está en riesgo
