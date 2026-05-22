@@ -154,15 +154,68 @@ def get_credits_used(db: Session, user_id: str) -> int:
     return int(result or 0)
 
 
-def consume_credit(db: Session, user_id: str, query_type: str, ticker: str | None) -> None:
-    db.execute(
+def consume_credit(db: Session, user_id: str, query_type: str, ticker: str | None, context_answers: dict | None = None) -> int:
+    """Inserta registro de uso y devuelve el id creado."""
+    import json
+    result = db.execute(
         text(
-            "INSERT INTO advisor_usage (user_id, query_type, ticker) "
-            "VALUES (:uid, :qt, :ticker)"
+            "INSERT INTO advisor_usage (user_id, query_type, ticker, context_answers) "
+            "VALUES (:uid, :qt, :ticker, :ctx) RETURNING id"
         ),
-        {"uid": user_id, "qt": query_type, "ticker": ticker},
+        {
+            "uid": user_id,
+            "qt": query_type,
+            "ticker": ticker,
+            "ctx": json.dumps(context_answers) if context_answers else None,
+        },
     )
+    row = result.fetchone()
     db.commit()
+    return row[0] if row else 0
+
+
+def save_response(db: Session, usage_id: int, response: str) -> None:
+    """Guarda el response completo en el registro de uso."""
+    try:
+        db.execute(
+            text("UPDATE advisor_usage SET response = :r WHERE id = :id"),
+            {"r": response, "id": usage_id},
+        )
+        db.commit()
+    except Exception as e:
+        logger.warning("save_response failed: %s", e)
+        db.rollback()
+
+
+def get_today_history(db: Session, user_id: str) -> list[dict]:
+    """Devuelve las consultas del día con sus respuestas, ordenadas desc."""
+    today = _today_art()
+    rows = db.execute(
+        text(
+            "SELECT id, query_type, ticker, context_answers, response, created_at "
+            "FROM advisor_usage "
+            "WHERE user_id = :uid "
+            "AND created_at >= :start AND created_at < :end "
+            "AND response IS NOT NULL "
+            "ORDER BY created_at DESC"
+        ),
+        {
+            "uid": user_id,
+            "start": datetime.combine(today, datetime.min.time()).replace(tzinfo=timezone(ART_OFFSET)),
+            "end": datetime.combine(today + timedelta(days=1), datetime.min.time()).replace(tzinfo=timezone(ART_OFFSET)),
+        },
+    ).fetchall()
+    return [
+        {
+            "id": r[0],
+            "query_type": r[1],
+            "ticker": r[2],
+            "context_answers": r[3],
+            "response": r[4],
+            "created_at": r[5].isoformat() if r[5] else None,
+        }
+        for r in rows
+    ]
 
 
 # ── Contexto del portafolio ───────────────────────────────────────────────────
@@ -281,9 +334,10 @@ def stream_advisor_response(
 
     add_disclaimer = query_type == "scenario"
 
-    consume_credit(db, user_id, query_type, ticker)
+    usage_id = consume_credit(db, user_id, query_type, ticker, context_answers)
 
     client = anthropic.Anthropic(api_key=api_key)
+    full_response: list[str] = []
 
     with client.messages.stream(
         model="claude-haiku-4-5-20251001",
@@ -292,7 +346,13 @@ def stream_advisor_response(
         messages=[{"role": "user", "content": user_message}],
     ) as stream:
         for text_chunk in stream.text_stream:
+            full_response.append(text_chunk)
             yield text_chunk
 
     if add_disclaimer:
+        full_response.append(DISCLAIMER)
         yield DISCLAIMER
+
+    # Guardar response completo para historial
+    if usage_id:
+        save_response(db, usage_id, "".join(full_response))

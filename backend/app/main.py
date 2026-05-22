@@ -233,6 +233,14 @@ def _run_migrations():
             "CREATE INDEX IF NOT EXISTS idx_advisor_usage_user_date ON advisor_usage(user_id, created_at)",
             "idx_advisor_usage_user_date",
         ),
+        (
+            "ALTER TABLE advisor_usage ADD COLUMN IF NOT EXISTS context_answers JSONB",
+            "advisor_usage.context_answers",
+        ),
+        (
+            "ALTER TABLE advisor_usage ADD COLUMN IF NOT EXISTS response TEXT",
+            "advisor_usage.response",
+        ),
     ]
     try:
         with engine.connect() as conn:
