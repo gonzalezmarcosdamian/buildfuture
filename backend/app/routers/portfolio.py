@@ -1390,18 +1390,18 @@ def get_portfolio_projection(
 @router.get("/instrument/{ticker}")
 def get_instrument_detail(
     ticker: str,
+    id: int | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user: str = Depends(get_current_user),
 ):
-    position = (
-        db.query(Position)
-        .filter(
-            Position.ticker == ticker,
-            Position.is_active == True,
-            Position.user_id == current_user,
-        )
-        .first()
+    q = db.query(Position).filter(
+        Position.ticker == ticker,
+        Position.is_active == True,
+        Position.user_id == current_user,
     )
+    if id is not None:
+        q = q.filter(Position.id == id)
+    position = q.first()
 
     if not position:
         raise HTTPException(status_code=404, detail="Instrumento no encontrado")
