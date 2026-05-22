@@ -27,9 +27,10 @@ router = APIRouter(prefix="/advisor", tags=["advisor"])
 
 
 class AdvisorQuery(BaseModel):
-    type: str           # "portfolio" | "technical" | "fundamental" | "macro" | "scenario"
-    query: str          # texto libre del usuario
+    type: str                           # "portfolio" | "technical" | "fundamental" | "macro" | "scenario"
+    query: str                          # texto libre del usuario
     ticker: str | None = None
+    context_answers: dict | None = None  # respuestas al cuestionario previo
 
 
 @router.get("/credits")
@@ -77,6 +78,7 @@ def advisor_query(
                 user_id=current_user,
                 db=db,
                 ticker=body.ticker,
+                context_answers=body.context_answers,
             ):
                 yield f"data: {json.dumps({'chunk': chunk})}\n\n"
 
