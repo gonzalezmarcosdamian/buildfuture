@@ -61,7 +61,8 @@ def advisor_query(
         data: {"chunk": "texto..."}\n\n
         data: {"done": true, "credits_remaining": 3}\n\n
     """
-    if not body.query.strip():
+    # query puede ser vacío si viene context_answers del cuestionario
+    if not body.query.strip() and not body.context_answers:
         raise HTTPException(status_code=400, detail="La consulta no puede estar vacía.")
 
     if body.type not in QUERY_TYPE_LABELS:
