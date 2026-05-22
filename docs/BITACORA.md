@@ -2,6 +2,39 @@
 
 ---
 
+## Sesión v0.16.0 — 2026-05-22 (Sprint — Portfolio Redesign + Invest Advisor)
+
+### Objetivo
+Dos entregas principales: rediseño completo de la vista de portafolio para separar visualmente brokers/manual/consolidado, e implementación del Invest Advisor — módulo de IA con cuestionario contextual que genera análisis específicos sobre el portafolio real del usuario.
+
+### Portfolio redesign
+- Vista composición refactorizada en 3 secciones separadas: Consolidado / Brokers conectados / Manual
+- Chip de última sync por broker con alerta amber si ≥3 días sin actualizar
+- Fix crítico: `PositionRow` definido dentro del render causaba React remount en cada re-render → delete/edit no funcionaban. Movido a componente de módulo.
+- Navegación por `?id=` para resolver colisión de tickers entre brokers (USDT Binance vs USDT Manual)
+- Performance: `save_position_snapshots` → background task, portfolio page 4→2 fetches
+- `StreakCard` simplificado en home, `ProjectionCard` expandida por defecto
+
+### Invest Advisor
+- Tabla `advisor_usage` con `context_answers JSONB` + `response TEXT`
+- 5 skills adaptados al mercado argentino con system prompts v2 (específicos, con números reales, 1 acción concreta)
+- Flujo de 3 pasos: tipo → cuestionario contextual (2-3 preguntas por tipo) → streaming SSE
+- Historial del día: `GET /advisor/history`, `HistoryCard` expandible, reset diario
+- Navbar con 5to ítem Advisor, CTA en home
+- Fix: validación de query vacío bloqueaba cuando venían solo `context_answers`
+
+### Decisiones clave
+- `PositionRow` definido dentro del render es anti-pattern en React — siempre definir componentes a nivel de módulo
+- System prompts genéricos → respuestas genéricas. El cuestionario previo es el punto de mejora más importante del Advisor
+- `save_position_snapshots` no debería estar en el hot path de un GET — background task siempre para writes no críticos
+
+### Deploy
+- Backend v0.16.0 en Railway (múltiples PRs: #40-#42 + hotfixes)
+- Frontend v0.16.0 en Vercel (PRs #22-#34)
+- Tag: v0.16.0
+
+---
+
 ## Sesión v0.13.0 — 2026-04-13 (Sprint 11 — STOCK market data live)
 
 ### Objetivo

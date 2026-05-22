@@ -123,6 +123,35 @@ Usuario target: Marcos González — PM Ualá, Córdoba, ahorro USD 1000-1500/me
 - ✅ Formulario 3 pasos: tipo → buscar (live search) → cargar datos de compra
 - ✅ En producción (main/master)
 
+### Invest Advisor — IA sobre el portafolio real (v0.16.0 — 2026-05-22)
+- ✅ **`advisor_usage` table** con `context_answers JSONB` + `response TEXT` + reset diario por créditos
+- ✅ **`GET /advisor/credits`** — créditos usados/disponibles hoy (5/día, reset medianoche ART)
+- ✅ **`POST /advisor/query`** — streaming SSE con 5 skills adaptados para mercado ARG:
+  - `portfolio`: diagnóstico de cartera con portafolio real inyectado
+  - `technical`: soporte/resistencia + escenarios para cualquier instrumento
+  - `fundamental`: valuación + catalizadores (CEDEAR, ON, bonos soberanos)
+  - `macro`: régimen macro ARG, pesos vs dólares, posicionamiento
+  - `scenario`: impacto de evento en posiciones declaradas (3 escenarios Bull/Base/Bear)
+- ✅ **`GET /advisor/history`** — consultas del día con respuestas completas
+- ✅ **System prompts v2**: reglas estrictas — usan números exactos del portafolio, terminan con UNA acción concreta
+- ✅ **`context_answers`**: cuestionario pre-consulta (2-3 preguntas por tipo) inyectado al prompt
+- ✅ **`/advisor` página**: flujo de 3 pasos — tipo → cuestionario → respuesta streaming
+- ✅ **Historial del día**: `HistoryCard` expandible, se refresca post-consulta
+- ✅ **Navbar**: ícono Bot para `/advisor` (5to ítem)
+- ✅ **Home**: `AdvisorCta` — card CTA que navega a `/advisor`
+
+### Portfolio redesign + fixes (v0.16.0 — 2026-05-22)
+- ✅ **Vista composición 3 secciones**: Consolidado (barra + renta/capital + leyenda) / Brokers conectados / Manual — separación visual clara
+- ✅ **Sync por broker**: chip "Sync hoy/ayer/hace Nd" + banner amber si ≥3 días sin actualizar
+- ✅ **`last_synced_date` en summary**: campo en `GET /portfolio/` — max `snapshot_date` de posiciones no-MANUAL
+- ✅ **Fix delete/edit posiciones manuales**: `PositionRow` movido fuera del render (React remount bug eliminado), `toast.error/success` en delete
+- ✅ **Orden por tenencia dentro de broker**: CASH al fondo, resto por `current_value_usd` desc
+- ✅ **Colisión de tickers**: navegación por `?id=` — USDT Binance y USDT Manual ya no se pisan; `GET /instrument/{ticker}?id=` en backend
+- ✅ **Performance GET /portfolio/**: `save_position_snapshots` en background task, `get_expected_devaluation` pre-cacheado; portfolio page de 4→2 fetches
+- ✅ **`StreakCard`**: componente simplificado en home — chip racha + calendario 12 meses
+- ✅ **`ProjectionCard`**: expandida por defecto
+- ✅ **Landing actualizada**: AdvisorMockup, pilar Invest Advisor, roadmap, stats, FAQ
+
 ### STOCK InstrumentDetail market data (v0.13.0 — 2026-04-13)
 - ✅ **`get_stock_market_data()`** en byma_client — datos extendidos desde btnLideres: variation_pct, high_ars, low_ars, prev_close_ars. Cache TTL 5 min con `_stock_full_cache`.
 - ✅ **`_fetch_stock_panel()`** — fetch centralizado que popula tanto el cache de precio (get_stock_price_ars) como el de datos extendidos (get_stock_market_data). Un solo HTTP call para los dos consumidores.
