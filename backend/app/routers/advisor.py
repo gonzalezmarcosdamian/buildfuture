@@ -19,6 +19,7 @@ from app.services.advisor import (
     DAILY_CREDIT_LIMIT,
     QUERY_TYPE_LABELS,
     get_credits_used,
+    get_today_history,
     stream_advisor_response,
 )
 
@@ -44,6 +45,15 @@ def credits_status(
         "remaining": max(0, DAILY_CREDIT_LIMIT - used),
         "limit": DAILY_CREDIT_LIMIT,
     }
+
+
+@router.get("/history")
+def advisor_history(
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    """Consultas del día actual con sus respuestas."""
+    return get_today_history(db, current_user)
 
 
 @router.post("/query")
