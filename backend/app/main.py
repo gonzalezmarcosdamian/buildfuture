@@ -15,6 +15,7 @@ from app.routers import (
     admin,
     waitlist,
     tos,
+    advisor,
 )
 
 IS_SERVERLESS = os.environ.get("VERCEL", "") == "1"
@@ -48,6 +49,7 @@ app.include_router(positions.router)
 app.include_router(admin.router, include_in_schema=False)  # no expuesto en /docs
 app.include_router(waitlist.router)
 app.include_router(tos.router)
+app.include_router(advisor.router)
 
 
 @app.on_event("startup")
@@ -216,6 +218,20 @@ def _run_migrations():
         (
             "ALTER TABLE positions ADD COLUMN IF NOT EXISTS yield_currency CHAR(3) DEFAULT 'ARS'",
             "positions.yield_currency",
+        ),
+        (
+            """CREATE TABLE IF NOT EXISTS advisor_usage (
+                id         SERIAL PRIMARY KEY,
+                user_id    UUID NOT NULL,
+                query_type TEXT NOT NULL,
+                ticker     TEXT,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )""",
+            "advisor_usage table",
+        ),
+        (
+            "CREATE INDEX IF NOT EXISTS idx_advisor_usage_user_date ON advisor_usage(user_id, created_at)",
+            "idx_advisor_usage_user_date",
         ),
     ]
     try:
