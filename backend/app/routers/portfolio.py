@@ -304,6 +304,23 @@ def _auto_sync_iol(user_id: str) -> None:
         db.close()
 
 
+def _last_synced_date(positions: list) -> str | None:
+    """
+    Fecha de la última sincronización real: snapshot_date más reciente
+    entre posiciones de brokers conectados (excluye MANUAL).
+    Retorna ISO date string o None.
+    """
+    dates = [
+        p.snapshot_date
+        for p in positions
+        if getattr(p, "source", "MANUAL") != "MANUAL"
+        and p.snapshot_date is not None
+    ]
+    if not dates:
+        return None
+    return max(dates).isoformat()
+
+
 @router.get("/")
 def get_portfolio(
     db: Session = Depends(get_db),
@@ -380,6 +397,7 @@ def get_portfolio(
             "freedom_pct": float(score["freedom_pct"]),
             "annual_return_pct": float(score["annual_return_pct"]),
             "expected_devaluation_pct": float(get_expected_devaluation(db=db)),
+            "last_synced_date": _last_synced_date(positions),
         },
     }
 
