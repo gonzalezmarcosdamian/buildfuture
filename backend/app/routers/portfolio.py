@@ -321,8 +321,23 @@ def _last_synced_date(positions: list) -> str | None:
     return max(dates).isoformat()
 
 
+def _save_snapshots_bg(user_id: str, positions: list) -> None:
+    """Guarda position snapshots en background — no bloquea el response."""
+    from app.database import SessionLocal
+    db = SessionLocal()
+    try:
+        save_position_snapshots(db, user_id, positions)
+        db.commit()
+    except Exception as e:
+        logger.warning("save_position_snapshots bg failed: %s", e)
+        db.rollback()
+    finally:
+        db.close()
+
+
 @router.get("/")
 def get_portfolio(
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: str = Depends(get_current_user),
 ):
@@ -339,15 +354,12 @@ def get_portfolio(
     mep_live = float(get_mep(budget))
 
     score = _get_freedom_score(current_user, positions, monthly_expenses_usd)
+    # Pre-cachear devaluación para que split_portfolio_buckets no haga HTTP inline
+    get_expected_devaluation(db=db)
     buckets = split_portfolio_buckets(positions, db=db)
 
-    # Guardar snapshot por posición para habilitar Δ por período en Rendimientos
-    try:
-        save_position_snapshots(db, current_user, positions)
-        db.commit()
-    except Exception as _e:
-        logger.warning("save_position_snapshots failed (non-blocking): %s", _e)
-        db.rollback()
+    # Snapshot en background — no bloquea el response
+    background_tasks.add_task(_save_snapshots_bg, current_user, positions)
 
     return {
         "positions": [
