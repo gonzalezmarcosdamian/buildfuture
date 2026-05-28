@@ -32,7 +32,7 @@ logging.basicConfig(
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 
-app = FastAPI(title="BuildFuture API", version="0.15.0")
+app = FastAPI(title="BuildFuture API", version="0.16.0")
 
 app.add_middleware(
     CORSMiddleware,
