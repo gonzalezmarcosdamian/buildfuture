@@ -52,6 +52,24 @@
 
 ---
 
+## [2026-05-28] Railway project token funciona con CLI, no con GraphQL API directa
+
+**Contexto:** Deploy del backend después de merge de PR con nueva feature del advisor.  
+**Qué pasó:** El project token (UUID format, generado desde Project Settings → Tokens) devuelve "Not Authorized" en la mutación `serviceInstanceDeployV2` de la GraphQL API de Railway, aunque sea el token correcto del proyecto.  
+**Solución:** Usar el Railway CLI directamente: `RAILWAY_TOKEN=<token> railway up --service <serviceId> --detach`. El CLI usa el mismo token pero lo autentica correctamente para el contexto del proyecto. La URL real del servicio es `https://api-production-7ddd6.up.railway.app` (no `buildfuture-production.up.railway.app`).  
+**Aplica a:** arquitectura — todo deploy manual al backend usa `railway up` desde el directorio raíz del repo.
+
+---
+
+## [2026-05-28] Advisor penalizaba perfiles de capital largo plazo por freedom % bajo
+
+**Contexto:** El advisor de "Analizar mi cartera" siempre evaluaba el freedom % como KPI principal.  
+**Qué pasó:** Inversores que priorizan acumulación de capital (largo plazo) acumulan activos de crecimiento con bajo yield. El advisor los penalizaba mostrando freedom % bajo como problema, cuando en realidad es la estrategia correcta para su objetivo.  
+**Solución:** Agregar una pregunta explícita al cuestionario ("¿Qué objetivo querés priorizar?") y actualizar el system prompt para que el análisis sea coherente con la respuesta: si el usuario declara "solo capital", el prompt no penaliza freedom % bajo ni renta escasa.  
+**Aplica a:** UX — siempre que el análisis puede tener múltiples marcos válidos (renta vs capital), preguntarle al usuario en qué marco quiere ser evaluado.
+
+---
+
 ## [2026-03-29] Crypto como fuente de portafolio desde el inicio
 
 **Contexto:** Definiendo las fuentes del portafolio.
