@@ -53,28 +53,31 @@ Por eso: **todo trabajo en frontend va en una branch**, nunca directo en `master
 ```
 1. git checkout -b feat/nombre-feature
 2. Commits en la branch
-3. gh pr create → compartir URL al usuario
-4. CI corre automáticamente (lint, types, build)
-5. Usuario revisa y dice "ok mergea"
-6. Mergear PR → Vercel auto-deploya el frontend
-7. Usuario dice "deployá a Railway" → disparar deploy manual del backend
+3. Correr tests localmente ANTES del PR:
+   - Backend: cd backend && python -m pytest tests/ -q (si existen tests)
+   - Frontend: cd frontend && npx playwright test (E2E críticos)
+   - Frontend types: cd frontend && npx tsc --noEmit
+4. gh pr create → compartir URL al usuario
+5. CI corre automáticamente (lint, types, build)
+6. Usuario revisa y dice "ok mergea"
+7. Mergear PR → Vercel auto-deploya el frontend
+8. Usuario dice "deployá a Railway" → disparar deploy manual del backend
 ```
 
 ---
 
 ## Deploy a Railway
 
-Solo ejecutar `serviceInstanceDeployV2` cuando el usuario diga explícitamente:
-- "deployá a prod"
-- "mandá a Railway"
-- "ok deployá"
+Solo ejecutar cuando el usuario diga explícitamente:
+- "deployá a prod" / "mandá a Railway" / "ok deployá"
 
-Datos:
-- Service ID: `4ff0cd5e-e9b6-4b36-8a71-9e165c4ef959`
-- Environment ID: `eee73e4b-878b-40a3-ab54-90939eb158fb`
-- Token: en memoria del proyecto
-- Siempre usar SHA completo del commit (40 chars)
-- Verificar con `/health` después del deploy
+Comando (usar Railway CLI, **no** la GraphQL API):
+```bash
+cd buildfuture/
+RAILWAY_TOKEN=<ver memoria del proyecto> railway up --service 4ff0cd5e-e9b6-4b36-8a71-9e165c4ef959 --detach
+```
+
+Verificar con `curl https://api-production-7ddd6.up.railway.app/health` — debe devolver la versión nueva.
 
 ---
 
