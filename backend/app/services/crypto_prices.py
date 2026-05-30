@@ -5,6 +5,7 @@ Sin API key requerida. Rate limit ~15 req/min en el tier público.
 
 import logging
 import httpx
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
 logger = logging.getLogger("buildfuture.crypto")
@@ -91,6 +92,34 @@ def get_market_data(coingecko_id: str) -> dict | None:
     except Exception as e:
         logger.warning("CoinGecko market_data falló (%s): %s", coingecko_id, e)
         return None
+
+
+def get_price_history(coingecko_id: str, days: int) -> dict[date, float]:
+    """
+    Precio de cierre diario en USD de los últimos ``days`` días.
+    Retorna ``{date: price_usd}``. Dict vacío si falla — el caller decide el fallback.
+
+    El tier público de CoinGecko entrega granularidad diaria hasta 365 días atrás.
+    """
+    if days <= 0:
+        return {}
+    try:
+        r = httpx.get(
+            f"{COINGECKO_BASE}/coins/{coingecko_id}/market_chart",
+            params={"vs_currency": "usd", "days": str(days), "interval": "daily"},
+            headers=_HEADERS,
+            timeout=15,
+        )
+        r.raise_for_status()
+        prices = r.json().get("prices", [])
+        history: dict[date, float] = {}
+        for ts_ms, price in prices:
+            d = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).date()
+            history[d] = float(price)
+        return history
+    except Exception as e:
+        logger.warning("CoinGecko price_history falló (%s): %s", coingecko_id, e)
+        return {}
 
 
 def get_yield_30d(coingecko_id: str) -> float:

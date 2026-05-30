@@ -241,6 +241,10 @@ def _run_migrations():
             "ALTER TABLE advisor_usage ADD COLUMN IF NOT EXISTS response TEXT",
             "advisor_usage.response",
         ),
+        (
+            "ALTER TABLE positions ADD COLUMN IF NOT EXISTS purchase_date DATE",
+            "positions.purchase_date",
+        ),
     ]
     try:
         with engine.connect() as conn:
