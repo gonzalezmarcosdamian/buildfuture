@@ -1,5 +1,6 @@
 import logging
 import threading
+from calendar import monthrange
 from decimal import Decimal
 from datetime import date, datetime, timedelta
 from typing import Optional
@@ -497,6 +498,45 @@ def get_portfolio_sections(
     )
 
 
+# Días restantes del mes a partir de los cuales avisamos que la racha está en riesgo.
+STREAK_RISK_DAYS = 7
+
+
+def compute_streak_risk(
+    calendar: list[dict],
+    current_month_invested: bool,
+    today: date,
+) -> dict:
+    """Determina si la racha mensual está por romperse.
+
+    En riesgo = hay una racha previa viva (meses consecutivos terminando el mes
+    pasado), todavía no se registró inversión este mes, y quedan pocos días para
+    que cierre el mes. ``calendar`` es la lista de 12 meses donde el último
+    elemento es el mes actual.
+    """
+    days_in_month = monthrange(today.year, today.month)[1]
+    days_left = days_in_month - today.day
+
+    # Racha consecutiva que termina en el mes anterior (excluye el mes actual).
+    streak_to_keep = 0
+    for entry in reversed(calendar[:-1]):
+        if entry["invested"]:
+            streak_to_keep += 1
+        else:
+            break
+
+    at_risk = (
+        not current_month_invested
+        and streak_to_keep > 0
+        and days_left <= STREAK_RISK_DAYS
+    )
+    return {
+        "at_risk": at_risk,
+        "days_left": days_left,
+        "streak_to_keep": streak_to_keep,
+    }
+
+
 @router.get("/gamification")
 def get_gamification(
     background_tasks: BackgroundTasks,
@@ -596,6 +636,8 @@ def get_gamification(
     current_month = date(today.year, today.month, 1)
     current_month_invested = current_month in invested_months
 
+    streak_risk = compute_streak_risk(calendar, current_month_invested, today)
+
     return {
         "monthly_return_usd": round(monthly_return_usd, 2),
         "portfolio_covers": portfolio_covers,
@@ -605,6 +647,7 @@ def get_gamification(
             "longest": longest_streak,
             "calendar": calendar,
         },
+        "streak_risk": streak_risk,
     }
 
 
