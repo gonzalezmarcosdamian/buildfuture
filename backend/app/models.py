@@ -53,6 +53,11 @@ class Position(Base):
     current_value_ars: Mapped[Decimal] = mapped_column(
         Numeric(18, 2), default=Decimal("0")
     )
+    # Fecha de compra declarada por el usuario (posiciones manuales) — permite
+    # retropolar el historial de tenencia. Nullable: IOL/sync no la setean.
+    purchase_date: Mapped[date | None] = mapped_column(
+        Date, nullable=True, default=None
+    )
 
     @property
     def current_value_usd(self) -> Decimal:

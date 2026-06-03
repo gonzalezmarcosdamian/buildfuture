@@ -236,6 +236,14 @@ def create_manual_position(
 
     final_ticker = restate_ticker if restate_ticker else body.ticker.upper()[:20]
 
+    # Fecha de compra declarada — habilita retropolar el historial de tenencia.
+    parsed_purchase_date = None
+    if body.purchase_date:
+        try:
+            parsed_purchase_date = date.fromisoformat(body.purchase_date[:10])
+        except ValueError:
+            parsed_purchase_date = None
+
     pos = Position(
         user_id=user_id,
         ticker=final_ticker,
@@ -253,6 +261,7 @@ def create_manual_position(
         external_id=body.external_id,
         fci_categoria=body.fci_categoria,
         current_value_ars=cash_value_ars,
+        purchase_date=parsed_purchase_date,
     )
     db.add(pos)
     db.commit()
@@ -262,6 +271,14 @@ def create_manual_position(
         db.commit()
     except Exception:
         pass  # no bloquear el create si el snapshot falla
+    # Retropolar historial desde la fecha de compra (idempotente, tolera fallos).
+    if parsed_purchase_date:
+        try:
+            from app.services.manual_backfill import backfill_manual_history
+
+            backfill_manual_history(db, pos, parsed_purchase_date)
+        except Exception:
+            pass  # el backfill es best-effort, nunca bloquea el create
     _invalidate_score_cache(user_id)
     logger.info(
         "Posición manual creada: %s %s (user %s)", body.asset_type, body.ticker, user_id
