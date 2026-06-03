@@ -264,12 +264,17 @@ Resumen de fases:
 
 ---
 
+## Hecho recientemente ✅
+
+### Edición manual + alertas + retropolado (2026-06-02)
+- ✅ **Editar posición manual desde detalle**: CASH y CRYPTO en `/portfolio/add-manual?edit={id}` (ya estaba implementado en `master`/`main` v0.16.0)
+- ✅ **Notificaciones: alerta de racha en riesgo**: `streak_risk` en `GET /portfolio/gamification` + `StreakRiskBanner` en el dashboard. Avisa cuando hay racha viva, sin inversión este mes y ≤7 días restantes
+- ✅ **Historial retropolado desde fecha de compra (manual)**: `Position.purchase_date` + `manual_backfill.py` genera `PositionSnapshot` retroactivos. CASH/REAL_ESTATE valor plano, CRYPTO con precio histórico CoinGecko. Input de fecha de compra en alta CASH/CRYPTO
+
+---
+
 ## Pendiente 🔲
 
-### Alta prioridad
-- 🔲 **Editar posición manual desde detalle**: soporte edición CASH y CRYPTO en `/portfolio/add-manual?edit={id}` (REAL_ESTATE ya funciona)
-
 ### Baja prioridad
-- 🔲 Notificaciones: alerta cuando la racha está en riesgo
 - 🔲 Multi-tenant onboarding: admin panel para crear nuevos usuarios
-- 🔲 Historial retropolado desde fecha de compra (posiciones manuales)
+  - **Bloqueado**: requiere `SUPABASE_SERVICE_ROLE_KEY` (no configurado) para la Admin API de Supabase. Probablemente superado por la iniciativa "Beta por invitación"
