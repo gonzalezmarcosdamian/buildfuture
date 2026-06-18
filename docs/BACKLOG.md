@@ -21,6 +21,7 @@
 
 ## ⚡ Performance (siguiente vuelta)
 
+- [ ] **Deprecación de snapshots (BLOQUEADA — son load-bearing)** — Hallazgo 2026-06-18: NO borrar `PositionSnapshot` todavía. Además del gráfico de tenencia, los leen: `yield_calculator_v2` (rendimiento observado por instrumento) y el endpoint `positions/delta` (toda la vista de Rendimiento). Borrarlos rompería yields + rendimiento. **Ruta segura por etapas**: (1) desacoplar `yield_calculator_v2` y `positions/delta` de `PositionSnapshot` (usar price store / fuente alternativa); (2) recién entonces deprecar la acumulación de snapshots para fuentes sin movimientos. La confusión del usuario YA está resuelta en la UI (gráfico honesto), así que esto pasó a ser limpieza interna de baja urgencia.
 - [ ] **Cold-start devaluación ~18s** — mitigado con pre-warm al startup (sale del path del usuario), pero el fetch sigue tardando ~18s en background. Persistir el valor en DB para sobrevivir restarts, o acortar más la cadena ROFEX/BYMA (BYMA no es accesible desde Railway → es tiempo perdido).
 - [ ] **Railway 1 solo worker de uvicorn** — las ~5 llamadas concurrentes del dashboard compiten. Subir `--workers` requiere primero **aislar APScheduler** (con N workers el scheduler corre N veces → jobs duplicados). Patrón: leader-election via advisory lock de Postgres.
 - [ ] **Dashboard hace 5 llamadas separadas al backend** por carga (`budget`, `gamification`, `portfolio`, `profile`, `capital-goals`). Consolidar en 1-2 endpoints agregados.
