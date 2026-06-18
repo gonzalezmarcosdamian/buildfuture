@@ -90,6 +90,36 @@ def startup():
     _backfill_instrument_metadata(db)   # v0.12.0: seed metadata estática de instrumentos
     db.close()
     start_scheduler()
+    _prewarm_caches()
+
+
+def _prewarm_caches():
+    """Calienta caches caras (MEP, devaluación) en un thread aparte al arrancar.
+
+    Estos valores hacen fetches externos lentos en frío (devaluación pega a
+    ROFEX/BYMA con timeouts). Como Railway reinicia el contenedor y vacía los
+    caches in-memory, sin pre-warm el PRIMER usuario tras cada restart pagaba
+    ~18s en /portfolio y /gamification. Lo hacemos en background para no demorar
+    el readiness del servicio.
+    """
+    import threading
+
+    def _warm():
+        try:
+            from app.services.mep import get_mep
+            from app.services.devaluation import get_expected_devaluation
+
+            get_mep()
+            db = SessionLocal()
+            try:
+                get_expected_devaluation(db)
+            finally:
+                db.close()
+            logger.info("Prewarm de caches (MEP + devaluación) completo")
+        except Exception as e:
+            logger.warning("Prewarm de caches falló: %s", e)
+
+    threading.Thread(target=_warm, daemon=True).start()
 
 
 def _run_migrations():

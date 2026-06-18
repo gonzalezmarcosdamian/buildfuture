@@ -102,7 +102,7 @@ def _post_market_data(panel_key: str, page_size: int = 500, t0: bool = True) -> 
         f"{BYMA_BASE}/get-market-data",
         json=body,
         headers=BYMA_HEADERS,
-        timeout=httpx.Timeout(connect=5.0, read=10.0, write=5.0, pool=5.0),
+        timeout=httpx.Timeout(connect=3.0, read=4.0, write=3.0, pool=3.0),
         verify=False,
     )
     if r.status_code != 200:
@@ -128,7 +128,7 @@ def _get_ficha_tecnica(ticker: str) -> dict | None:
             f"{BYMA_BASE}/bnown/fichatecnica/especies/general",
             json={"symbol": ticker_upper},
             headers=BYMA_HEADERS,
-            timeout=httpx.Timeout(connect=5.0, read=8.0, write=5.0, pool=5.0),
+            timeout=httpx.Timeout(connect=3.0, read=4.0, write=3.0, pool=3.0),
             verify=False,
         )
         if r.status_code != 200:

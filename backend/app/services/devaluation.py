@@ -77,7 +77,9 @@ def _from_rofex(mep_spot: float) -> float | None:
         try:
             r = httpx.get(
                 url,
-                timeout=httpx.Timeout(connect=4.0, read=8.0, write=4.0, pool=4.0),
+                # Timeouts cortos: estas APIs suelen no responder desde las IPs de
+                # Railway. Fallar rápido y caer al fallback en vez de colgar el request.
+                timeout=httpx.Timeout(connect=2.0, read=3.0, write=2.0, pool=2.0),
                 headers={"User-Agent": "Mozilla/5.0 (compatible; BuildFuture/1.0)"},
                 follow_redirects=True,
             )
@@ -154,12 +156,12 @@ def _from_lecap_on_parity() -> float | None:
             return None
         tea_lecap = tea_lecap_pct / 100  # → decimal 0.385
 
-        # Intentar TIR de ON desde BYMA (actualmente retorna None — impliedYield null)
-        tir_on_pct = None
-        for on_ticker in _ON_USD_TIR_TABLE:
-            tir_on_pct = get_on_tir(on_ticker)
-            if tir_on_pct:
-                break
+        # Intentar TIR de ON desde BYMA — un solo intento. BYMA hoy no expone
+        # impliedYield (retorna None) y desde Railway suele no ser accesible;
+        # iterar los 5 tickers acá stackeaba 5 timeouts. Probamos uno y caemos
+        # a la tabla fallback.
+        first_ticker = next(iter(_ON_USD_TIR_TABLE))
+        tir_on_pct = get_on_tir(first_ticker)
 
         # Usar tabla fallback si BYMA no expone TIR
         if not tir_on_pct:
