@@ -14,6 +14,16 @@ import pytest
 from app.services.mep import get_mep, MEP_FALLBACK
 
 
+@pytest.fixture(autouse=True)
+def _clear_mep_cache():
+    """Resetea el cache in-process del MEP antes de cada test (aislación)."""
+    from app.services import mep as mep_module
+
+    mep_module._mep_cache["value"] = None
+    mep_module._mep_cache["ts"] = 0.0
+    yield
+
+
 def _mock_http(json_data=None, status=200, raise_exc=None):
     resp = MagicMock()
     resp.status_code = status

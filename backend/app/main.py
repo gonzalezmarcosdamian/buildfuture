@@ -44,6 +44,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def timing_middleware(request, call_next):
+    """Mide la duración de cada request → log + header Server-Timing/X-Process-Time.
+    Da visibilidad de qué endpoint es lento en los logs de Railway."""
+    import time as _time
+
+    start = _time.perf_counter()
+    response = await call_next(request)
+    dur_ms = (_time.perf_counter() - start) * 1000
+    response.headers["X-Process-Time-Ms"] = f"{dur_ms:.0f}"
+    response.headers["Server-Timing"] = f"app;dur={dur_ms:.0f}"
+    # Log solo lo relevante (evita ruido de /health del healthcheck).
+    if request.url.path != "/health":
+        logger.info("%s %s — %.0fms", request.method, request.url.path, dur_ms)
+    return response
+
 app.include_router(portfolio.router)
 app.include_router(budget.router)
 app.include_router(integrations.router)
