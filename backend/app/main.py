@@ -24,8 +24,11 @@ if not IS_SERVERLESS:
     from app.seed import seed
     from app.scheduler import start_scheduler, stop_scheduler
 
+# Nivel configurable por env — INFO por defecto. DEBUG en prod genera mucho
+# logging por request y agrega latencia; usar LOG_LEVEL=DEBUG solo para depurar.
+_LOG_LEVEL = getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO)
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=_LOG_LEVEL,
     format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
     datefmt="%H:%M:%S",
 )
