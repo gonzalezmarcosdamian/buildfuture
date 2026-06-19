@@ -11,7 +11,7 @@ Corre con: pytest backend/tests/test_byma_client.py -v
 """
 
 from datetime import date
-from unittest.mock import patch, MagicMock, call
+from unittest.mock import patch, MagicMock
 import pytest
 
 from app.services.byma_client import (
@@ -19,7 +19,7 @@ from app.services.byma_client import (
     get_lecap_tea_by_ticker,
     get_cedear_price_ars,
     get_bond_tir, get_on_tir,
-    get_cer_letter_tir, CER_TIR_MIN, CER_TIR_MAX,
+    get_cer_letter_tir,
 )
 import app.services.byma_client as bc
 
@@ -115,18 +115,24 @@ def _make_post_side_effect(letras_items=None, ficha_items=None, letras_status=20
 # LECAP — get_lecap_tna
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# S31G6: emision 2025-12-31, vto 2026-06-30 → 181 días total, TEM 2.60%
-# VNV = 100 * 1.026^(181/30.4375) ≈ 100 * 1.026^5.95 ≈ 116.5
-# Con vwap=96.2 y ~81 días restantes (al 2026-04-10): TEA ≈ 27%
-# Precios realistas para 2026-04-10: letras cercanas al VNV
+# Fechas RELATIVAS a hoy para que el test no dependa de la fecha de corrida.
+# (Antes usaba fechas fijas y, al acercarse el vencimiento, días_restantes→pocos
+#  y la TEA anualizada se disparaba >100%, rompiendo el test.)
+# ~181 días totales, ~80 días restantes, TEM 2,60% → VNV≈116.5 → TEA razonable.
+from datetime import date as _date, timedelta as _td  # noqa: E402
+
+_TODAY = _date.today()
+_EMI = (_TODAY - _td(days=101)).isoformat()
+_VTO = (_TODAY + _td(days=80)).isoformat()
+
 SAMPLE_LETRAS_ITEMS = [
     {"symbol": "S31G6", "vwap": 112.0, "tradeVolume": 1_000_000},  # VNV≈116.5 → TEA razonable
-    {"symbol": "S15Y6", "vwap": 105.2, "tradeVolume": 500_000},    # cerca del par
+    {"symbol": "S15Y6", "vwap": 110.0, "tradeVolume": 500_000},    # algo bajo el VNV
     {"symbol": "X29Y6", "vwap": 114.3, "tradeVolume": 200_000},    # CER — ignorado en LECAP
 ]
 SAMPLE_FICHA = {
-    "S31G6": ("2025-12-31", "2026-06-30", "Tasa efectiva mensual: 2,60 %"),
-    "S15Y6": ("2026-03-16", "2026-05-15", "Tasa efectiva mensual: 2,60 %"),
+    "S31G6": (_EMI, _VTO, "Tasa efectiva mensual: 2,60 %"),
+    "S15Y6": (_EMI, _VTO, "Tasa efectiva mensual: 2,60 %"),
 }
 
 

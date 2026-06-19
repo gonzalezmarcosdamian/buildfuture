@@ -10,17 +10,30 @@ Benchmark confirmado 2026-04-10:
 """
 
 import time
+from datetime import date as _real_date
 from unittest.mock import patch, MagicMock
 
 import pytest
 
-import app.services.fci_prices as fci_mod
 from app.services.fci_prices import (
     get_lecap_tna_by_ticker,
     get_lecap_market_tna,
     _letras_cache,
     _fetch_letras,
 )
+
+
+@pytest.fixture(autouse=True)
+def _fixed_today():
+    """Fija 'hoy' en la fecha benchmark del sample (2026-04-10) para que el
+    cálculo de TNA (que anualiza sobre días al vencimiento) sea determinístico
+    y no dependa de la fecha real de corrida. Preserva fromisoformat y el
+    constructor de date."""
+    with patch("app.services.fci_prices.date") as md:
+        md.today.return_value = _real_date(2026, 4, 10)
+        md.fromisoformat.side_effect = _real_date.fromisoformat
+        md.side_effect = lambda *a, **kw: _real_date(*a, **kw)
+        yield
 
 
 @pytest.fixture(autouse=True)

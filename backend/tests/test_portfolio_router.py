@@ -104,7 +104,9 @@ class TestGetPortfolio:
                 "cash_total_usd": Decimal("1000"),
                 "by_source": {},
             }
-            return get_portfolio(db=db, current_user="user-1")
+            return get_portfolio(
+                background_tasks=MagicMock(), db=db, current_user="user-1"
+            )
 
     def test_empty_portfolio(self):
         result = self._call([])

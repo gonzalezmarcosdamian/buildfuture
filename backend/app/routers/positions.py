@@ -244,6 +244,13 @@ def create_manual_position(
         except ValueError:
             parsed_purchase_date = None
 
+    # Moneda del yield. REAL_ESTATE (alquiler en USD), CRYPTO/ETF/STOCK (precio en
+    # USD) tienen yield en dólares. Si no se marca, split_portfolio_buckets lo trata
+    # como ARS y la corrección por devaluación lo puede llevar a 0 — borrando, por
+    # ejemplo, la renta del alquiler del freedom score.
+    USD_YIELD_TYPES = {"REAL_ESTATE", "CRYPTO", "ETF", "STOCK"}
+    yield_currency = "USD" if body.asset_type in USD_YIELD_TYPES else "ARS"
+
     pos = Position(
         user_id=user_id,
         ticker=final_ticker,
@@ -254,6 +261,7 @@ def create_manual_position(
         avg_purchase_price_usd=Decimal(str(body.purchase_price_usd)),
         current_price_usd=Decimal(str(price_usd)),
         annual_yield_pct=Decimal(str(yield_pct)),
+        yield_currency=yield_currency,
         snapshot_date=date.today(),
         is_active=True,
         ppc_ars=ppc_ars,

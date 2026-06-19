@@ -6,7 +6,6 @@ from datetime import date
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from app.services.yield_updater import (
     _parse_lecap_maturity,
@@ -215,16 +214,17 @@ class TestUpdateYields:
         db.commit.assert_called_once()
 
     def test_no_actualiza_si_sin_cambio(self):
+        """Idempotencia: tras la 1ª corrida (que setea el yield calculado por el
+        código), una 2ª corrida con los mismos datos no cambia nada → 0.
+        No reimplementamos la fórmula acá para no divergir del código real."""
         pos = self._make_pos("LETRA", "S31G6", "0.40", quantity=10_000, value_ars=9_750)
         today = date(2026, 4, 1)
-        # Pre-compute real yield to set it as current value (no change scenario)
-        expected = _yield_lecap(pos, today)
-        pos.annual_yield_pct = expected
         db = self._make_db([pos])
         with patch("app.services.yield_updater.date") as mock_date:
             mock_date.today.return_value = today
             mock_date.side_effect = lambda *a, **kw: date(*a, **kw)
-            n = update_yields(db)
+            update_yields(db)        # 1ª: aplica el yield que calcula el código
+            n = update_yields(db)    # 2ª: sin cambios → 0
         assert n == 0
 
     def test_actualiza_bond(self):

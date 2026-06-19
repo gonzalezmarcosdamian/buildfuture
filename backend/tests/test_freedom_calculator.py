@@ -3,6 +3,7 @@ Tests para freedom_calculator.py — lógica central de libertad financiera.
 """
 from decimal import Decimal
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 
@@ -14,6 +15,19 @@ from app.services.freedom_calculator import (
     CAPITAL_ASSET_TYPES,
     AMBOS_ASSET_TYPES,
 )
+
+
+@pytest.fixture(autouse=True)
+def _no_devaluation():
+    """Neutraliza el ajuste por devaluación (hace network y no es determinístico)
+    para testear la mecánica de buckets con yields nominales. Con deval=0, el
+    yield USD real = yield nominal, así las aserciones naïve (valor×yield/12) valen.
+    El ajuste por devaluación se cubre en test_split_buckets_deval_adjustment."""
+    with patch(
+        "app.services.devaluation.get_expected_devaluation",
+        return_value=Decimal("0"),
+    ):
+        yield
 
 
 def pos(asset_type: str, value: float, yield_pct: float = 0.0, source: str = "IOL"):
@@ -37,6 +51,17 @@ class TestSplitBuckets:
         assert b["cash_total_usd"] == 0
         assert b["crypto_total_usd"] == 0
         assert b["by_source"] == {}
+
+    def test_deval_adjustment_reduces_ars_renta(self):
+        """Yield ARS con devaluación > 0 → renta_monthly se ajusta a USD real:
+        real_usd_yield = (1+yield)/(1+deval) - 1."""
+        with patch(
+            "app.services.devaluation.get_expected_devaluation",
+            return_value=Decimal("0.20"),
+        ):
+            b = split_portfolio_buckets([pos("LETRA", 1200, 0.60)])
+        # (1.60/1.20 - 1) = 0.3333 → 1200 * 0.3333 / 12 = 33.33
+        assert b["renta_monthly_usd"] == pytest.approx(Decimal("33.33"), abs=Decimal("0.5"))
 
     def test_letra_goes_to_renta(self):
         b = split_portfolio_buckets([pos("LETRA", 1200, 0.60)])

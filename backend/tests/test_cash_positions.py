@@ -61,7 +61,8 @@ class TestCreateCashARS:
 
         def capture_add(obj):
             nonlocal created_pos
-            created_pos = obj
+            if isinstance(obj, Position) and created_pos is None:
+                created_pos = obj
 
         db.add.side_effect = capture_add
         db.refresh.side_effect = lambda obj: None
@@ -91,7 +92,8 @@ class TestCreateCashARS:
 
         def capture_add(obj):
             nonlocal created_pos
-            created_pos = obj
+            if isinstance(obj, Position) and created_pos is None:
+                created_pos = obj
 
         db.add.side_effect = capture_add
 
@@ -122,7 +124,8 @@ class TestCreateCashUSD:
 
         def capture_add(obj):
             nonlocal created_pos
-            created_pos = obj
+            if isinstance(obj, Position) and created_pos is None:
+                created_pos = obj
 
         db.add.side_effect = capture_add
 
@@ -153,7 +156,8 @@ class TestCreateCashUSD:
 
         def capture_add(obj):
             nonlocal created_pos
-            created_pos = obj
+            if isinstance(obj, Position) and created_pos is None:
+                created_pos = obj
 
         db.add.side_effect = capture_add
 
@@ -259,7 +263,8 @@ class TestCapitalBelowTotal:
 
         def capture_add(obj):
             nonlocal created_pos
-            created_pos = obj
+            if isinstance(obj, Position) and created_pos is None:
+                created_pos = obj
 
         db.add.side_effect = capture_add
 
