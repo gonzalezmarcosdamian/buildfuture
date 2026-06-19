@@ -8,14 +8,15 @@
 ## 🔴 Bugs / deuda a corregir
 
 ### Tests
-- [ ] **`seed_mock.py` roto** — `_pos()` pasa `performance_pct` y `current_value_usd` (properties read-only de `Position`, sin setter) al constructor → `AttributeError` al arrancar con `MOCK_SEED=true`. Bloquea seedear personas de QA. Quitar esos kwargs computados del dict de `_pos()`.
-- [ ] **E2E `06-mobile-ux:176` (FTU portfolio vacío) — falso positivo**: la aserción `text=/500|error interno/i` matchea "500.000 u." (cantidad de un LECAP), no un error. Ajustar el regex (ej: `/error interno|status.*500/i`) o scopearlo.
-- [ ] **E2E `05-portfolio-detail:9`** (navegar a instrumento desde portfolio) — falla, investigar si es bug real de navegación o dato/entorno.
-- [ ] **E2E `06-mobile-ux:114`** (touch targets en botones de acción de portfolio) — falla, verificar tamaño mínimo de tap targets o selector del test.
+- [x] ~~8 tests backend rojos~~ **RESUELTO 2026-06-18**: cash_positions, manual_crypto_restate, byma_client, freedom_calculator, portfolio_router, yield_updater, argentinadatos. Suite backend **458 passed, 0 failed**. Incluyó fix de bug real (REAL_ESTATE yield_currency).
+- [x] ~~3 E2E rojos~~ **RESUELTO 2026-06-18**: portfolio-detail (navegación robusta), mobile-ux (regex de error + auditoría touch targets ≥36-44px). Suite E2E mobile-chrome **39/39**.
+- [x] ~~Sin unit tests frontend~~ **RESUELTO 2026-06-18**: vitest configurado + tests de formatters (9). Falta ampliar cobertura de componentes.
+- [ ] **`seed_mock.py` roto** — `_pos()` pasa `performance_pct`/`current_value_usd` (properties read-only) al constructor → `AttributeError` con `MOCK_SEED=true`. Quitar esos kwargs computados.
+- [ ] **Tests de `integrations` sync** (mapeo de posiciones por broker) — sigue sin cobertura directa (router más grande).
+- [ ] **Ampliar unit tests frontend** — vitest ya está; falta testear componentes/hooks clave (auth-context, currency-context, helpers de PerformanceChart).
 
-### CI / suite backend (preexistente)
-- [ ] **Ruff CI en rojo** — ~94 errores en `backend/app` (E712 `== True` de SQLAlchemy + archivos sin `ruff format`), sin config de ruff. Agregar `ruff.toml` que ignore E712 en queries + correr `ruff format` global.
-- [ ] **8 tests backend fallan en `main`** (preexistente): `test_cash_positions` (5), `test_manual_crypto_restate` (3) — ej. `PortfolioSnapshot` sin `current_value_ars`. Más `test_byma_client` (2): TEA fuera de rango `201.51`.
+### CI / lint (preexistente)
+- [ ] **Ruff CI en rojo** — ~94 errores en `backend/app` (E712 `== True` de SQLAlchemy + archivos sin `ruff format`), sin config de ruff. Agregar `ruff.toml` que ignore E712 en queries + `ruff format` global. (Nota: el CI no lintea `tests/`.)
 
 ---
 
