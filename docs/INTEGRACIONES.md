@@ -122,7 +122,7 @@ Si `price_per_100 >= 100` → retornar DEFAULT_TNA (0.68) en lugar de TIR negati
 ### Admin endpoints de soporte
 
 URL base: `https://api-production-7ddd6.up.railway.app/admin/`
-Header: `X-Admin-Key: 8URlXkc8Xmz4p2oCBGG2mYklSxAmcqSk2AzgzbfuY4A`
+Header: `X-Admin-Key: <ADMIN_KEY — ver variable de entorno del backend, nunca commitear>`
 
 | Endpoint | Método | Uso |
 |----------|--------|-----|

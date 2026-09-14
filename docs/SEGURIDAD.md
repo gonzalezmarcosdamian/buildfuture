@@ -8,7 +8,9 @@
 
 ### Credenciales de brokers
 
-Las credenciales de IOL, Cocos y PPI (usuario + contraseña) se almacenan encriptadas en la tabla `integrations`. Se usa encriptación en reposo con AES-256.
+Las credenciales de IOL, Cocos y PPI (usuario + contraseña) se guardan en la tabla `integrations`, en el campo `encrypted_credentials`.
+
+> **El campo no está cifrado.** Hoy se guarda el valor en texto plano (`f"{username}:{password}"`, ver `app/routers/integrations.py`). El nombre del campo describe la intención, no el estado actual. No hay ningún uso de `cryptography`/`Fernet`/AES en el backend.
 
 | Broker | Tipo de acceso | Scope | Riesgo |
 |--------|---------------|-------|--------|
@@ -41,12 +43,11 @@ IOL y Cocos no ofrecen API Keys con scopes granulares. El acceso es user+passwor
 - Sin 2FA en el flujo de acceso de BuildFuture → vector de ataque más amplio
 
 **Mitigaciones actuales:**
-- Encriptación AES-256 en reposo para `encrypted_credentials`
 - El cliente no llama endpoints POST/DELETE de los brokers (verificar audit)
 - Aviso en onboarding: "BuildFuture nunca opera en tu nombre"
 
 **Pendiente:**
-- [ ] Verificar que `encrypted_credentials` usa AES-256 + documentar key management
+- [ ] **Cifrar `encrypted_credentials` en reposo** (hoy es texto plano) + documentar key management + migrar las filas existentes
 - [ ] Auditar que ningún cliente de integración llama endpoints POST/DELETE de broker
 - [ ] Investigar si IOL ofrece algún mecanismo de API Key con permisos limitados
 - [ ] Actualizar ToS con modelo de acceso y garantías
@@ -58,7 +59,7 @@ IOL y Cocos no ofrecen API Keys con scopes granulares. El acceso es user+passwor
 Todos los endpoints bajo `/admin/` requieren header `X-Admin-Key`.
 
 ```
-Header: X-Admin-Key: 8URlXkc8Xmz4p2oCBGG2mYklSxAmcqSk2AzgzbfuY4A
+Header: X-Admin-Key: <ADMIN_KEY — ver variable de entorno del backend, nunca commitear>
 ```
 
 Estos endpoints NO están expuestos al frontend. Solo se usan desde CLI o scripts de soporte.

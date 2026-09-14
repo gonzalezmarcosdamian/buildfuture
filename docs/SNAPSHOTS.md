@@ -109,7 +109,7 @@ for snap in historical_snapshots:
 
 ```bash
 BACKEND="https://api-production-7ddd6.up.railway.app"
-ADMIN_KEY="8URlXkc8Xmz4p2oCBGG2mYklSxAmcqSk2AzgzbfuY4A"
+ADMIN_KEY="${ADMIN_KEY:?exportala desde tu entorno, no la pegues acá}"
 USER_ID="f94d61c1-1b59-438c-bc79-a66139028c94"  # Marcos
 
 # Flujo completo de reparación (siempre este primero)
