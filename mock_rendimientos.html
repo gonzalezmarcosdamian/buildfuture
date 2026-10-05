@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Mock — Rendimientos</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0f172a;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    color: #f1f5f9;
+    display: flex;
+    justify-content: center;
+    padding: 24px 0 48px;
+  }
+  .phone {
+    width: 390px;
+    padding: 0 16px;
+  }
+
+  /* Header */
+  .page-title { font-size: 20px; font-weight: 800; color: #f1f5f9; margin-bottom: 16px; }
+
+  /* Tab switch */
+  .tab-bar {
+    display: flex;
+    gap: 4px;
+    background: #0f172a;
+    border: 1px solid #1e293b;
+    border-radius: 12px;
+    padding: 4px;
+    margin-bottom: 12px;
+  }
+  .tab {
+    flex: 1;
+    text-align: center;
+    padding: 6px 0;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 500;
+    color: #64748b;
+    cursor: pointer;
+  }
+  .tab.active {
+    background: #334155;
+    color: #f1f5f9;
+  }
+
+  /* Source group header */
+  .group-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background: #1e293b;
+    border-radius: 12px;
+    margin-bottom: 8px;
+  }
+  .group-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #94a3b8;
+  }
+  .group-total {
+    font-size: 13px;
+    font-weight: 700;
+    color: #f1f5f9;
+  }
+
+  /* Position card */
+  .pos {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px 4px;
+    cursor: pointer;
+    border-radius: 8px;
+  }
+  .pos:hover { opacity: 0.8; }
+
+  .pos-row { display: flex; align-items: center; justify-content: space-between; }
+  .pos-ticker { font-size: 12px; font-weight: 600; color: #e2e8f0; }
+  .pos-desc { font-size: 10px; color: #64748b; margin-top: 1px; }
+
+  .pos-right { display: flex; align-items: center; gap: 4px; }
+  .pos-perf { display: flex; align-items: center; gap: 2px; font-size: 12px; font-weight: 600; }
+  .pos-perf.pos { color: #34d399; }
+  .pos-perf.neg { color: #f87171; }
+  .pos-pnl { font-size: 10px; margin-top: 1px; }
+  .pos-pnl.pos { color: #059669; }
+  .pos-pnl.neg { color: #dc2626; }
+
+  .chevron { color: #475569; font-size: 10px; margin-left: 4px; }
+
+  /* Weight bar — NEW */
+  .weight-bar-track {
+    height: 4px;
+    background: rgba(51,65,85,0.6);
+    border-radius: 99px;
+    overflow: hidden;
+  }
+  .weight-bar-fill {
+    height: 100%;
+    background: #475569;
+    border-radius: 99px;
+    transition: width 0.3s ease;
+  }
+
+  /* Footer row */
+  .pos-footer {
+    display: flex;
+    justify-content: space-between;
+    font-size: 9px;
+    color: #475569;
+  }
+  .pos-footer .pnl-pos { color: #059669; }
+  .pos-footer .pnl-neg { color: #dc2626; }
+
+  /* Divider */
+  .divider {
+    height: 1px;
+    background: #1e293b;
+    margin: 6px 0;
+  }
+
+  .source-block { margin-bottom: 16px; }
+
+  /* old bar for comparison */
+  .old-bar-track {
+    height: 6px;
+    background: #1e293b;
+    border-radius: 99px;
+    overflow: hidden;
+  }
+  .old-bar-fill-green {
+    height: 100%;
+    background: #10b981;
+    border-radius: 99px;
+  }
+  .old-bar-fill-red {
+    height: 100%;
+    background: #ef4444;
+    border-radius: 99px;
+  }
+
+  /* comparison layout */
+  .compare-label {
+    font-size: 10px;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 8px;
+    padding: 4px 8px;
+    background: #1e293b;
+    border-radius: 6px;
+    display: inline-block;
+  }
+
+  .badge {
+    font-size: 9px;
+    padding: 2px 5px;
+    border-radius: 4px;
+    font-weight: 600;
+  }
+  .badge-lecap { background: #1e3a5f; color: #60a5fa; }
+  .badge-fci   { background: #1a3a2a; color: #34d399; }
+  .badge-cedear{ background: #2d1b69; color: #a78bfa; }
+  .badge-crypto{ background: #3b2400; color: #fb923c; }
+
+  h2 {
+    font-size: 13px;
+    font-weight: 700;
+    color: #94a3b8;
+    margin: 20px 0 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  h2::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: #1e293b;
+  }
+</style>
+</head>
+<body>
+<div class="phone">
+
+  <div class="page-title">Portafolio</div>
+
+  <div class="tab-bar">
+    <div class="tab">Composición</div>
+    <div class="tab active">Rendimientos</div>
+  </div>
+
+  <!-- ===== ANTES ===== -->
+  <h2>❌ Antes (barra de %)</h2>
+  <div class="source-block">
+    <div class="group-header">
+      <span class="group-label">📊 IOL</span>
+      <span class="group-total">🇺🇸 $3,240</span>
+    </div>
+
+    <!-- LECAP: +82% TNA → barra casi 100% verde → CONFUNDE -->
+    <div class="pos">
+      <div class="pos-row">
+        <div>
+          <div class="pos-ticker">S31M5 <span class="badge badge-lecap">LECAP</span></div>
+          <div class="pos-desc">Letes cap may 2025</div>
+        </div>
+        <div class="pos-right">
+          <div>
+            <div class="pos-perf pos">↑ 82.4% <span style="font-size:9px;color:#64748b">ARS</span></div>
+            <div class="pos-pnl pos">+🇺🇸 $410</div>
+          </div>
+          <div class="chevron">›</div>
+        </div>
+      </div>
+      <div class="old-bar-track"><div class="old-bar-fill-green" style="width:82%"></div></div>
+      <div class="pos-footer">
+        <span>Costo 🇺🇸 $498</span>
+        <span>Actual 🇺🇸 $908</span>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- CEDEAR: +134% → clamped 100% full verde → TAMBIÉN CONFUNDE -->
+    <div class="pos">
+      <div class="pos-row">
+        <div>
+          <div class="pos-ticker">MELI <span class="badge badge-cedear">CEDEAR</span></div>
+          <div class="pos-desc">MercadoLibre ADR</div>
+        </div>
+        <div class="pos-right">
+          <div>
+            <div class="pos-perf pos">↑ 134.2%</div>
+            <div class="pos-pnl pos">+🇺🇸 $620</div>
+          </div>
+          <div class="chevron">›</div>
+        </div>
+      </div>
+      <div class="old-bar-track"><div class="old-bar-fill-green" style="width:100%"></div></div>
+      <div class="pos-footer">
+        <span>Costo 🇺🇸 $462</span>
+        <span>Actual 🇺🇸 $1,082</span>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- BTC: -8% → barra roja pequeña pero LECAP y MELI arriba ya son 100% verde → incoherente -->
+    <div class="pos">
+      <div class="pos-row">
+        <div>
+          <div class="pos-ticker">BTC <span class="badge badge-crypto">CRYPTO</span></div>
+          <div class="pos-desc">Bitcoin Binance</div>
+        </div>
+        <div class="pos-right">
+          <div>
+            <div class="pos-perf neg">↓ 8.1%</div>
+            <div class="pos-pnl neg">-🇺🇸 $101</div>
+          </div>
+          <div class="chevron">›</div>
+        </div>
+      </div>
+      <div class="old-bar-track"><div class="old-bar-fill-red" style="width:8%"></div></div>
+      <div class="pos-footer">
+        <span>Costo 🇺🇸 $1,248</span>
+        <span>Actual 🇺🇸 $1,147</span>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ===== DESPUÉS ===== -->
+  <h2>✅ Después (barra de peso)</h2>
+
+  <!--
+    Portfolio total ~$3,240
+    S31M5:  $908  → 28.0%
+    MELI:   $1,082 → 33.4%
+    BTC:    $1,147 → 35.4%
+    CASH:   $103  → 3.2%
+  -->
+
+  <div class="source-block">
+    <div class="group-header">
+      <span class="group-label">📊 IOL</span>
+      <span class="group-total">🇺🇸 $3,240</span>
+    </div>
+
+    <!-- S31M5 -->
+    <div class="pos">
+      <div class="pos-row">
+        <div>
+          <div class="pos-ticker">S31M5 <span class="badge badge-lecap">LECAP</span></div>
+          <div class="pos-desc">Letes cap may 2025</div>
+        </div>
+        <div class="pos-right">
+          <div>
+            <div class="pos-perf pos">↑ 82.4% <span style="font-size:9px;color:#64748b">ARS</span></div>
+            <div class="pos-pnl pos">+🇺🇸 $410</div>
+          </div>
+          <div class="chevron">›</div>
+        </div>
+      </div>
+      <!-- barra: 28% del portafolio, gris neutra -->
+      <div class="weight-bar-track"><div class="weight-bar-fill" style="width:28%"></div></div>
+      <div class="pos-footer">
+        <span>28.0% del portafolio</span>
+        <span class="pnl-pos">+🇺🇸 $410 P&L</span>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- MELI -->
+    <div class="pos">
+      <div class="pos-row">
+        <div>
+          <div class="pos-ticker">MELI <span class="badge badge-cedear">CEDEAR</span></div>
+          <div class="pos-desc">MercadoLibre ADR</div>
+        </div>
+        <div class="pos-right">
+          <div>
+            <div class="pos-perf pos">↑ 134.2%</div>
+            <div class="pos-pnl pos">+🇺🇸 $620</div>
+          </div>
+          <div class="chevron">›</div>
+        </div>
+      </div>
+      <!-- barra: 33.4% del portafolio -->
+      <div class="weight-bar-track"><div class="weight-bar-fill" style="width:33.4%"></div></div>
+      <div class="pos-footer">
+        <span>33.4% del portafolio</span>
+        <span class="pnl-pos">+🇺🇸 $620 P&L</span>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- BTC -->
+    <div class="pos">
+      <div class="pos-row">
+        <div>
+          <div class="pos-ticker">BTC <span class="badge badge-crypto">CRYPTO</span></div>
+          <div class="pos-desc">Bitcoin Binance</div>
+        </div>
+        <div class="pos-right">
+          <div>
+            <div class="pos-perf neg">↓ 8.1%</div>
+            <div class="pos-pnl neg">-🇺🇸 $101</div>
+          </div>
+          <div class="chevron">›</div>
+        </div>
+      </div>
+      <!-- barra: 35.4% — la posición MÁS GRANDE, y BTC está en rojo, la barra no miente -->
+      <div class="weight-bar-track"><div class="weight-bar-fill" style="width:35.4%"></div></div>
+      <div class="pos-footer">
+        <span>35.4% del portafolio</span>
+        <span class="pnl-neg">-🇺🇸 $101 P&L</span>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- CASH USD IOL -->
+    <div class="pos">
+      <div class="pos-row">
+        <div>
+          <div class="pos-ticker">CASH_IOL_USD <span class="badge" style="background:#1c2a3a;color:#94a3b8">CASH</span></div>
+          <div class="pos-desc">Efectivo IOL</div>
+        </div>
+        <div class="pos-right">
+          <div>
+            <div class="pos-perf pos" style="color:#94a3b8">— 0.0%</div>
+            <div class="pos-pnl pos" style="color:#64748b">🇺🇸 $0</div>
+          </div>
+          <div class="chevron">›</div>
+        </div>
+      </div>
+      <!-- barra: 3.2% — chiquita, correcta -->
+      <div class="weight-bar-track"><div class="weight-bar-fill" style="width:3.2%"></div></div>
+      <div class="pos-footer">
+        <span>3.2% del portafolio</span>
+        <span style="color:#475569">sin rendimiento</span>
+      </div>
+    </div>
+
+  </div>
+
+  <div style="background:#0f3a2a;border:1px solid #14532d;border-radius:12px;padding:12px 14px;margin-top:4px;">
+    <p style="font-size:10px;color:#86efac;line-height:1.5">
+      <strong>¿Qué dice la barra ahora?</strong><br>
+      → Cuánto peso tiene cada posición en tu portafolio.<br>
+      → Una barra larga = posición grande, no "buena".<br>
+      → El color del % y la flecha siguen indicando si ganás o perdés.<br>
+      → BTC con -8% y barra de 35% te dice: "es tu posición más grande y está en rojo" — eso sí es útil.
+    </p>
+  </div>
+
+</div>
+</body>
+</html>
